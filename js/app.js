@@ -1,8 +1,13 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
-export const configurado = SUPABASE_URL.startsWith('https://');
-export const sb = configurado ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+// Aceita a URL com ou sem "/rest/v1" e barras no final
+const URL_PROJETO = SUPABASE_URL.trim().replace(/\/+(rest\/v1)?\/*$/, '');
+const chaveSecreta = /^sb_secret_/.test(SUPABASE_ANON_KEY) || /service_role/.test(atobSeguro(SUPABASE_ANON_KEY.split('.')[1]));
+export const configurado = URL_PROJETO.startsWith('https://') && !SUPABASE_ANON_KEY.startsWith('COLE_') && !chaveSecreta;
+export const sb = configurado ? createClient(URL_PROJETO, SUPABASE_ANON_KEY) : null;
+
+function atobSeguro(s) { try { return atob(s.replace(/-/g, '+').replace(/_/g, '/')); } catch { return ''; } }
 
 // ---------- Utilidades ----------
 export const $ = (sel, el = document) => el.querySelector(sel);
@@ -111,8 +116,11 @@ export async function montarLayout() {
   document.body.append(rodape);
 
   if (!configurado) {
-    $('main')?.insertAdjacentHTML('afterbegin', `<div class="aviso"><strong>Supabase ainda não configurado.</strong>
-      Preencha <code>js/config.js</code> com a URL e a anon key do projeto (veja o README).</div>`);
+    $('main')?.insertAdjacentHTML('afterbegin', chaveSecreta
+      ? `<div class="aviso erro"><strong>Chave secreta no site!</strong> O <code>js/config.js</code> está com a Secret/service_role key,
+         que dá acesso total ao banco. Troque pela Publishable key e gere uma nova Secret key no Supabase.</div>`
+      : `<div class="aviso"><strong>Supabase ainda não configurado.</strong>
+         Preencha <code>js/config.js</code> com a URL e a Publishable key do projeto (veja o README).</div>`);
     return;
   }
 

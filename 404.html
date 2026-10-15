@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Página não encontrada | Control Critic</title>
+  <meta name="description" content="Aqui, as novidades estão ao seu alcance!">
+  <link rel="icon" href="/img/Control.png">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <main id="conteudo"></main>
+  <script type="module">
+    import { $, montarLayout } from '/js/app.js';
+    await montarLayout();
+    $('#conteudo').insertAdjacentHTML('beforeend', '<div class="vazio"><h1>Página não encontrada</h1><p><a class="btn" href="index.html">Voltar ao início</a></p></div>');
+  </script>
+</body>
+</html>
