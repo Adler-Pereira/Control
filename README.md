@@ -12,7 +12,7 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 |---|---|
 | Jogos | Catálogo com busca, filtro por categoria e ordenação; página de cada jogo com nota média, links das lojas e promoções |
 | Avaliações | Nota de 1 a 5 estrelas e comentário; média recalculada automaticamente no banco |
-| Perfil e XP | Cadastro/login, foto, bio, categorias favoritas; XP e níveis (+10 por avaliação, +5 por post, +20 por criar comunidade) |
+| Perfil e XP | Cadastro/login, foto, banner, bio, contas de PSN/Xbox/Discord/Steam, categorias favoritas e perfil público com link para compartilhar; XP e níveis (+10 por avaliação, +5 por post, +20 por criar comunidade) |
 | Recomendações | Sugestões por usuário com base nas categorias favoritas e nos jogos que ele avaliou bem |
 | Comunidades | Criar/participar, mural em tempo real |
 | Call | Voz, câmera e compartilhamento de tela direto no navegador (WebRTC), até ~6 pessoas |
@@ -37,8 +37,7 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 ├── img/                imagens
 ├── supabase/           schema.sql (tabelas, regras, automações) e seed.sql (dados iniciais)
 ├── scripts/            robô de sincronização e verificador de links
-├── .github/workflows/  CI e robô agendado
-└── legado/             site original (referência)
+└── .github/workflows/  CI e robô agendado
 ```
 
 ## Como colocar no ar (passo a passo)
@@ -73,6 +72,11 @@ O resultado aparece no painel de admin, na aba Automação.
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
 - opcionalmente o **ID do servidor**, depois de ativar *Configurações do servidor → Widget → Habilitar widget*.
+
+## Atualizar um projeto que já está no ar
+Quando este repositório trouxer mudanças no banco, rode de novo, no SQL Editor, `supabase/schema.sql` e depois
+`supabase/seed.sql`. Os dois podem ser executados várias vezes sem apagar nada: só adicionam o que falta.
+Depois rode o robô (Actions → Run workflow) para buscar capas, descrições, preços e notícias dos jogos novos.
 
 ## Rodar localmente
 Os módulos JS precisam de um servidor (abrir o arquivo direto não funciona):

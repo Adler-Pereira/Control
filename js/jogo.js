@@ -61,7 +61,7 @@ async function carregar() {
     <h2>Avaliações da comunidade</h2>
     <div class="lista">${reviews.map((r) => `
       <article class="review"><header><img class="avatar" src="${avatar(r.profiles)}" alt="">
-        <strong>${esc(r.profiles?.username)}</strong> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span></header>
+        <a class="usuario" href="perfil.html?u=${encodeURIComponent(r.profiles?.username || '')}">${esc(r.profiles?.username)}</a> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span></header>
         ${r.body ? `<p class="quebra">${esc(r.body)}</p>` : ''}</article>`).join('') || '<p class="vazio">Seja o primeiro a avaliar!</p>'}
     </div>`;
 

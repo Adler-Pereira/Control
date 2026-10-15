@@ -85,8 +85,8 @@ async function inserirNoticias(lista, publicar) {
 // ---------- execução ----------
 const cfg = Object.fromEntries((await api('settings?select=key,value')).map((s) => [s.key, s.value]));
 const publicar = cfg.auto_publish_news !== false;
-const jogos = await api('games?select=id,title,steam_appid&steam_appid=not.is.null');
-let novas = 0, precos = 0;
+const jogos = await api('games?select=id,title,steam_appid,cover_url,description&steam_appid=not.is.null');
+let novas = 0, precos = 0, capas = 0;
 
 // 1) Feeds RSS oficiais
 for (const feed of cfg.feeds || []) {
@@ -108,10 +108,15 @@ for (const g of jogos) {
     novas += await inserirNoticias(itens, publicar);
   } catch (e) { erros.push(`Notícias Steam ${g.title}: ${e.message}`); }
 
-  // 3) Preço e desconto na Steam Brasil
+  // 3) Preço e desconto na Steam Brasil (+ capa e descrição para jogos que ainda não têm)
   try {
-    const r = await (await baixar(`https://store.steampowered.com/api/appdetails?appids=${g.steam_appid}&cc=br&l=portuguese&filters=price_overview`)).json();
-    const po = r[g.steam_appid]?.data?.price_overview;
+    const r = await (await baixar(`https://store.steampowered.com/api/appdetails?appids=${g.steam_appid}&cc=br&l=brazilian`)).json();
+    const info = r[g.steam_appid]?.data;
+    const po = info?.price_overview;
+    const faltando = {};
+    if (!g.cover_url && /^https:\/\//.test(info?.header_image || '')) faltando.cover_url = info.header_image;
+    if (!g.description && info?.short_description) faltando.description = texto(info.short_description).slice(0, 1000);
+    if (Object.keys(faltando).length) { await api(`games?id=eq.${g.id}`, { method: 'PATCH', body: faltando }); capas++; }
     if (po) {
       await api('deals?on_conflict=game_id,store', {
         method: 'POST', prefer: 'resolution=merge-duplicates',
@@ -130,5 +135,5 @@ await api(`deals?auto=eq.false&ends_at=lt.${new Date().toISOString()}`, { method
 await api('settings?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates',
   body: [{ key: 'last_sync', value: { at: new Date().toISOString(), news: novas, deals: precos, errors: erros.slice(0, 20) } }] });
 
-console.log(`Concluído: ${novas} notícias novas, ${precos} preços atualizados, ${erros.length} erro(s).`);
+console.log(`Concluído: ${novas} notícias novas, ${precos} preços atualizados, ${capas} jogo(s) completados com capa/descrição, ${erros.length} erro(s).`);
 erros.forEach((e) => console.warn(gh ? `::warning::${e}` : ` - ${e}`));

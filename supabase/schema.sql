@@ -459,3 +459,12 @@ $$;
 do $$ begin
   alter publication supabase_realtime add table public.posts;
 exception when duplicate_object then null; end $$;
+
+-- =====================================================================
+-- PERFIL: banner e contas de jogo (rode de novo este arquivo para aplicar)
+-- =====================================================================
+alter table public.profiles add column if not exists banner_url text;
+alter table public.profiles add column if not exists psn_id text check (psn_id is null or char_length(psn_id) <= 30);
+alter table public.profiles add column if not exists xbox_gamertag text check (xbox_gamertag is null or char_length(xbox_gamertag) <= 30);
+alter table public.profiles add column if not exists discord_user text check (discord_user is null or char_length(discord_user) <= 40);
+alter table public.profiles add column if not exists steam_profile text check (steam_profile is null or steam_profile ~ '^https://steamcommunity\.com/(id|profiles)/[A-Za-z0-9_-]+/?$');

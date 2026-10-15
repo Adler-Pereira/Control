@@ -135,7 +135,7 @@ async function carregarPosts(u, dono) {
     .order('created_at', { ascending: false }).limit(100);
   $('#posts').innerHTML = (posts || []).map((x) => `
     <article class="post"><header><img class="avatar" src="${avatar(x.profiles)}" alt="">
-      <strong>${esc(x.profiles?.username)}</strong><span class="muted">${data(x.created_at)}</span>
+      <a class="usuario" href="perfil.html?u=${encodeURIComponent(x.profiles?.username || '')}">${esc(x.profiles?.username)}</a><span class="muted">${data(x.created_at)}</span>
       ${u && (x.user_id === u.id || dono) ? `<button class="btn sec pequeno" data-del="${x.id}" style="margin-left:auto">Apagar</button>` : ''}</header>
       <p class="quebra">${esc(x.body)}</p></article>`).join('') || '<p class="vazio">Nenhum post ainda.</p>';
   $('#posts').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
