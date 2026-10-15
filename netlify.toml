@@ -1,0 +1,30 @@
+# Site estático: não há build, o Netlify publica a pasta raiz.
+[build]
+  publish = "."
+  command = "echo 'sem build'"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # Libera microfone, câmera e compartilhamento de tela para as calls
+    Permissions-Policy = "camera=(self), microphone=(self), display-capture=(self)"
+
+# Arquivos internos que não precisam ficar públicos
+[[redirects]]
+  from = "/scripts/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/supabase/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/legado/*"
+  to = "/404.html"
+  status = 404
+  force = true

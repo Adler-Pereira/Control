@@ -1,0 +1,20 @@
+name: Sincronizar notícias e promoções
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'   # a cada 6 horas
+  workflow_dispatch: {}       # botão "Run workflow" no GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/sync.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

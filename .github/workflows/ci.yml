@@ -1,0 +1,21 @@
+name: Verificações
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Sintaxe do JavaScript
+        run: for f in js/*.js scripts/*.mjs; do node --check "$f" || exit 1; done
+      - name: Validação do HTML
+        run: npx --yes html-validate@8.24.1 "*.html"
+      - name: Links e imagens locais
+        run: node scripts/checar-links.mjs
