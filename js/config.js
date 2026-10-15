@@ -1,9 +1,11 @@
-// Preencha com os dados do SEU projeto Supabase (Project Settings > API).
+// Preencha com os dados do SEU projeto Supabase (Project Settings > API Keys).
+// URL: só o endereço do projeto, SEM "/rest/v1" no final.
+// Chave: a "Publishable key" (começa com sb_publishable_) ou a antiga "anon" (começa com eyJ).
 // A "anon public key" foi feita para ficar no navegador: quem protege os dados
 // são as regras de segurança (RLS) do supabase/schema.sql.
-// NUNCA coloque aqui a "service_role key".
-export const SUPABASE_URL = 'https://jcnukczycjmktshvnnpq.supabase.co/rest/v1/';
-export const SUPABASE_ANON_KEY = 'sb_secret_WszW9yjpr_TZP1397MDDBA_oZONjzGr';
+// NUNCA coloque aqui a "Secret key" (sb_secret_...) nem a "service_role".
+export const SUPABASE_URL = 'https://jcnukczycjmktshvnnpq.supabase.co';
+export const SUPABASE_ANON_KEY = 'COLE_AQUI_A_PUBLISHABLE_KEY';
 
 // Servidores STUN/TURN usados nas chamadas de voz/vídeo.
 // STUN público funciona para a maioria das redes. Se alguém não conseguir

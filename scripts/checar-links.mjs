@@ -7,7 +7,7 @@ for (const f of arquivos) {
   const s = readFileSync(f, 'utf8');
   for (const [, ref] of s.matchAll(/(?:src|href)="([^"#?$]+?\.(?:png|jpe?g|webp|svg|css|js|html))["?]/g)) {
     if (/^(https?:|mailto:|\/\/)/.test(ref)) continue;
-    const alvo = f.startsWith('js/') && ref.startsWith('./') ? 'js/' + ref.slice(2) : ref;
+    const alvo = ref.startsWith('/') ? ref.slice(1) : f.startsWith('js/') && ref.startsWith('./') ? 'js/' + ref.slice(2) : ref;
     if (!existsSync(alvo)) faltando.add(`${f} -> ${ref}`);
   }
 }

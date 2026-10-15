@@ -3,9 +3,16 @@
 // Precisa das variáveis SUPABASE_URL e SUPABASE_SERVICE_KEY (segredos do GitHub).
 // Sem dependências: usa só o fetch nativo do Node 20+.
 
-const URL_BASE = process.env.SUPABASE_URL;
-const KEY = process.env.SUPABASE_SERVICE_KEY;
-if (!URL_BASE || !KEY) { console.error('Defina SUPABASE_URL e SUPABASE_SERVICE_KEY.'); process.exit(1); }
+// Tolera URL com "/rest/v1", barras e espaços sobrando (erros comuns ao colar o segredo)
+const URL_BASE = (process.env.SUPABASE_URL || '').trim().replace(/\/+(rest\/v1)?\/*$/, '');
+const KEY = (process.env.SUPABASE_SERVICE_KEY || '').trim();
+if (!URL_BASE || !KEY) { console.error('ERRO: segredos SUPABASE_URL e/ou SUPABASE_SERVICE_KEY não definidos no GitHub (Settings > Secrets and variables > Actions).'); process.exit(1); }
+if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(URL_BASE)) console.warn(`AVISO: SUPABASE_URL incomum: ${URL_BASE}`);
+if (/^sb_publishable_/.test(KEY) || /"role":"anon"/.test(Buffer.from(KEY.split('.')[1] || '', 'base64').toString())) {
+  console.error('ERRO: SUPABASE_SERVICE_KEY está com a chave PÚBLICA. O robô precisa da Secret key (sb_secret_...) ou da service_role.'); process.exit(1);
+}
+// Chaves novas (sb_secret_) vão só no header apikey; as antigas (JWT) também no Authorization
+const AUTH = KEY.startsWith('eyJ') ? { Authorization: `Bearer ${KEY}` } : {};
 
 const POR_FEED = 8;           // notícias novas por feed RSS
 const POR_JOGO_STEAM = 2;     // anúncios oficiais por jogo na Steam
@@ -14,10 +21,15 @@ const erros = [];
 async function api(caminho, { method = 'GET', body, prefer } = {}) {
   const r = await fetch(`${URL_BASE}/rest/v1/${caminho}`, {
     method,
-    headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) },
+    headers: { apikey: KEY, ...AUTH, 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error(`${method} ${caminho}: ${r.status} ${await r.text()}`);
+  if (!r.ok) {
+    const txt = await r.text();
+    const dica = r.status === 401 ? ' (chave inválida: confira o segredo SUPABASE_SERVICE_KEY)'
+      : r.status === 404 && /relation|table/.test(txt) ? ' (tabela não existe: rode supabase/schema.sql no SQL Editor)' : '';
+    throw new Error(`${method} ${caminho}: ${r.status} ${txt}${dica}`);
+  }
   return r.status === 204 ? null : r.json();
 }
 
