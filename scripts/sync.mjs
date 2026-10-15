@@ -4,12 +4,19 @@
 // Sem dependências: usa só o fetch nativo do Node 20+.
 
 // Tolera URL com "/rest/v1", barras e espaços sobrando (erros comuns ao colar o segredo)
+// No GitHub Actions, "::error::" faz a mensagem aparecer no resumo da execução
+const gh = !!process.env.GITHUB_ACTIONS;
+const falhar = (msg) => { console.error(gh ? `::error::${msg.replace(/\n/g, ' ')}` : msg); process.exit(1); };
+process.on('unhandledRejection', (e) => falhar(`Falha inesperada: ${e?.message || e}${e?.cause ? ` (${e.cause.code || e.cause.message})` : ""}`));
+process.on('uncaughtException', (e) => falhar(`Falha inesperada: ${e?.message || e}${e?.cause ? ` (${e.cause.code || e.cause.message})` : ""}`));
+
 const URL_BASE = (process.env.SUPABASE_URL || '').trim().replace(/\/+(rest\/v1)?\/*$/, '');
 const KEY = (process.env.SUPABASE_SERVICE_KEY || '').trim();
-if (!URL_BASE || !KEY) { console.error('ERRO: segredos SUPABASE_URL e/ou SUPABASE_SERVICE_KEY não definidos no GitHub (Settings > Secrets and variables > Actions).'); process.exit(1); }
-if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(URL_BASE)) console.warn(`AVISO: SUPABASE_URL incomum: ${URL_BASE}`);
+if (!URL_BASE || !KEY) falhar(`Segredos ausentes: ${!URL_BASE ? 'SUPABASE_URL ' : ''}${!KEY ? 'SUPABASE_SERVICE_KEY' : ''} (GitHub > Settings > Secrets and variables > Actions).`);
+if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(URL_BASE)) console.warn(`${gh ? '::warning::' : ''}SUPABASE_URL fora do padrão https://xxxx.supabase.co (comprimento ${URL_BASE.length}, começa com "${URL_BASE.slice(0, 12)}")`);
+console.log(`Chave do tipo: ${KEY.startsWith('sb_secret_') ? 'Secret (nova)' : KEY.startsWith('eyJ') ? 'JWT (antiga)' : 'desconhecido'}`);
 if (/^sb_publishable_/.test(KEY) || /"role":"anon"/.test(Buffer.from(KEY.split('.')[1] || '', 'base64').toString())) {
-  console.error('ERRO: SUPABASE_SERVICE_KEY está com a chave PÚBLICA. O robô precisa da Secret key (sb_secret_...) ou da service_role.'); process.exit(1);
+  falhar('SUPABASE_SERVICE_KEY está com a chave PÚBLICA. O robô precisa da Secret key (sb_secret_...) ou da service_role.');
 }
 // Chaves novas (sb_secret_) vão só no header apikey; as antigas (JWT) também no Authorization
 const AUTH = KEY.startsWith('eyJ') ? { Authorization: `Bearer ${KEY}` } : {};
@@ -122,4 +129,4 @@ await api('settings?on_conflict=key', { method: 'POST', prefer: 'resolution=merg
   body: [{ key: 'last_sync', value: { at: new Date().toISOString(), news: novas, deals: precos, errors: erros.slice(0, 20) } }] });
 
 console.log(`Concluído: ${novas} notícias novas, ${precos} preços atualizados, ${erros.length} erro(s).`);
-erros.forEach((e) => console.warn(' -', e));
+erros.forEach((e) => console.warn(gh ? `::warning::${e}` : ` - ${e}`));
