@@ -1,0 +1,113 @@
+// Robô de sincronização: importa notícias oficiais (RSS + Steam) e atualiza
+// promoções da Steam. Roda no GitHub Actions (ver .github/workflows/sync.yml).
+// Precisa das variáveis SUPABASE_URL e SUPABASE_SERVICE_KEY (segredos do GitHub).
+// Sem dependências: usa só o fetch nativo do Node 20+.
+
+const URL_BASE = process.env.SUPABASE_URL;
+const KEY = process.env.SUPABASE_SERVICE_KEY;
+if (!URL_BASE || !KEY) { console.error('Defina SUPABASE_URL e SUPABASE_SERVICE_KEY.'); process.exit(1); }
+
+const POR_FEED = 8;           // notícias novas por feed RSS
+const POR_JOGO_STEAM = 2;     // anúncios oficiais por jogo na Steam
+const erros = [];
+
+async function api(caminho, { method = 'GET', body, prefer } = {}) {
+  const r = await fetch(`${URL_BASE}/rest/v1/${caminho}`, {
+    method,
+    headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', ...(prefer ? { Prefer: prefer } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) throw new Error(`${method} ${caminho}: ${r.status} ${await r.text()}`);
+  return r.status === 204 ? null : r.json();
+}
+
+async function baixar(url) {
+  const r = await fetch(url, { headers: { 'User-Agent': 'ControlCriticBot/1.0 (+github.com/Control-Critic)' }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  return r;
+}
+
+// ---------- utilidades de texto ----------
+const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+const decodificar = (s) => s.replace(/&(#x?[0-9a-f]+|\w+);/gi, (m, e) =>
+  e[0] === '#' ? String.fromCodePoint(e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENT[e.toLowerCase()] ?? m);
+const semCdata = (s) => s.replace(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/, '$1');
+const texto = (html) => decodificar(semCdata(html || '').replace(/<[^>]+>/g, ' ')).replace(/\[\/?[a-z0-9=*]+[^\]]*\]/gi, ' ').replace(/\s+/g, ' ').trim();
+const resumo = (s, n = 280) => (s.length > n ? s.slice(0, n).replace(/\s\S*$/, '') + '…' : s);
+const tag = (xml, nome) => { const m = xml.match(new RegExp(`<${nome}[^>]*>([\\s\\S]*?)</${nome}>`, 'i')); return m ? semCdata(m[1]).trim() : ''; };
+
+function lerRss(xml) {
+  return [...xml.matchAll(/<item[\s>][\s\S]*?<\/item>/gi)].map(([it]) => {
+    const img = it.match(/<media:content[^>]+url="([^"]+)"/i)?.[1] || it.match(/<enclosure[^>]+url="([^"]+)"[^>]*type="image/i)?.[1]
+      || it.match(/<img[^>]+src="([^"]+)"/i)?.[1] || null;
+    return {
+      title: texto(tag(it, 'title')),
+      link: decodificar(tag(it, 'link')),
+      summary: resumo(texto(tag(it, 'description'))),
+      date: tag(it, 'pubDate'),
+      image: img && /^https:\/\//.test(img) ? decodificar(img) : null,
+    };
+  }).filter((i) => i.title && /^https?:\/\//.test(i.link));
+}
+
+async function inserirNoticias(lista, publicar) {
+  if (!lista.length) return 0;
+  const linhas = lista.map((n) => ({
+    title: n.title.slice(0, 300), summary: n.summary || null, body: n.summary || n.title, cover_url: n.image,
+    source: n.source, source_url: n.link, game_id: n.game_id ?? null, published: publicar,
+    created_at: n.date && !isNaN(Date.parse(n.date)) ? new Date(n.date).toISOString() : new Date().toISOString(),
+  }));
+  const r = await api('news?on_conflict=source_url', { method: 'POST', body: linhas, prefer: 'resolution=ignore-duplicates,return=representation' });
+  return r.length;
+}
+
+// ---------- execução ----------
+const cfg = Object.fromEntries((await api('settings?select=key,value')).map((s) => [s.key, s.value]));
+const publicar = cfg.auto_publish_news !== false;
+const jogos = await api('games?select=id,title,steam_appid&steam_appid=not.is.null');
+let novas = 0, precos = 0;
+
+// 1) Feeds RSS oficiais
+for (const feed of cfg.feeds || []) {
+  try {
+    const itens = lerRss(await (await baixar(feed.url)).text()).slice(0, POR_FEED);
+    const n = await inserirNoticias(itens.map((i) => ({ ...i, source: feed.name })), publicar);
+    novas += n; console.log(`RSS ${feed.name}: ${itens.length} lidas, ${n} novas`);
+  } catch (e) { erros.push(`Feed ${feed.name}: ${e.message}`); }
+}
+
+for (const g of jogos) {
+  // 2) Anúncios oficiais na Steam (somente do canal oficial do jogo)
+  try {
+    const r = await (await baixar(`https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${g.steam_appid}&count=${POR_JOGO_STEAM}&maxlength=600&feeds=steam_community_announcements&format=json`)).json();
+    const itens = (r.appnews?.newsitems || []).map((i) => ({
+      title: `${g.title}: ${texto(i.title)}`, link: i.url, summary: resumo(texto(i.contents)),
+      date: new Date(i.date * 1000).toISOString(), image: null, source: 'Steam', game_id: g.id,
+    }));
+    novas += await inserirNoticias(itens, publicar);
+  } catch (e) { erros.push(`Notícias Steam ${g.title}: ${e.message}`); }
+
+  // 3) Preço e desconto na Steam Brasil
+  try {
+    const r = await (await baixar(`https://store.steampowered.com/api/appdetails?appids=${g.steam_appid}&cc=br&l=portuguese&filters=price_overview`)).json();
+    const po = r[g.steam_appid]?.data?.price_overview;
+    if (po) {
+      await api('deals?on_conflict=game_id,store', {
+        method: 'POST', prefer: 'resolution=merge-duplicates',
+        body: [{ game_id: g.id, store: 'steam', price_cents: po.final, original_cents: po.initial, discount_pct: po.discount_percent,
+          url: `https://store.steampowered.com/app/${g.steam_appid}/`, auto: true, updated_at: new Date().toISOString() }],
+      });
+      precos++;
+    }
+  } catch (e) { erros.push(`Preço Steam ${g.title}: ${e.message}`); }
+  await new Promise((r) => setTimeout(r, 1500)); // respeita o limite de requisições da Steam
+}
+
+// 4) Limpa promoções manuais vencidas
+await api(`deals?auto=eq.false&ends_at=lt.${new Date().toISOString()}`, { method: 'DELETE' }).catch((e) => erros.push(e.message));
+
+await api('settings?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates',
+  body: [{ key: 'last_sync', value: { at: new Date().toISOString(), news: novas, deals: precos, errors: erros.slice(0, 20) } }] });
+
+console.log(`Concluído: ${novas} notícias novas, ${precos} preços atualizados, ${erros.length} erro(s).`);
+erros.forEach((e) => console.warn(' -', e));
