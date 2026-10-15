@@ -1142,3 +1142,201 @@ do $$ declare r record; begin
   end loop;
   perform grant_cosmetic(p.id, 'f_fundador') from (select id from profiles order by created_at limit 100) p;
 end $$;
+
+-- =====================================================================
+-- COMUNIDADES PRIVADAS (convite, pedidos de entrada e call protegida)
+-- =====================================================================
+alter table public.communities add column if not exists is_private boolean not null default false;
+
+-- Segredos de cada comunidade: só membros leem (código de convite e chave da sala de voz)
+create table if not exists public.community_secrets (
+  community_id  bigint primary key references public.communities(id) on delete cascade,
+  invite_code   text not null unique default substr(replace(gen_random_uuid()::text, '-', ''), 1, 10),
+  room_key      text not null default replace(gen_random_uuid()::text, '-', '')
+);
+alter table public.community_secrets enable row level security;
+drop policy if exists secrets_members on public.community_secrets;
+create policy secrets_members on public.community_secrets for select using (
+  is_staff() or exists (select 1 from community_members m where m.community_id = community_secrets.community_id and m.user_id = auth.uid()));
+insert into public.community_secrets (community_id) select id from public.communities on conflict do nothing;
+
+create or replace function public.communities_secret_insert() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin insert into community_secrets (community_id) values (new.id) on conflict do nothing; return null; end $$;
+drop trigger if exists communities_secret on public.communities;
+create trigger communities_secret after insert on public.communities for each row execute function public.communities_secret_insert();
+
+create or replace function public.is_member(cid bigint) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from community_members where community_id = cid and user_id = auth.uid());
+$$;
+create or replace function public.can_see_community(cid bigint) returns boolean
+language sql stable security definer set search_path = public as $$
+  select not coalesce((select is_private from communities where id = cid), false) or is_member(cid) or is_staff();
+$$;
+
+-- Entrar direto só em comunidade pública (privadas: convite ou pedido aprovado, via funções abaixo)
+drop policy if exists members_join on public.community_members;
+create policy members_join on public.community_members for insert with check (
+  user_id = auth.uid() and is_active_user()
+  and not coalesce((select is_private from communities c where c.id = community_id), false));
+
+-- Conteúdo de comunidade privada só para membros
+drop policy if exists posts_read on public.posts;
+create policy posts_read on public.posts for select using (
+  (status = 'published' and can_see_community(community_id)) or user_id = auth.uid() or is_staff());
+drop policy if exists events_read on public.events;
+create policy events_read on public.events for select using (can_see_community(community_id));
+drop policy if exists att_read on public.event_attendees;
+create policy att_read on public.event_attendees for select using (
+  exists (select 1 from events e where e.id = event_id and can_see_community(e.community_id)));
+
+create table if not exists public.community_requests (
+  community_id  bigint not null references public.communities(id) on delete cascade,
+  user_id       uuid not null references public.profiles(id) on delete cascade,
+  message       text check (char_length(message) <= 300),
+  created_at    timestamptz not null default now(),
+  primary key (community_id, user_id)
+);
+alter table public.community_requests enable row level security;
+drop policy if exists req_read on public.community_requests;
+create policy req_read on public.community_requests for select using (
+  user_id = auth.uid() or is_staff() or exists (select 1 from communities c where c.id = community_id and c.owner_id = auth.uid()));
+drop policy if exists req_cancel on public.community_requests;
+create policy req_cancel on public.community_requests for delete using (user_id = auth.uid());
+
+-- Participar: pública entra direto; privada entra com código de convite ou vira pedido para o dono
+create or replace function public.join_community(cid bigint, codigo text default null, mensagem text default null) returns text
+language plpgsql security definer set search_path = public as $$
+declare c communities; quem text;
+begin
+  if auth.uid() is null or not is_active_user() then raise exception 'Entre na sua conta para participar.'; end if;
+  select * into c from communities where id = cid;
+  if c.id is null then raise exception 'Comunidade não encontrada.'; end if;
+  if is_member(cid) then return 'membro'; end if;
+  if not c.is_private or (codigo is not null and exists (select 1 from community_secrets s where s.community_id = cid and s.invite_code = codigo)) then
+    insert into community_members (community_id, user_id) values (cid, auth.uid()) on conflict do nothing;
+    delete from community_requests where community_id = cid and user_id = auth.uid();
+    return 'membro';
+  end if;
+  insert into community_requests (community_id, user_id, message) values (cid, auth.uid(), left(mensagem, 300))
+    on conflict (community_id, user_id) do nothing;
+  if found and c.owner_id is not null then
+    select username into quem from profiles where id = auth.uid();
+    insert into notifications (user_id, type, title, body, link)
+    values (c.owner_id, 'request', quem || ' pediu para entrar em ' || c.name, left(mensagem, 140), 'comunidade.html?id=' || cid || '#pedidos');
+  end if;
+  return 'pedido';
+end $$;
+grant execute on function public.join_community(bigint, text, text) to authenticated;
+
+create or replace function public.answer_join_request(cid bigint, uid uuid, aceitar boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare c communities;
+begin
+  select * into c from communities where id = cid;
+  if c.owner_id is distinct from auth.uid() and not is_staff() then raise exception 'Só o dono da comunidade pode responder.'; end if;
+  if not exists (select 1 from community_requests where community_id = cid and user_id = uid) then raise exception 'Pedido não encontrado.'; end if;
+  delete from community_requests where community_id = cid and user_id = uid;
+  if aceitar then
+    insert into community_members (community_id, user_id) values (cid, uid) on conflict do nothing;
+    insert into notifications (user_id, type, title, link) values (uid, 'request', 'Você entrou em ' || c.name || '! 🎉', 'comunidade.html?id=' || cid);
+  end if;
+end $$;
+grant execute on function public.answer_join_request(bigint, uuid, boolean) to authenticated;
+
+-- Dono pode gerar um novo código de convite (o anterior para de funcionar)
+create or replace function public.reset_invite_code(cid bigint) returns text
+language plpgsql security definer set search_path = public as $$
+declare novo text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 10);
+begin
+  if not exists (select 1 from communities where id = cid and owner_id = auth.uid()) and not is_staff() then raise exception 'Sem permissão.'; end if;
+  update community_secrets set invite_code = novo where community_id = cid;
+  return novo;
+end $$;
+grant execute on function public.reset_invite_code(bigint) to authenticated;
+
+-- =====================================================================
+-- AMIZADES (pedido, aceite e call privada entre amigos)
+-- =====================================================================
+create table if not exists public.friendships (
+  user_a      uuid not null references public.profiles(id) on delete cascade,
+  user_b      uuid not null references public.profiles(id) on delete cascade,
+  requester   uuid not null references public.profiles(id) on delete cascade,
+  status      text not null default 'pendente' check (status in ('pendente','aceita')),
+  room_key    text not null default replace(gen_random_uuid()::text, '-', ''),
+  created_at  timestamptz not null default now(),
+  primary key (user_a, user_b),
+  check (user_a < user_b)
+);
+alter table public.friendships enable row level security;
+drop policy if exists fr_read on public.friendships;
+create policy fr_read on public.friendships for select using (auth.uid() in (user_a, user_b));
+
+create or replace function public.friend_request(alvo uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare a uuid := least(auth.uid(), alvo); b uuid := greatest(auth.uid(), alvo); f friendships; quem text;
+begin
+  if auth.uid() is null or not is_active_user() then raise exception 'Entre na sua conta.'; end if;
+  if alvo = auth.uid() then raise exception 'Você não pode adicionar a si mesmo.'; end if;
+  if not exists (select 1 from profiles where id = alvo) then raise exception 'Usuário não encontrado.'; end if;
+  select * into f from friendships where user_a = a and user_b = b;
+  select username into quem from profiles where id = auth.uid();
+  if f.status = 'aceita' then return 'amigos'; end if;
+  if f.status = 'pendente' and f.requester <> auth.uid() then          -- o outro já tinha pedido: aceita
+    update friendships set status = 'aceita' where user_a = a and user_b = b;
+    insert into notifications (user_id, type, title, link) values (alvo, 'friend', quem || ' aceitou sua amizade! 🤝', 'amigos.html');
+    return 'amigos';
+  end if;
+  if f.status is null then
+    insert into friendships (user_a, user_b, requester) values (a, b, auth.uid());
+    insert into notifications (user_id, type, title, body, link) values (alvo, 'friend', quem || ' quer ser seu amigo', 'Responda em Amigos.', 'amigos.html');
+  end if;
+  return 'pendente';
+end $$;
+grant execute on function public.friend_request(uuid) to authenticated;
+
+create or replace function public.friend_answer(outro uuid, aceitar boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare a uuid := least(auth.uid(), outro); b uuid := greatest(auth.uid(), outro); quem text;
+begin
+  if not exists (select 1 from friendships where user_a = a and user_b = b and status = 'pendente' and requester = outro) then
+    raise exception 'Pedido não encontrado.'; end if;
+  if aceitar then
+    update friendships set status = 'aceita' where user_a = a and user_b = b;
+    select username into quem from profiles where id = auth.uid();
+    insert into notifications (user_id, type, title, link) values (outro, 'friend', quem || ' aceitou sua amizade! 🤝', 'amigos.html');
+  else
+    delete from friendships where user_a = a and user_b = b;
+  end if;
+end $$;
+grant execute on function public.friend_answer(uuid, boolean) to authenticated;
+
+create or replace function public.friend_remove(outro uuid) returns void
+language sql security definer set search_path = public as $$
+  delete from friendships where user_a = least(auth.uid(), outro) and user_b = greatest(auth.uid(), outro);
+$$;
+grant execute on function public.friend_remove(uuid) to authenticated;
+
+-- Chamar um amigo para a call (notificação com link)
+create or replace function public.friend_call(outro uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare quem text;
+begin
+  if not exists (select 1 from friendships where user_a = least(auth.uid(), outro) and user_b = greatest(auth.uid(), outro) and status = 'aceita') then
+    raise exception 'Vocês ainda não são amigos.'; end if;
+  select username into quem from profiles where id = auth.uid();
+  insert into notifications (user_id, type, title, body, link)
+  values (outro, 'call', '📞 ' || quem || ' está te chamando para uma call', 'Clique para entrar.', 'amigos.html?call=' || quem);
+end $$;
+grant execute on function public.friend_call(uuid) to authenticated;
+
+-- Lista pública de amigos de um perfil (só nomes, para exibir no perfil)
+create or replace function public.friends_of(uid uuid) returns table (id uuid, username text, avatar_url text, equipped_frame text)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.username, p.avatar_url, p.equipped_frame from friendships f
+  join profiles p on p.id = case when f.user_a = uid then f.user_b else f.user_a end
+  where uid in (f.user_a, f.user_b) and f.status = 'aceita' order by p.username;
+$$;
+
+-- LGPD: dados exportados incluem amizades

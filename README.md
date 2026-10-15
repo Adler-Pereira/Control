@@ -15,7 +15,9 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 | Perfil e XP | Cadastro/login, foto, banner, bio, contas de PSN/Xbox/Discord/Steam, categorias favoritas e perfil público com link para compartilhar; XP e níveis (+10 por avaliação, +5 por post, +20 por criar comunidade) |
 | Recomendações | Sugestões por usuário com base nas categorias favoritas e nos jogos que ele avaliou bem |
 | Comunidades | Criar/participar, mural em tempo real |
-| Call | Voz, câmera e compartilhamento de tela direto no navegador (WebRTC), até ~6 pessoas |
+| Call | Voz, câmera e tela (720p/1080p, 30/60 fps, com som do jogo/aba) direto no navegador (WebRTC), até ~6 pessoas; grade ou destaque, tela cheia, janela flutuante, chat de texto e indicador de conexão; TURN opcional para redes restritas |
+| Comunidades privadas | Mural, partidas e call só para membros; entrada por link de convite ou pedido aprovado pelo dono |
+| Amigos | Pedidos de amizade, quem está online, call privada entre amigos e lista de amigos no perfil |
 | Discord / PS5 | Convite do servidor e widget mostrando quem está online e em call. Pelo console, entra-se na call pelo Discord vinculado |
 | Notícias | Escritas pela equipe + importadas automaticamente (PlayStation Blog, Xbox Wire, anúncios oficiais da Steam) |
 | Promoções | Preços e descontos da Steam (BR) atualizados automaticamente; outras lojas cadastradas no painel |
@@ -91,7 +93,9 @@ O resultado aparece no painel de admin, na aba Automação.
 Os dados de jogos vêm do [IGDB](https://www.igdb.com) (Twitch), com crédito no rodapé do site. Para uso comercial, confira os termos de uso do IGDB.
 
 ### 6. Importação da biblioteca da Steam
-1. Gere uma chave gratuita em **steamcommunity.com/dev/apikey** (domínio: o endereço do site no Netlify).
+1. Entre em **steamcommunity.com/dev/apikey** com uma conta Steam que já tenha feito compras (contas "limitadas" não
+   podem criar chave) e com o **Steam Guard pelo celular** ativo. Em *Domain Name*, coloque `control-critic.netlify.app`,
+   aceite os termos e clique em *Register*.
 2. No **Netlify**, crie a variável `STEAM_API_KEY` com essa chave e faça um novo deploy.
 3. Cada pessoa usa em **Perfil → Importar da Steam**. O perfil e os "Detalhes de jogos" precisam estar públicos na Steam.
    PlayStation e Xbox não oferecem API oficial para isso.
@@ -113,7 +117,15 @@ recebe as recompensas retroativas. A premiação do top 10 do mês roda no dia 1
 Para criar novos itens, adicione linhas na tabela `cosmetics` e o estilo correspondente em `css/style.css`
 (`.m-<id>` para molduras, `.bn-<id>` para banners).
 
-### 10. Discord em uma comunidade
+### 10. Servidor TURN para as calls (recomendado)
+Sem TURN, a call funciona quando os navegadores conseguem se conectar direto, mas falha em muitas redes de celular e de provedores
+(as pessoas aparecem na sala, mas sem áudio/vídeo). O site usa o TURN da Cloudflare, que tem uma cota gratuita.
+1. Crie uma conta em **dash.cloudflare.com** → **Realtime** (ou *Calls*) → **TURN Server** → **Create**.
+2. Copie o **Turn Token ID** e o **API Token**.
+3. No **Netlify**, crie `CLOUDFLARE_TURN_KEY_ID` e `CLOUDFLARE_TURN_API_TOKEN` e faça um novo deploy.
+A função `netlify/functions/turn.mjs` gera credenciais temporárias; as chaves nunca vão para o navegador.
+
+### 11. Discord em uma comunidade
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
 - opcionalmente o **ID do servidor**, depois de ativar *Configurações do servidor → Widget → Habilitar widget*.
