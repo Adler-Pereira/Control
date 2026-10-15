@@ -14,7 +14,7 @@ jobs:
         with:
           node-version: 22
       - name: Sintaxe do JavaScript
-        run: for f in js/*.js scripts/*.mjs; do node --check "$f" || exit 1; done
+        run: for f in js/*.js scripts/*.mjs lib/*.mjs netlify/functions/*.mjs; do node --check "$f" || exit 1; done
       - name: Validação do HTML
         run: npx --yes html-validate@8.24.1 "*.html"
       - name: Links e imagens locais

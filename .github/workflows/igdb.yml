@@ -1,0 +1,31 @@
+name: Importar jogos (IGDB)
+
+on:
+  schedule:
+    - cron: '41 4 * * 1'      # toda segunda-feira: lançamentos recentes
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'populares = carga dos mais avaliados | recentes = lançamentos dos últimos 60 dias'
+        type: choice
+        options: [populares, recentes]
+        default: populares
+      quantidade:
+        description: 'Quantos jogos importar no modo "populares" (máx. 20000)'
+        default: '5000'
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/igdb.mjs "${{ inputs.modo || 'recentes' }}" "${{ inputs.quantidade || '300' }}"
+        env:
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
