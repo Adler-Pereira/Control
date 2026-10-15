@@ -38,3 +38,8 @@
   to = "/404.html"
   status = 404
   force = true
+[[redirects]]
+  from = "/turn-caseiro/*"
+  to = "/404.html"
+  status = 404
+  force = true

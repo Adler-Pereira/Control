@@ -125,6 +125,9 @@ Sem TURN, a call funciona quando os navegadores conseguem se conectar direto, ma
 3. No **Netlify**, crie `CLOUDFLARE_TURN_KEY_ID` e `CLOUDFLARE_TURN_API_TOKEN` e faça um novo deploy.
 A função `netlify/functions/turn.mjs` gera credenciais temporárias; as chaves nunca vão para o navegador.
 
+**Alternativa grátis: TURN no seu computador.** Veja `turn-caseiro/LEIA-ME.md` (coturn com Docker). Configure
+`TURN_URL` e `TURN_SECRET` no Netlify. Pode usar junto com a Cloudflare: o navegador escolhe o que funcionar.
+
 ### 11. Discord em uma comunidade
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
