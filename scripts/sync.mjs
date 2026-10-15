@@ -37,7 +37,9 @@ async function api(caminho, { method = 'GET', body, prefer } = {}) {
       : r.status === 404 && /relation|table/.test(txt) ? ' (tabela não existe: rode supabase/schema.sql no SQL Editor)' : '';
     throw new Error(`${method} ${caminho}: ${r.status} ${txt}${dica}`);
   }
-  return r.status === 204 ? null : r.json();
+  // POST/DELETE sem "return=representation" respondem com corpo vazio (201/204)
+  const txt = await r.text();
+  return txt ? JSON.parse(txt) : null;
 }
 
 async function baixar(url) {
@@ -77,7 +79,7 @@ async function inserirNoticias(lista, publicar) {
     created_at: n.date && !isNaN(Date.parse(n.date)) ? new Date(n.date).toISOString() : new Date().toISOString(),
   }));
   const r = await api('news?on_conflict=source_url', { method: 'POST', body: linhas, prefer: 'resolution=ignore-duplicates,return=representation' });
-  return r.length;
+  return r?.length ?? 0;
 }
 
 // ---------- execução ----------
