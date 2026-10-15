@@ -1,3 +1,4 @@
+import { SUPABASE_ANON_KEY } from './config.js';
 import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml } from './app.js';
 
 await montarLayout();
@@ -320,8 +321,9 @@ async function importarSteam(p) {
   const bt = $('#importar-steam'); bt.disabled = true; bt.textContent = 'Importando... (pode levar um minuto)';
   try {
     const { data: { session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Sua sessão expirou. Saia e entre de novo na sua conta.');
     const r = await fetch('/.netlify/functions/importar-steam', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}`, apikey: SUPABASE_ANON_KEY },
       body: JSON.stringify({ perfil: perfilSteam.trim() }),
     });
     const d = await r.json().catch(() => ({}));
