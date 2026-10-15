@@ -1340,3 +1340,240 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- LGPD: dados exportados incluem amizades
+
+-- =====================================================================
+-- PAINEL DE ADMIN: cargos personalizados, banimento temporário, registro
+-- de ações da equipe e aviso global
+-- =====================================================================
+alter table public.profiles add column if not exists banned_until timestamptz;   -- null + banned = permanente
+alter table public.profiles add column if not exists ban_reason text;
+alter table public.profiles add column if not exists titles text[] not null default '{}';   -- cargos personalizados (ids)
+
+-- Banimento temporário vence sozinho
+create or replace function public.is_active_user() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from profiles where id = auth.uid() and (not banned or (banned_until is not null and banned_until < now())));
+$$;
+
+-- Cargos personalizados (só visuais: "Streamer", "Parceiro", "Equipe"...)
+create table if not exists public.site_titles (
+  id     text primary key check (id ~ '^[a-z0-9_]{2,30}$'),
+  name   text not null check (char_length(name) between 2 and 30),
+  color  text not null default '#ffd33c' check (color ~ '^#[0-9a-fA-F]{6}$'),
+  icon   text check (char_length(icon) <= 8),
+  sort   integer not null default 0
+);
+alter table public.site_titles enable row level security;
+drop policy if exists titles_read on public.site_titles;
+create policy titles_read on public.site_titles for select using (true);
+drop policy if exists titles_admin on public.site_titles;
+create policy titles_admin on public.site_titles for all using (is_admin()) with check (is_admin());
+insert into public.site_titles (id, name, color, icon, sort) values
+  ('equipe', 'Equipe Control Critic', '#ffd33c', '🎮', 0),
+  ('streamer', 'Streamer', '#9146ff', '📺', 10),
+  ('parceiro', 'Parceiro', '#3ddc84', '🤝', 20),
+  ('beta', 'Testador Beta', '#4fc3f7', '🧪', 30)
+on conflict (id) do nothing;
+
+-- Proteção do perfil inclui os novos campos
+create or replace function public.protect_profile_fields() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if auth.uid() is not null and not is_admin() and coalesce(current_setting('cc.sistema', true), '') <> 'on' then
+    new.role := old.role; new.xp := old.xp; new.banned := old.banned;
+    new.banned_until := old.banned_until; new.ban_reason := old.ban_reason; new.titles := old.titles;
+    new.streak_current := old.streak_current; new.streak_best := old.streak_best; new.last_checkin := old.last_checkin;
+    new.equipped_frame := old.equipped_frame; new.equipped_banner := old.equipped_banner;
+  end if;
+  return new;
+end $$;
+
+-- Registro de ações da equipe
+create table if not exists public.admin_log (
+  id          bigserial primary key,
+  actor_id    uuid references public.profiles(id) on delete set null,
+  action      text not null,
+  target_type text,
+  target_id   text,
+  details     jsonb,
+  created_at  timestamptz not null default now()
+);
+create index if not exists admin_log_data_idx on public.admin_log(created_at desc);
+alter table public.admin_log enable row level security;
+drop policy if exists log_staff on public.admin_log;
+create policy log_staff on public.admin_log for select using (is_staff());
+
+create or replace function public.log_admin(acao text, tipo text, alvo text, det jsonb default null) returns void
+language sql security definer set search_path = public as $$
+  insert into admin_log (actor_id, action, target_type, target_id, details) values (auth.uid(), acao, tipo, alvo, det);
+$$;
+revoke execute on function public.log_admin(text,text,text,jsonb) from public, anon, authenticated;
+
+-- Detalhes de um usuário (inclui e-mail e último acesso: só admin)
+create or replace function public.admin_user_detail(uid uuid) returns json
+language plpgsql stable security definer set search_path = public, auth as $$
+begin
+  if not is_staff() then raise exception 'acesso negado'; end if;
+  return (select json_build_object(
+    'profile', to_jsonb(p),
+    'email', case when is_admin() then u.email end,
+    'created_at', u.created_at, 'last_sign_in_at', u.last_sign_in_at,
+    'reviews', (select count(*) from reviews where user_id = uid),
+    'posts', (select count(*) from posts where user_id = uid),
+    'communities', (select count(*) from community_members where user_id = uid),
+    'reports_against', (select count(*) from reports where target_type = 'profile' and target_id = uid::text),
+    'cosmetics', (select coalesce(json_agg(cosmetic_id), '[]') from user_cosmetics where user_id = uid),
+    'history', (select coalesce(json_agg(h order by h.created_at desc), '[]') from (
+        select l.action, l.details, l.created_at, a.username as por from admin_log l left join profiles a on a.id = l.actor_id
+        where l.target_type = 'user' and l.target_id = uid::text order by l.created_at desc limit 20) h)
+  ) from profiles p left join auth.users u on u.id = p.id where p.id = uid);
+end $$;
+grant execute on function public.admin_user_detail(uuid) to authenticated;
+
+-- Mudar permissão (user / moderator / admin). Não deixa o site sem admin nem você se rebaixar.
+create or replace function public.admin_set_role(uid uuid, novo text) returns void
+language plpgsql security definer set search_path = public as $$
+declare antigo text;
+begin
+  if not is_admin() then raise exception 'Só administradores podem mudar permissões.'; end if;
+  if novo not in ('user','moderator','admin') then raise exception 'Permissão inválida.'; end if;
+  if uid = auth.uid() then raise exception 'Você não pode mudar a própria permissão.'; end if;
+  select role into antigo from profiles where id = uid;
+  if antigo = 'admin' and novo <> 'admin' and (select count(*) from profiles where role = 'admin') <= 1 then
+    raise exception 'O site precisa ter pelo menos um administrador.'; end if;
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set role = novo where id = uid;
+  perform set_config('cc.sistema', 'off', true);
+  perform log_admin('permissão', 'user', uid::text, json_build_object('de', antigo, 'para', novo)::jsonb);
+  insert into notifications (user_id, type, title, body) values (uid, 'admin', 'Sua permissão no site mudou',
+    case novo when 'admin' then 'Agora você é administrador.' when 'moderator' then 'Agora você é moderador.' else 'Agora você é usuário comum.' end);
+end $$;
+grant execute on function public.admin_set_role(uuid, text) to authenticated;
+
+-- Banir (dias = null → permanente) e desbanir. Moderador pode banir usuários comuns.
+create or replace function public.admin_ban(uid uuid, dias integer, motivo text) returns void
+language plpgsql security definer set search_path = public as $$
+declare alvo profiles;
+begin
+  if not is_staff() then raise exception 'Sem permissão.'; end if;
+  select * into alvo from profiles where id = uid;
+  if alvo.id is null then raise exception 'Usuário não encontrado.'; end if;
+  if uid = auth.uid() then raise exception 'Você não pode banir a si mesmo.'; end if;
+  if alvo.role <> 'user' and not is_admin() then raise exception 'Moderadores não podem banir membros da equipe.'; end if;
+  if alvo.role = 'admin' then raise exception 'Rebaixe o administrador antes de banir.'; end if;
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set banned = true, ban_reason = left(motivo, 300),
+    banned_until = case when dias is null then null else now() + make_interval(days => dias) end where id = uid;
+  perform set_config('cc.sistema', 'off', true);
+  perform log_admin('banimento', 'user', uid::text, json_build_object('dias', dias, 'motivo', motivo)::jsonb);
+  insert into notifications (user_id, type, title, body) values (uid, 'admin',
+    case when dias is null then 'Sua conta foi suspensa' else 'Sua conta foi suspensa por ' || dias || ' dia(s)' end,
+    'Motivo: ' || coalesce(motivo, 'não informado') || '. Dúvidas? Use o Fale Conosco.');
+end $$;
+grant execute on function public.admin_ban(uuid, integer, text) to authenticated;
+
+create or replace function public.admin_unban(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_staff() then raise exception 'Sem permissão.'; end if;
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set banned = false, banned_until = null, ban_reason = null where id = uid;
+  perform set_config('cc.sistema', 'off', true);
+  perform log_admin('desbanimento', 'user', uid::text, null);
+  insert into notifications (user_id, type, title) values (uid, 'admin', 'Sua conta foi reativada. Bem-vindo de volta!');
+end $$;
+grant execute on function public.admin_unban(uuid) to authenticated;
+
+-- Ajustar XP (ex.: prêmio de evento ou correção)
+create or replace function public.admin_adjust_xp(uid uuid, quantidade integer, motivo text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Só administradores podem ajustar XP.'; end if;
+  if quantidade = 0 or abs(quantidade) > 100000 then raise exception 'Quantidade inválida.'; end if;
+  perform add_xp(uid, quantidade, 'admin: ' || coalesce(motivo, ''));
+  perform log_admin('ajuste de XP', 'user', uid::text, json_build_object('xp', quantidade, 'motivo', motivo)::jsonb);
+  if quantidade > 0 then insert into notifications (user_id, type, title, body) values (uid, 'reward', 'Você ganhou ' || quantidade || ' XP da equipe! 🎁', motivo); end if;
+end $$;
+grant execute on function public.admin_adjust_xp(uuid, integer, text) to authenticated;
+
+-- Dar ou remover itens (molduras, banners, selos)
+create or replace function public.admin_cosmetic(uid uuid, cid text, dar boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Só administradores podem dar itens.'; end if;
+  if dar then perform grant_cosmetic(uid, cid);
+  else
+    delete from user_cosmetics where user_id = uid and cosmetic_id = cid;
+    perform set_config('cc.sistema', 'on', true);
+    update profiles set equipped_frame = null where id = uid and equipped_frame = cid;
+    update profiles set equipped_banner = null where id = uid and equipped_banner = cid;
+    perform set_config('cc.sistema', 'off', true);
+  end if;
+  perform log_admin(case when dar then 'item concedido' else 'item removido' end, 'user', uid::text, json_build_object('item', cid)::jsonb);
+end $$;
+grant execute on function public.admin_cosmetic(uuid, text, boolean) to authenticated;
+
+-- Definir cargos personalizados de um usuário
+create or replace function public.admin_set_titles(uid uuid, ids text[]) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Só administradores podem dar cargos.'; end if;
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set titles = (select coalesce(array_agg(id order by sort), '{}') from site_titles where id = any(ids)) where id = uid;
+  perform set_config('cc.sistema', 'off', true);
+  perform log_admin('cargos', 'user', uid::text, json_build_object('cargos', ids)::jsonb);
+end $$;
+grant execute on function public.admin_set_titles(uuid, text[]) to authenticated;
+
+-- Aviso global no topo do site (configurações públicas, sem expor as demais)
+create or replace function public.public_settings() returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object('aviso', (select value from settings where key = 'aviso_site'));
+$$;
+grant execute on function public.public_settings() to anon, authenticated;
+
+-- Registro também para ações já existentes do painel
+create or replace function public.log_moderacao() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not is_staff() then return null; end if;
+  if tg_op = 'DELETE' then
+    perform log_admin('excluiu ' || tg_table_name, tg_table_name, old.id::text, null);
+  elsif tg_op = 'UPDATE' and (to_jsonb(new) ? 'status') and (to_jsonb(new)->>'status') is distinct from (to_jsonb(old)->>'status') then
+    perform log_admin('status ' || tg_table_name || ': ' || (to_jsonb(new)->>'status'), tg_table_name, new.id::text, null);
+  end if;
+  return null;
+end $$;
+do $$ declare t text; begin
+  foreach t in array array['reviews','posts','communities','news','games','reports'] loop
+    execute format('drop trigger if exists log_mod_%1$s on public.%1$s', t);
+    execute format('create trigger log_mod_%1$s after update or delete on public.%1$s for each row execute function public.log_moderacao()', t);
+  end loop;
+end $$;
+
+-- Estatísticas: cadastros por dia (30 dias) e totais por permissão
+create or replace function public.admin_stats() returns json
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_staff() then raise exception 'acesso negado'; end if;
+  return json_build_object(
+    'users',        (select count(*) from profiles),
+    'users_7d',     (select count(*) from profiles where created_at > now() - interval '7 days'),
+    'banned',       (select count(*) from profiles where banned and (banned_until is null or banned_until > now())),
+    'staff',        (select count(*) from profiles where role <> 'user'),
+    'games',        (select count(*) from games),
+    'reviews',      (select count(*) from reviews),
+    'reviews_7d',   (select count(*) from reviews where created_at > now() - interval '7 days'),
+    'communities',  (select count(*) from communities),
+    'posts',        (select count(*) from posts),
+    'messages_new', (select count(*) from contact_messages where status = 'novo'),
+    'reports_open', (select count(*) from reports where status = 'aberta'),
+    'events_next',  (select count(*) from events where starts_at > now()),
+    'active_7d',    (select count(distinct user_id) from xp_log where created_at > now() - interval '7 days'),
+    'signups',      (select coalesce(json_agg(json_build_object('dia', d::date, 'n', (select count(*) from profiles where created_at::date = d::date)) order by d), '[]')
+                     from generate_series(current_date - 29, current_date, interval '1 day') d),
+    'top_games',    (select coalesce(json_agg(t), '[]'::json) from (
+                       select title, avg_rating, reviews_count from games
+                       where reviews_count > 0 order by avg_rating desc, reviews_count desc limit 5) t)
+  );
+end $$;

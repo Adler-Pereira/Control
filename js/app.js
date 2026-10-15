@@ -135,8 +135,14 @@ export async function montarLayout() {
     return;
   }
 
+  mostrarAvisoGlobal();
   const conta = $('.conta', topo);
   const p = await perfil();
+  // Conta suspensa: avisa a própria pessoa (ela continua navegando, mas não publica)
+  if (p?.banned && (!p.banned_until || new Date(p.banned_until) > new Date())) {
+    $('main')?.insertAdjacentHTML('afterbegin', `<div class="aviso erro">⛔ Sua conta está suspensa${p.banned_until ? ' até ' + new Date(p.banned_until).toLocaleString('pt-BR') : ''}.
+      ${p.ban_reason ? 'Motivo: ' + esc(p.ban_reason) + '. ' : ''}Você pode navegar, mas não pode publicar. Dúvidas? <a href="contato.html">Fale Conosco</a>.</div>`);
+  }
   if (!p) {
     conta.innerHTML = `<a class="btn pequeno" href="entrar.html">Entrar</a>`;
   } else {
@@ -145,7 +151,9 @@ export async function montarLayout() {
       <a href="conquistas.html" class="chama-topo" id="chama" title="Sequência de dias e conquistas">🔥 ${p.streak_current || 0}</a>
       <a href="amigos.html" class="sino" title="Amigos" aria-label="Amigos">👥</a>
       <a href="notificacoes.html" class="sino" title="Notificações" aria-label="Notificações">🔔<span class="badge hidden" id="badge"></span></a>
-      <a href="perfil.html" title="${esc(p.username)}" aria-label="Meu perfil">${avatarHtml(p)}</a>`;
+      <a href="perfil.html" title="${esc(p.username)}" aria-label="Meu perfil">${avatarHtml(p)}</a>
+      <button class="sino" id="sair-topo" title="Sair da conta" aria-label="Sair da conta" style="background:none;border:0;cursor:pointer">⎋</button>`;
+    $('#sair-topo', topo).onclick = () => { if (confirm('Sair da sua conta?')) sair(); };
     contarNotificacoes(p.id);
     loginDiario();
     entrarOnline(p);
@@ -252,3 +260,29 @@ function entrarOnline(p) {
 }
 export function onlineAgora() { return new Set(Object.keys(canalOnline?.presenceState() || {})); }
 export function aoMudarOnline(f) { ouvintesOnline.add(f); f(onlineAgora()); }
+
+// ---------- Sair da conta ----------
+// Sempre limpa a sessão do navegador, mesmo se o servidor não responder
+// (antes, uma falha no servidor deixava a pessoa "presa" logada).
+export async function sair() {
+  try { await sb.auth.signOut({ scope: 'local' }); } catch { /* segue limpando */ }
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('sb-') || k.startsWith('cc_')) localStorage.removeItem(k);
+    sessionStorage.clear();
+  } catch { /* armazenamento bloqueado */ }
+  location.href = 'index.html';
+}
+
+// ---------- Aviso global (definido no painel de admin, aba Site) ----------
+async function mostrarAvisoGlobal() {
+  const { data } = await sb.rpc('public_settings');
+  const a = data?.aviso;
+  if (!a?.ativo || !a.texto) return;
+  try { if (localStorage.getItem('cc_aviso_fechado') === String(a.versao)) return; } catch { /* ignora */ }
+  const link = /^([a-z]+\.html[\w?=&#.%-]*|https:\/\/[^\s"'<>]+)$/i.test(a.link || '') ? a.link : null;
+  const el = document.createElement('div');
+  el.className = 'aviso-global aviso-' + (['info', 'alerta', 'evento'].includes(a.tipo) ? a.tipo : 'info');
+  el.innerHTML = `<span>${esc(a.texto)} ${link ? `<a href="${esc(link)}">Saiba mais →</a>` : ''}</span><button aria-label="Fechar aviso">✕</button>`;
+  el.querySelector('button').onclick = () => { el.remove(); try { localStorage.setItem('cc_aviso_fechado', String(a.versao)); } catch { /* ignora */ } };
+  document.querySelector('.topo')?.after(el);
+}

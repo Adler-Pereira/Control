@@ -284,3 +284,9 @@ a.usuario { color: var(--texto); font-weight: 700; }
 .ponto-online { width: 10px; height: 10px; border-radius: 50%; background: #555; flex-shrink: 0; }
 .ponto-online.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 #lista-amigos { display: flex; flex-direction: column; }
+.aviso-global { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 10px 16px; font-weight: 600; text-align: center; }
+.aviso-global button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 1rem; }
+.aviso-global a { color: inherit; text-decoration: underline; }
+.aviso-info { background: var(--amarelo); color: var(--preto); }
+.aviso-alerta { background: var(--perigo); color: #fff; }
+.aviso-evento { background: #6a1b9a; color: #fff; }

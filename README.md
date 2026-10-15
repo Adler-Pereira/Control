@@ -29,7 +29,7 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 | Gamificação | Login diário com sequência (🔥), XP e bônus semanal; molduras de avatar, banners e selos desbloqueados por nível, sequência e conquistas; ranking mensal com moldura temporária para o top 10. Tudo cosmético, sem vantagem paga |
 | App instalável | PWA: instala no celular/computador e abre mesmo sem internet (última versão) |
 | Fale Conosco | Mensagens com assunto (inclusive pedidos de privacidade), respondidas pelo painel |
-| Painel de Admin | Visão geral com números, jogos, notícias, promoções, moderação de avaliações/posts/comunidades, mensagens, usuários (papéis e banimento) e configuração do robô |
+| Painel de Admin | Visão geral (números e cadastros por dia), denúncias, jogos, notícias, promoções, moderação, mensagens; usuários com busca, filtros e ficha completa (permissão, suspensão temporária com motivo, cargos, XP, itens, histórico); cargos personalizados; registro de todas as ações da equipe; aviso global no topo do site; automação |
 
 ## Arquitetura
 

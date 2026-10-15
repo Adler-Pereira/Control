@@ -1,3 +1,4 @@
+import { avatarHtml } from './app.js';
 import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, data, toast, falha, urlSegura } from './app.js';
 
 await montarLayout();
@@ -7,7 +8,7 @@ let P;
 const ABAS = [
   ['geral', 'Visão geral'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
   ['reviews', 'Avaliações'], ['posts', 'Posts'], ['comunidades', 'Comunidades'], ['mensagens', 'Mensagens'],
-  ['usuarios', 'Usuários', true], ['auto', 'Automação', true],
+  ['usuarios', 'Usuários'], ['cargos', 'Cargos', true], ['registro', 'Registro'], ['site', 'Site', true], ['auto', 'Automação', true],
 ];
 
 function iniciar() {
@@ -23,7 +24,7 @@ function iniciar() {
 }
 
 const painel = () => $('#painel');
-const VIEWS = { geral, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, auto };
+const VIEWS = { geral, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, cargos, registro, site, auto };
 function abrir(k) { painel().innerHTML = '<p class="muted">Carregando...</p>'; VIEWS[k]().catch(falha); }
 
 // Formulário genérico em <dialog>. campos: [nome, rótulo, tipo, opções]
@@ -85,7 +86,11 @@ async function geral() {
       ${k(s.users, 'usuários')}${k(s.users_7d, 'novos (7 dias)')}${k(s.games, 'jogos')}${k(s.reviews, 'avaliações')}
       ${k(s.reviews_7d, 'avaliações (7 dias)')}${k(s.communities, 'comunidades')}${k(s.posts, 'posts')}${k(s.messages_new, 'mensagens novas')}
       ${k(s.reports_open ?? 0, 'denúncias abertas')}${k(s.events_next ?? 0, 'partidas agendadas')}
+      ${s.active_7d != null ? k(s.active_7d, 'ativos (7 dias)') : ''}${s.banned != null ? k(s.banned, 'suspensos') : ''}${s.staff != null ? k(s.staff, 'equipe') : ''}
     </div>
+    ${s.signups ? `<h2>Cadastros por dia (últimos 30 dias)</h2>
+      <div class="cartao">${tabela(['Dia', 'Novos usuários'], s.signups.filter((d) => d.n > 0).reverse().map((d) => `<tr><td>${new Date(d.dia + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td><td>${d.n}</td></tr>`))}
+      <p class="muted" style="font-size:.85rem;margin-top:6px">Total no período: ${s.signups.reduce((a, d) => a + d.n, 0)}. Dias sem cadastro não aparecem.</p></div>` : ''}
     <h2>Top jogos</h2>
     ${tabela(['Jogo', 'Nota', 'Avaliações'], s.top_games.map((g) => `<tr><td>${esc(g.title)}</td><td>${Number(g.avg_rating).toFixed(2)}</td><td>${g.reviews_count}</td></tr>`))}`;
 }
@@ -305,26 +310,188 @@ async function mensagens() {
   acoes({ excluir: async (id) => { if (!confirm('Excluir mensagem?')) return; const { error } = await sb.from('contact_messages').delete().eq('id', id); if (error) throw error; mensagens(); } });
 }
 
-// ---------------- Usuários (somente admin) ----------------
+// ---------------- Usuários ----------------
+const PERMISSAO = { user: 'Usuário', moderator: 'Moderador', admin: 'Administrador' };
+const suspenso = (u) => u.banned && (!u.banned_until || new Date(u.banned_until) > new Date());
+let filtroUsuarios = { q: '', papel: '', situacao: '', pagina: 0 };
+
 async function usuarios() {
-  const { data: us } = await sb.from('profiles').select('*').order('created_at', { ascending: false }).limit(500);
-  painel().innerHTML = `<input id="filtro" placeholder="Filtrar por nome..." style="max-width:320px;margin-bottom:12px">
-    ${tabela(['Usuário', 'XP', 'Papel', 'Situação', 'Desde', ''], us.map((u) => `<tr data-nome="${esc(u.username.toLowerCase())}">
-      <td>${esc(u.username)}</td><td>${u.xp}</td>
-      <td><select class="papel" data-id="${u.id}" style="width:auto" ${u.id === P.id ? 'disabled' : ''}>${['user', 'moderator', 'admin'].map((r) => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
-      <td>${u.banned ? '<span class="tag" style="background:var(--perigo);color:#fff">banido</span>' : 'ativo'}</td><td>${data(u.created_at)}</td>
-      <td>${u.id === P.id ? '' : `<button class="btn ${u.banned ? 'sec' : 'perigo'} pequeno" data-acao="ban" data-id="${u.id}">${u.banned ? 'Desbanir' : 'Banir'}</button>`}</td></tr>`))}`;
-  $('#filtro').oninput = (e) => painel().querySelectorAll('tbody tr[data-nome]').forEach((tr) => tr.classList.toggle('hidden', !tr.dataset.nome.includes(e.target.value.toLowerCase())));
-  painel().querySelectorAll('select.papel').forEach((s) => s.onchange = async () => {
-    if (!confirm(`Mudar o papel para "${s.value}"?`)) return usuarios();
-    const { error } = await sb.from('profiles').update({ role: s.value }).eq('id', s.dataset.id);
-    error ? falha(error) : toast('Papel atualizado.');
+  const POR = 50, f = filtroUsuarios;
+  let q = sb.from('profiles').select('id,username,avatar_url,equipped_frame,role,xp,banned,banned_until,titles,created_at', { count: 'exact' })
+    .order('created_at', { ascending: false }).range(f.pagina * POR, f.pagina * POR + POR - 1);
+  if (f.q) q = q.ilike('username', `%${f.q.replace(/[%,()]/g, '')}%`);
+  if (f.papel) q = q.eq('role', f.papel);
+  if (f.situacao === 'suspensos') q = q.eq('banned', true);
+  const [{ data: us, count, error }, { data: titulos }] = await Promise.all([q, sb.from('site_titles').select('*').order('sort')]);
+  if (error) throw error;
+  const T = new Map((titulos || []).map((t) => [t.id, t]));
+  painel().innerHTML = `
+    <div class="form-linha" style="margin-bottom:12px">
+      <input id="u-q" type="search" placeholder="Buscar por nome de usuário..." value="${esc(f.q)}">
+      <select id="u-papel"><option value="">Todas as permissões</option>${Object.entries(PERMISSAO).map(([v, t]) => `<option value="${v}" ${f.papel === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <select id="u-sit"><option value="">Todas as situações</option><option value="suspensos" ${f.situacao ? 'selected' : ''}>Suspensos</option></select>
+    </div>
+    <p class="muted" style="margin-bottom:8px">${(count ?? 0).toLocaleString('pt-BR')} usuário(s). Clique em um usuário para gerenciar.</p>
+    ${tabela(['Usuário', 'Permissão', 'Cargos', 'XP', 'Situação', 'Desde'], us.map((u) => `<tr class="linha-usuario" data-id="${u.id}" style="cursor:pointer">
+      <td><span class="controles" style="align-items:center;flex-wrap:nowrap">${avatarHtml(u)} <strong>${esc(u.username)}</strong>${u.id === P.id ? ' <span class="muted">(você)</span>' : ''}</span></td>
+      <td>${PERMISSAO[u.role]}</td>
+      <td>${(u.titles || []).map((t) => T.get(t)).filter(Boolean).map((t) => `<span class="tag" style="background:${esc(t.color)};color:#000">${esc(t.icon || '')} ${esc(t.name)}</span>`).join(' ')}</td>
+      <td>${u.xp}</td>
+      <td>${suspenso(u) ? `<span class="tag" style="background:var(--perigo);color:#fff">suspenso${u.banned_until ? ' até ' + new Date(u.banned_until).toLocaleDateString('pt-BR') : ''}</span>` : 'ativo'}</td>
+      <td>${data(u.created_at)}</td></tr>`))}
+    <div class="controles" style="justify-content:center;margin-top:12px">
+      ${f.pagina > 0 ? '<button class="btn sec pequeno" id="u-ant">← Anteriores</button>' : ''}
+      ${(f.pagina + 1) * POR < (count ?? 0) ? '<button class="btn sec pequeno" id="u-prox">Próximos →</button>' : ''}
+    </div>`;
+  let t;
+  $('#u-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value.trim(); f.pagina = 0; usuarios(); }, 350); };
+  $('#u-papel').onchange = (e) => { f.papel = e.target.value; f.pagina = 0; usuarios(); };
+  $('#u-sit').onchange = (e) => { f.situacao = e.target.value; f.pagina = 0; usuarios(); };
+  $('#u-ant')?.addEventListener('click', () => { f.pagina--; usuarios(); });
+  $('#u-prox')?.addEventListener('click', () => { f.pagina++; usuarios(); });
+  painel().querySelectorAll('.linha-usuario').forEach((tr) => tr.onclick = () => fichaUsuario(tr.dataset.id, T));
+}
+
+// Ficha completa de um usuário, com todas as ações da equipe
+async function fichaUsuario(uid, T) {
+  const [{ data: d, error }, { data: itens }] = await Promise.all([sb.rpc('admin_user_detail', { uid }), sb.from('cosmetics').select('id,name,kind').order('kind').order('sort')]);
+  if (error) return falha(error);
+  const u = d.profile, eu = u.id === P.id, admin = P.role === 'admin';
+  const dlg = $('#dlg');
+  dlg.innerHTML = `
+    <div class="controles" style="align-items:center;margin-bottom:10px">${avatarHtml(u, 'grande')}
+      <div style="flex:1"><h2 style="margin:0">${esc(u.username)}</h2>
+        <span class="muted">${PERMISSAO[u.role]} · ${u.xp} XP · desde ${data(d.created_at || u.created_at)}</span>
+        ${d.email ? `<br><span class="muted">📧 ${esc(d.email)}</span>` : ''}
+        ${d.last_sign_in_at ? `<br><span class="muted">Último login: ${new Date(d.last_sign_in_at).toLocaleString('pt-BR')}</span>` : ''}</div>
+      <a class="btn sec pequeno" href="perfil.html?u=${encodeURIComponent(u.username)}" target="_blank">Ver perfil</a></div>
+    <div class="kpis">
+      <div class="kpi"><div class="valor">${d.reviews}</div><div class="rotulo">avaliações</div></div>
+      <div class="kpi"><div class="valor">${d.posts}</div><div class="rotulo">posts</div></div>
+      <div class="kpi"><div class="valor">${d.communities}</div><div class="rotulo">comunidades</div></div>
+      <div class="kpi"><div class="valor" style="${d.reports_against ? 'color:var(--perigo)' : ''}">${d.reports_against}</div><div class="rotulo">denúncias contra</div></div>
+    </div>
+    ${suspenso(u) ? `<div class="aviso erro">Suspenso ${u.banned_until ? 'até ' + new Date(u.banned_until).toLocaleString('pt-BR') : 'permanentemente'}${u.ban_reason ? ' · Motivo: ' + esc(u.ban_reason) : ''}</div>` : ''}
+
+    ${eu ? '<p class="muted">Este é você: permissão e suspensão não podem ser alteradas na própria conta.</p>' : `
+    <h3>Suspensão</h3>
+    ${suspenso(u) ? '<button class="btn sec pequeno" id="f-desbanir">Reativar conta</button>' : `
+      <div class="controles"><select id="f-dias" style="width:auto"><option value="1">1 dia</option><option value="7">7 dias</option><option value="30">30 dias</option><option value="">Permanente</option></select>
+      <input id="f-motivo" placeholder="Motivo (a pessoa recebe esse texto)" maxlength="300" style="flex:1;min-width:180px">
+      <button class="btn perigo pequeno" id="f-banir" ${u.role !== 'user' && !admin ? 'disabled title="Moderadores não podem suspender a equipe"' : ''}>Suspender</button></div>`}
+    ${admin ? `<h3 style="margin-top:14px">Permissão</h3>
+      <div class="controles"><select id="f-papel" style="width:auto">${Object.entries(PERMISSAO).map(([v, t]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <button class="btn pequeno" id="f-salvar-papel">Salvar permissão</button></div>
+      <p class="muted" style="font-size:.82rem">Moderador: modera conteúdo, denúncias e suspende usuários comuns. Administrador: acesso total.</p>` : ''}`}
+
+    ${admin ? `<h3 style="margin-top:14px">Cargos (aparecem no perfil)</h3>
+      <div class="chips" id="f-titulos">${[...T.values()].map((t) => `<button type="button" class="chip ${(u.titles || []).includes(t.id) ? 'ativo' : ''}" data-t="${esc(t.id)}">${esc(t.icon || '')} ${esc(t.name)}</button>`).join('') || '<span class="muted">Crie cargos na aba Cargos.</span>'}</div>
+      <button class="btn pequeno" id="f-salvar-titulos">Salvar cargos</button>
+
+      <h3 style="margin-top:14px">XP</h3>
+      <div class="controles"><input id="f-xp" type="number" placeholder="+100 ou -50" style="width:130px"><input id="f-xp-motivo" placeholder="Motivo (ex.: campeão do torneio)" maxlength="120" style="flex:1;min-width:180px">
+      <button class="btn pequeno" id="f-dar-xp">Aplicar</button></div>
+
+      <h3 style="margin-top:14px">Itens (molduras, banners e selos)</h3>
+      <div class="controles"><select id="f-item" style="width:auto">${(itens || []).map((i) => `<option value="${i.id}">${i.kind === 'frame' ? 'Moldura' : i.kind === 'banner' ? 'Banner' : 'Selo'}: ${esc(i.name)}${d.cosmetics.includes(i.id) ? ' ✓' : ''}</option>`).join('')}</select>
+      <button class="btn pequeno" id="f-dar-item">Dar</button><button class="btn sec pequeno" id="f-tirar-item">Remover</button></div>` : ''}
+
+    <h3 style="margin-top:14px">Histórico da equipe</h3>
+    <div class="lista" style="max-height:180px;overflow:auto">${d.history.map((h) => `<div class="muted" style="font-size:.85rem">${new Date(h.created_at).toLocaleString('pt-BR')} · <strong>${esc(h.action)}</strong>${h.por ? ' por ' + esc(h.por) : ''}${h.details?.motivo ? ' · ' + esc(h.details.motivo) : ''}</div>`).join('') || '<span class="muted">Nenhuma ação registrada.</span>'}</div>
+    <div class="controles" style="margin-top:16px"><button class="btn sec" id="f-fechar">Fechar</button></div>`;
+  dlg.showModal();
+  const rpc = async (fn, args, msg) => {
+    const { error: e } = await sb.rpc(fn, args);
+    if (e) return falha(e);
+    toast(msg); fichaUsuario(uid, T); usuarios();
+  };
+  $('#f-fechar').onclick = () => dlg.close();
+  $('#f-desbanir')?.addEventListener('click', () => rpc('admin_unban', { uid }, 'Conta reativada.'));
+  $('#f-banir')?.addEventListener('click', () => {
+    const dias = $('#f-dias').value ? Number($('#f-dias').value) : null, motivo = $('#f-motivo').value.trim();
+    if (!motivo) return toast('Informe o motivo da suspensão.', true);
+    if (confirm(`Suspender ${u.username} ${dias ? `por ${dias} dia(s)` : 'permanentemente'}?`)) rpc('admin_ban', { uid, dias, motivo }, 'Usuário suspenso.');
   });
-  acoes({ ban: async (id) => {
-    const u = us.find((x) => x.id === id);
-    if (!confirm(u.banned ? 'Desbanir usuário?' : 'Banir usuário? Ele não poderá mais publicar.')) return;
-    const { error } = await sb.from('profiles').update({ banned: !u.banned }).eq('id', id); if (error) throw error; usuarios();
-  } });
+  $('#f-salvar-papel')?.addEventListener('click', () => {
+    const novo = $('#f-papel').value;
+    if (novo !== u.role && confirm(`Mudar a permissão de ${u.username} para ${PERMISSAO[novo]}?`)) rpc('admin_set_role', { uid, novo }, 'Permissão atualizada.');
+  });
+  dlg.querySelectorAll('#f-titulos .chip').forEach((b) => b.onclick = () => b.classList.toggle('ativo'));
+  $('#f-salvar-titulos')?.addEventListener('click', () => rpc('admin_set_titles', { uid, ids: [...dlg.querySelectorAll('#f-titulos .chip.ativo')].map((b) => b.dataset.t) }, 'Cargos atualizados.'));
+  $('#f-dar-xp')?.addEventListener('click', () => {
+    const quantidade = Number($('#f-xp').value);
+    if (!quantidade) return toast('Informe a quantidade de XP.', true);
+    rpc('admin_adjust_xp', { uid, quantidade, motivo: $('#f-xp-motivo').value.trim() || null }, 'XP ajustado.');
+  });
+  $('#f-dar-item')?.addEventListener('click', () => rpc('admin_cosmetic', { uid, cid: $('#f-item').value, dar: true }, 'Item concedido.'));
+  $('#f-tirar-item')?.addEventListener('click', () => rpc('admin_cosmetic', { uid, cid: $('#f-item').value, dar: false }, 'Item removido.'));
+}
+
+// ---------------- Cargos personalizados (somente admin) ----------------
+async function cargos() {
+  const { data: ts } = await sb.from('site_titles').select('*').order('sort');
+  const { data: us } = await sb.from('profiles').select('titles').neq('titles', '{}');
+  const uso = (id) => (us || []).filter((u) => (u.titles || []).includes(id)).length;
+  painel().innerHTML = `<p class="muted">Cargos são títulos visuais exibidos no perfil (ex.: Streamer, Parceiro). Eles <strong>não dão permissões</strong>:
+    para isso use Moderador/Administrador na ficha do usuário.</p>
+    <div class="controles" style="margin:12px 0"><button class="btn" data-acao="novo">+ Novo cargo</button></div>
+    ${tabela(['Cargo', 'Identificador', 'Pessoas', ''], (ts || []).map((t) => `<tr>
+      <td><span class="tag" style="background:${esc(t.color)};color:#000">${esc(t.icon || '')} ${esc(t.name)}</span></td><td><code>${esc(t.id)}</code></td><td>${uso(t.id)}</td>
+      <td class="controles"><button class="btn sec pequeno" data-acao="editar" data-id="${esc(t.id)}">Editar</button>
+      <button class="btn perigo pequeno" data-acao="excluir" data-id="${esc(t.id)}">Excluir</button></td></tr>`))}`;
+  const campos = [['name', 'Nome'], ['icon', 'Emoji (opcional)'], ['color', 'Cor', 'color'], ['sort', 'Ordem', 'number']];
+  acoes({
+    novo: async () => {
+      const v = await formulario('Novo cargo', [['id', 'Identificador (letras minúsculas, ex.: streamer)'], ...campos], { color: '#ffd33c', sort: 50 });
+      if (!v) return;
+      const { error } = await sb.from('site_titles').insert({ ...v, id: (v.id || '').toLowerCase().replace(/[^a-z0-9_]/g, '_') }); if (error) throw error; cargos();
+    },
+    editar: async (id) => {
+      const v = await formulario('Editar cargo', campos, ts.find((t) => t.id === id)); if (!v) return;
+      const { error } = await sb.from('site_titles').update(v).eq('id', id); if (error) throw error; cargos();
+    },
+    excluir: async (id) => { if (!confirm('Excluir este cargo? Ele some do perfil de quem tem.')) return; const { error } = await sb.from('site_titles').delete().eq('id', id); if (error) throw error; cargos(); },
+  });
+}
+
+// ---------------- Registro de ações da equipe ----------------
+async function registro() {
+  const { data: ls, error } = await sb.from('admin_log').select('*, profiles!admin_log_actor_id_fkey(username)').order('created_at', { ascending: false }).limit(200);
+  if (error) throw error;
+  const ids = [...new Set(ls.filter((l) => l.target_type === 'user').map((l) => l.target_id))];
+  const { data: alvos } = ids.length ? await sb.from('profiles').select('id,username').in('id', ids) : { data: [] };
+  const nome = new Map((alvos || []).map((a) => [a.id, a.username]));
+  painel().innerHTML = `<p class="muted" style="margin-bottom:10px">Últimas 200 ações de moderação e administração (suspensões, permissões, XP, itens, exclusões e ocultações).</p>
+    ${tabela(['Quando', 'Quem', 'Ação', 'Alvo', 'Detalhes'], ls.map((l) => `<tr><td>${new Date(l.created_at).toLocaleString('pt-BR')}</td>
+      <td>${esc(l.profiles?.username || '—')}</td><td><strong>${esc(l.action)}</strong></td>
+      <td>${l.target_type === 'user' ? `<a href="perfil.html?u=${encodeURIComponent(nome.get(l.target_id) || '')}" target="_blank">${esc(nome.get(l.target_id) || 'usuário removido')}</a>` : esc(`${l.target_type || ''} ${l.target_id || ''}`)}</td>
+      <td class="muted">${l.details ? esc(Object.entries(l.details).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v ?? '—'}`).join(' · ')) : ''}</td></tr>`))}`;
+}
+
+// ---------------- Site: aviso global (somente admin) ----------------
+async function site() {
+  const { data: st } = await sb.from('settings').select('*').eq('key', 'aviso_site').maybeSingle();
+  const a = st?.value || {};
+  painel().innerHTML = `<form class="cartao" id="form-aviso">
+      <h3>Aviso no topo do site</h3>
+      <p class="muted">Aparece para todos os visitantes em todas as páginas (ex.: manutenção, evento, novidade).</p>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="av-ativo" style="width:auto" ${a.ativo ? 'checked' : ''}> Mostrar o aviso</label>
+      <label for="av-texto">Texto</label><input id="av-texto" maxlength="200" value="${esc(a.texto || '')}" placeholder="Ex.: Torneio de Street Fighter 6 neste sábado! Inscreva-se na comunidade Luta e FGC.">
+      <div class="form-linha">
+        <div><label for="av-tipo">Estilo</label><select id="av-tipo">${[['info', 'Informação (amarelo)'], ['alerta', 'Alerta (vermelho)'], ['evento', 'Evento (roxo)']].map(([v, t]) => `<option value="${v}" ${a.tipo === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+        <div><label for="av-link">Link (opcional)</label><input id="av-link" value="${esc(a.link || '')}" placeholder="comunidade.html?id=8"></div>
+      </div>
+      <button class="btn" style="margin-top:12px">Salvar aviso</button>
+    </form>`;
+  $('#form-aviso').onsubmit = async (e) => {
+    e.preventDefault();
+    const link = $('#av-link').value.trim();
+    if (link && !/^([a-z]+\.html[\w?=&#.%-]*|https:\/\/[^\s"'<>]+)$/i.test(link)) return toast('Link inválido.', true);
+    const value = { ativo: $('#av-ativo').checked, texto: $('#av-texto').value.trim(), tipo: $('#av-tipo').value, link: link || null, versao: Date.now() };
+    const { error } = await sb.from('settings').upsert({ key: 'aviso_site', value });
+    if (error) return falha(error);
+    toast(value.ativo ? 'Aviso publicado.' : 'Aviso desativado.');
+  };
 }
 
 // ---------------- Automação (somente admin) ----------------
