@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, toast, falha, denunciar } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, toast, falha, denunciar, traduzirNoNavegador } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -28,7 +28,8 @@ async function carregar() {
         <h1 style="margin-top:16px">${esc(g.title)}</h1>
         <p>${g.categories ? `<a class="tag" href="jogos.html?cat=${g.categories.id}">${esc(g.categories.name)}</a>` : ''} ${g.release_year ? `<span class="tag">${g.release_year}</span>` : ''}
           ${(g.platforms || []).map((pl) => `<a class="tag" href="jogos.html?plat=${encodeURIComponent(pl)}">${esc(pl)}</a>`).join(' ')}</p>
-        <p class="quebra" style="margin-top:12px">${esc(g.description || '')}</p>
+        <p class="quebra" style="margin-top:12px" id="descricao">${esc(g.description || '')}</p>
+        ${g.description_lang === 'en' ? '<p class="muted" id="desc-aviso" style="font-size:.82rem;margin-top:4px">🌐 Traduzindo a descrição (original em inglês)...</p>' : ''}
       </div>
       <aside class="lista">
         <div class="cartao">
@@ -87,6 +88,7 @@ async function carregar() {
     </div>`;
 
   main.querySelectorAll('[data-den]').forEach((b) => b.onclick = () => denunciar('review', b.dataset.den));
+  if (g.description_lang === 'en') traduzirDescricao(g);
 
   // Biblioteca: salva ao mudar qualquer campo
   const salvarBib = async (mudanca) => {
@@ -126,4 +128,21 @@ async function carregar() {
     if (error) return falha(error);
     toast('Avaliação removida.'); carregar();
   });
+}
+
+// Descrição em inglês: traduz no servidor (fica salva para todos) ou, como reserva, no navegador
+async function traduzirDescricao(g) {
+  const aviso = $('#desc-aviso');
+  try {
+    const r = await fetch(`/.netlify/functions/traduzir?id=${g.id}`);
+    if (r.ok) {
+      const d = await r.json();
+      $('#descricao').textContent = d.description;
+      aviso?.remove();
+      return;
+    }
+  } catch { /* sem função disponível: tenta no navegador */ }
+  const t = await traduzirNoNavegador(g.description);
+  if (t) { $('#descricao').textContent = t; if (aviso) aviso.textContent = '🌐 Tradução automática do navegador (original em inglês).'; }
+  else if (aviso) aviso.textContent = '🌐 Descrição disponível apenas em inglês por enquanto.';
 }

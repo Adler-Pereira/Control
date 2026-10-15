@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, data, urlSegura } from './app.js';
+import { sb, $, esc, montarLayout, configurado, data, urlSegura, traduzirNoNavegador } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -21,10 +21,17 @@ async function carregar() {
     <article class="cartao" id="n${n.id}">
       ${n.cover_url ? `<img src="${urlSegura(n.cover_url)}" alt="" style="border-radius:10px;margin-bottom:10px;max-height:280px;object-fit:cover;width:100%">` : ''}
       <span class="muted">${data(n.created_at)} · ${n.source ? esc(n.source) : 'Equipe Control Critic'}</span>
-      <h3>${esc(n.title)}</h3>
+      <h3>${esc(n.title)}</h3>${n.lang === 'en' ? `<button class="btn sec pequeno" data-trad="${n.id}" style="margin:4px 0">🌐 Traduzir</button>` : ''}
       ${n.games ? `<p><a class="tag" href="jogo.html?slug=${encodeURIComponent(n.games.slug)}">${esc(n.games.title)}</a></p>` : ''}
       <p class="quebra">${esc(n.source ? (n.summary || '') : n.body)}</p>
       ${n.source_url ? `<p style="margin-top:8px"><a href="${urlSegura(n.source_url)}" target="_blank" rel="noopener">Ler na fonte oficial →</a></p>` : ''}
     </article>`).join('') || '<p class="vazio">Nenhuma notícia ainda.</p>';
   if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
+  document.querySelectorAll('[data-trad]').forEach((b) => b.onclick = async () => {
+    const art = b.closest('article'), h = art.querySelector('h3'), p = art.querySelector('p.quebra');
+    b.disabled = true; b.textContent = 'Traduzindo...';
+    const [t1, t2] = await Promise.all([traduzirNoNavegador(h.textContent), p?.textContent ? traduzirNoNavegador(p.textContent) : null]);
+    if (!t1) { b.textContent = 'Seu navegador não traduz automaticamente (use o Chrome atualizado)'; return; }
+    h.textContent = t1; if (t2) p.textContent = t2; b.remove();
+  });
 }

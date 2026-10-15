@@ -33,7 +33,7 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 - **Front-end:** HTML, CSS e JavaScript puro (módulos ES). Sem build.
 - **Back-end:** [Supabase](https://supabase.com) (login, Postgres, armazenamento de imagens e tempo real).
   Toda a segurança fica no banco, com Row Level Security (`supabase/schema.sql`).
-- **Automação:** GitHub Actions roda `scripts/sync.mjs` a cada 6 horas (notícias e promoções, em lotes de 200 jogos por vez) e `scripts/igdb.mjs` todo dia (amplia o catálogo e traz lançamentos).
+- **Automação:** GitHub Actions roda `scripts/sync.mjs` a cada 6 horas (notícias e preços de todo o catálogo da Steam em lotes de 100 jogos por consulta) e `scripts/igdb.mjs` todo dia (amplia o catálogo e traz lançamentos).
 - **Função no servidor:** `netlify/functions/buscar-jogo.mjs` busca no IGDB e adiciona automaticamente os jogos procurados, sem expor as chaves.
 - **Hospedagem:** Netlify, com deploy automático a cada push na `main`.
 
@@ -99,7 +99,14 @@ Os dados de jogos vêm do [IGDB](https://www.igdb.com) (Twitch), com crédito no
 O `schema.sql` agenda os lembretes no próprio banco (extensão `pg_cron`, a cada 10 minutos). Se o Supabase não permitir
 ativar a extensão, o robô de sincronização envia os lembretes como reserva (com menos precisão).
 
-### 8. Discord em uma comunidade
+### 8. Tradução automática (opcional, recomendado)
+O IGDB e as notícias da Steam vêm em inglês. O robô troca pela descrição em português da Steam quando ela existe; o resto
+é traduzido pelo **DeepL** (plano gratuito: 500 mil caracteres por mês).
+1. Crie uma conta em **deepl.com/pro-api** (plano *DeepL API Free*) e copie a chave (termina com `:fx`).
+2. Crie `DEEPL_API_KEY` nos **segredos do GitHub** (notícias) e nas **variáveis do Netlify** (descrições, traduzidas na primeira vez que alguém abre o jogo e salvas).
+Sem a chave, quem usa o Chrome atualizado vê a tradução feita pelo próprio navegador.
+
+### 9. Discord em uma comunidade
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
 - opcionalmente o **ID do servidor**, depois de ativar *Configurações do servidor → Widget → Habilitar widget*.

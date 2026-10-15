@@ -204,3 +204,15 @@ export async function denunciar(tipo, id) {
     toast('Denúncia enviada. Obrigado por ajudar a manter a comunidade segura.');
   }, { once: true });
 }
+
+// ---------- Tradução ----------
+// Usa o tradutor embutido do navegador (Chrome 138+), que roda no próprio aparelho e é gratuito.
+export async function traduzirNoNavegador(texto) {
+  try {
+    if (!('Translator' in self)) return null;
+    const disp = await self.Translator.availability({ sourceLanguage: 'en', targetLanguage: 'pt' });
+    if (disp === 'unavailable') return null;
+    const t = await self.Translator.create({ sourceLanguage: 'en', targetLanguage: 'pt' });
+    return await t.translate(texto);
+  } catch { return null; }
+}

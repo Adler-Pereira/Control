@@ -789,3 +789,24 @@ do $$ begin
 exception when others then
   raise notice 'pg_cron indisponível (%): lembretes ficam a cargo do robô.', sqlerrm;
 end $$;
+
+-- =====================================================================
+-- IDIOMA DOS TEXTOS (descrições e notícias em inglês são traduzidas)
+-- =====================================================================
+alter table public.games add column if not exists description_lang text check (description_lang in ('pt','en'));
+alter table public.games add column if not exists description_en text;   -- original em inglês, guardado ao traduzir
+alter table public.news  add column if not exists lang text check (lang in ('pt','en'));
+
+-- Classifica o que já existe (contagem de palavras comuns de cada idioma)
+update public.games set description_lang = case
+    when regexp_count(description, '\m(the|and|of|with|your|you|to|in|is|are|this|for|from|game|world)\M', 1, 'i')
+       > regexp_count(description, '\m(de|que|uma|um|com|para|seu|sua|você|do|da|em|não|mais|como|é|são|jogo|mundo)\M', 1, 'i')
+           + 2 * regexp_count(description, '(ção|ções|ão|ões)\M', 1, 'i')
+    then 'en' else 'pt' end
+  where description is not null and description_lang is null;
+update public.news set lang = case
+    when regexp_count(coalesce(title,'') || ' ' || coalesce(summary,''), '\m(the|and|of|with|your|you|to|in|is|are|this|for|from)\M', 1, 'i')
+       > regexp_count(coalesce(title,'') || ' ' || coalesce(summary,''), '\m(de|que|uma|um|com|para|seu|você|do|da|em|não|mais|é|são)\M', 1, 'i')
+    then 'en' else 'pt' end
+  where lang is null;
+create index if not exists games_desc_en_idx on public.games(id) where description_lang = 'en' and steam_appid is not null;
