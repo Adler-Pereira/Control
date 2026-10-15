@@ -5,7 +5,7 @@ const main = $('#conteudo');
 let P;
 
 const ABAS = [
-  ['geral', 'Visão geral'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
+  ['geral', 'Visão geral'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
   ['reviews', 'Avaliações'], ['posts', 'Posts'], ['comunidades', 'Comunidades'], ['mensagens', 'Mensagens'],
   ['usuarios', 'Usuários', true], ['auto', 'Automação', true],
 ];
@@ -23,7 +23,7 @@ function iniciar() {
 }
 
 const painel = () => $('#painel');
-const VIEWS = { geral, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, auto };
+const VIEWS = { geral, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, auto };
 function abrir(k) { painel().innerHTML = '<p class="muted">Carregando...</p>'; VIEWS[k]().catch(falha); }
 
 // Formulário genérico em <dialog>. campos: [nome, rótulo, tipo, opções]
@@ -84,6 +84,7 @@ async function geral() {
   painel().innerHTML = `<div class="kpis">
       ${k(s.users, 'usuários')}${k(s.users_7d, 'novos (7 dias)')}${k(s.games, 'jogos')}${k(s.reviews, 'avaliações')}
       ${k(s.reviews_7d, 'avaliações (7 dias)')}${k(s.communities, 'comunidades')}${k(s.posts, 'posts')}${k(s.messages_new, 'mensagens novas')}
+      ${k(s.reports_open ?? 0, 'denúncias abertas')}${k(s.events_next ?? 0, 'partidas agendadas')}
     </div>
     <h2>Top jogos</h2>
     ${tabela(['Jogo', 'Nota', 'Avaliações'], s.top_games.map((g) => `<tr><td>${esc(g.title)}</td><td>${Number(g.avg_rating).toFixed(2)}</td><td>${g.reviews_count}</td></tr>`))}`;
@@ -191,6 +192,68 @@ async function promos() {
   });
 }
 
+// ---------------- Denúncias ----------------
+const MOTIVO = { spam: 'Spam', ofensivo: 'Ofensivo', assedio: 'Assédio', 'conteudo_impróprio': 'Impróprio', golpe: 'Golpe', outro: 'Outro' };
+async function denuncias() {
+  const filtro = painel().dataset.filtro || 'aberta';
+  const { data: rs } = await sb.from('reports').select('*, profiles!reports_reporter_id_fkey(username)').eq('status', filtro).order('created_at', { ascending: false }).limit(200);
+  // Carrega o conteúdo denunciado para mostrar junto
+  const ids = (t) => rs.filter((r) => r.target_type === t).map((r) => r.target_id);
+  const [rev, pos, pro, com] = await Promise.all([
+    ids('review').length ? sb.from('reviews').select('id,body,status,user_id,games(slug,title),profiles(username)').in('id', ids('review')) : { data: [] },
+    ids('post').length ? sb.from('posts').select('id,body,status,user_id,community_id,profiles(username)').in('id', ids('post')) : { data: [] },
+    ids('profile').length ? sb.from('profiles').select('id,username,bio,banned').in('id', ids('profile')) : { data: [] },
+    ids('community').length ? sb.from('communities').select('id,name,description').in('id', ids('community')) : { data: [] },
+  ]);
+  const alvo = { review: new Map((rev.data || []).map((x) => [String(x.id), x])), post: new Map((pos.data || []).map((x) => [String(x.id), x])),
+    profile: new Map((pro.data || []).map((x) => [String(x.id), x])), community: new Map((com.data || []).map((x) => [String(x.id), x])) };
+  const descrever = (r) => {
+    const x = alvo[r.target_type]?.get(String(r.target_id));
+    if (!x) return '<span class="muted">(conteúdo já removido)</span>';
+    if (r.target_type === 'review') return `Avaliação de <strong>${esc(x.profiles?.username)}</strong> em <a href="jogo.html?slug=${encodeURIComponent(x.games?.slug)}" target="_blank">${esc(x.games?.title)}</a>: “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculta</span>' : ''}`;
+    if (r.target_type === 'post') return `Post de <strong>${esc(x.profiles?.username)}</strong> (<a href="comunidade.html?id=${x.community_id}" target="_blank">comunidade</a>): “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculto</span>' : ''}`;
+    if (r.target_type === 'profile') return `Perfil <a href="perfil.html?u=${encodeURIComponent(x.username)}" target="_blank">${esc(x.username)}</a> ${x.banned ? '<span class="tag">banido</span>' : ''}`;
+    if (r.target_type === 'community') return `Comunidade <a href="comunidade.html?id=${x.id}" target="_blank">${esc(x.name)}</a>`;
+    return esc(r.target_type);
+  };
+  const acaoAlvo = (r) => {
+    const x = alvo[r.target_type]?.get(String(r.target_id));
+    if (!x) return '';
+    if (r.target_type === 'review' || r.target_type === 'post') return x.status === 'hidden' ? '' : `<button class="btn perigo pequeno" data-acao="ocultar" data-id="${r.id}">Ocultar conteúdo</button>`;
+    if (r.target_type === 'profile' && P.role === 'admin' && !x.banned) return `<button class="btn perigo pequeno" data-acao="banir" data-id="${r.id}">Banir usuário</button>`;
+    if (r.target_type === 'community') return `<button class="btn perigo pequeno" data-acao="excluirCom" data-id="${r.id}">Excluir comunidade</button>`;
+    return '';
+  };
+  painel().innerHTML = `<div class="chips">${['aberta', 'resolvida', 'descartada'].map((f) => `<button class="chip ${f === filtro ? 'ativo' : ''}" data-f="${f}">${f[0].toUpperCase() + f.slice(1)}s</button>`).join('')}</div>
+    ${tabela(['Data', 'Motivo', 'Conteúdo denunciado', 'Denunciante', ''], rs.map((r) => `<tr>
+      <td>${data(r.created_at)}</td><td><span class="tag amarela">${MOTIVO[r.reason] || esc(r.reason)}</span>${r.details ? `<br><span class="muted">${corta(r.details, 140)}</span>` : ''}</td>
+      <td>${descrever(r)}</td><td>${esc(r.profiles?.username || '—')}</td>
+      <td class="controles">${r.status === 'aberta' ? `${acaoAlvo(r)}<button class="btn sec pequeno" data-acao="resolver" data-id="${r.id}">✓ Resolvida</button>
+        <button class="btn sec pequeno" data-acao="descartar" data-id="${r.id}">Descartar</button>` : ''}</td></tr>`))}`;
+  painel().querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { painel().dataset.filtro = b.dataset.f; denuncias(); });
+  const marcar = async (id, status) => { const { error } = await sb.from('reports').update({ status }).eq('id', id); if (error) throw error; };
+  const r = (id) => rs.find((x) => x.id == id);
+  acoes({
+    resolver: async (id) => { await marcar(id, 'resolvida'); denuncias(); },
+    descartar: async (id) => { await marcar(id, 'descartada'); denuncias(); },
+    ocultar: async (id) => {
+      const d = r(id), t = d.target_type === 'review' ? 'reviews' : 'posts';
+      const { error } = await sb.from(t).update({ status: 'hidden' }).eq('id', d.target_id); if (error) throw error;
+      await marcar(id, 'resolvida'); toast('Conteúdo ocultado.'); denuncias();
+    },
+    banir: async (id) => {
+      if (!confirm('Banir este usuário? Ele não poderá mais publicar.')) return;
+      const { error } = await sb.from('profiles').update({ banned: true }).eq('id', r(id).target_id); if (error) throw error;
+      await marcar(id, 'resolvida'); toast('Usuário banido.'); denuncias();
+    },
+    excluirCom: async (id) => {
+      if (!confirm('Excluir a comunidade e todos os posts?')) return;
+      const { error } = await sb.from('communities').delete().eq('id', r(id).target_id); if (error) throw error;
+      await marcar(id, 'resolvida'); denuncias();
+    },
+  });
+}
+
 // ---------------- Moderação ----------------
 async function reviews() {
   const { data: rs } = await sb.from('reviews').select('*, games(title), profiles(username)').order('created_at', { ascending: false }).limit(200);
@@ -232,7 +295,7 @@ async function mensagens() {
   painel().innerHTML = tabela(['Data', 'Nome', 'E-mail', 'Mensagem', 'Status', ''], ms.map((m) => `<tr>
     <td>${data(m.created_at)}</td><td>${esc(m.name)}${m.age ? ` <span class="muted">(${m.age})</span>` : ''}</td>
     <td><a href="mailto:${esc(m.email)}?subject=${encodeURIComponent('Re: Control Critic')}">${esc(m.email)}</a></td>
-    <td class="quebra">${esc(m.message)}</td>
+    <td class="quebra">${m.subject && m.subject !== 'geral' ? `<span class="tag ${m.subject === 'privacidade' ? 'amarela' : ''}">${esc(m.subject)}</span><br>` : ''}${esc(m.message)}</td>
     <td><select data-id="${m.id}" class="st" style="width:auto">${['novo', 'lido', 'respondido'].map((s) => `<option ${s === m.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
     <td><button class="btn perigo pequeno" data-acao="excluir" data-id="${m.id}">Excluir</button></td></tr>`));
   painel().querySelectorAll('select.st').forEach((s) => s.onchange = async () => {

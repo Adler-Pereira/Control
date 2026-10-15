@@ -19,7 +19,14 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 | Discord / PS5 | Convite do servidor e widget mostrando quem está online e em call. Pelo console, entra-se na call pelo Discord vinculado |
 | Notícias | Escritas pela equipe + importadas automaticamente (PlayStation Blog, Xbox Wire, anúncios oficiais da Steam) |
 | Promoções | Preços e descontos da Steam (BR) atualizados automaticamente; outras lojas cadastradas no painel |
-| Fale Conosco | Mensagens salvas no banco e respondidas pelo painel |
+| Biblioteca | Jogando / Zerado / Quero jogar / Abandonei, horas jogadas e importação automática da biblioteca da Steam |
+| Lista de desejos | Notificação automática quando um jogo desejado entra em promoção ou fica mais barato |
+| Social | Seguir pessoas, perfil público, notificações em tempo real (sino) |
+| Partidas | Agendar partidas nas comunidades, confirmar presença com limite de vagas, lembrete 1h antes e exportar para a agenda (.ics) |
+| Segurança e LGPD | Denúncias com fila de moderação, Política de Privacidade, Termos de Uso, aceite no cadastro, baixar meus dados e excluir conta |
+| Gamificação | Login diário com sequência (🔥), XP e bônus semanal; molduras de avatar, banners e selos desbloqueados por nível, sequência e conquistas; ranking mensal com moldura temporária para o top 10. Tudo cosmético, sem vantagem paga |
+| App instalável | PWA: instala no celular/computador e abre mesmo sem internet (última versão) |
+| Fale Conosco | Mensagens com assunto (inclusive pedidos de privacidade), respondidas pelo painel |
 | Painel de Admin | Visão geral com números, jogos, notícias, promoções, moderação de avaliações/posts/comunidades, mensagens, usuários (papéis e banimento) e configuração do robô |
 
 ## Arquitetura
@@ -27,7 +34,7 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 - **Front-end:** HTML, CSS e JavaScript puro (módulos ES). Sem build.
 - **Back-end:** [Supabase](https://supabase.com) (login, Postgres, armazenamento de imagens e tempo real).
   Toda a segurança fica no banco, com Row Level Security (`supabase/schema.sql`).
-- **Automação:** GitHub Actions roda `scripts/sync.mjs` a cada 6 horas (notícias e promoções, em lotes de 200 jogos por vez) e `scripts/igdb.mjs` todo dia (amplia o catálogo e traz lançamentos).
+- **Automação:** GitHub Actions roda `scripts/sync.mjs` a cada 6 horas (notícias e preços de todo o catálogo da Steam em lotes de 100 jogos por consulta) e `scripts/igdb.mjs` todo dia (amplia o catálogo e traz lançamentos).
 - **Função no servidor:** `netlify/functions/buscar-jogo.mjs` busca no IGDB e adiciona automaticamente os jogos procurados, sem expor as chaves.
 - **Hospedagem:** Netlify, com deploy automático a cada push na `main`.
 
@@ -83,7 +90,30 @@ O resultado aparece no painel de admin, na aba Automação.
 
 Os dados de jogos vêm do [IGDB](https://www.igdb.com) (Twitch), com crédito no rodapé do site. Para uso comercial, confira os termos de uso do IGDB.
 
-### 6. Discord em uma comunidade
+### 6. Importação da biblioteca da Steam
+1. Gere uma chave gratuita em **steamcommunity.com/dev/apikey** (domínio: o endereço do site no Netlify).
+2. No **Netlify**, crie a variável `STEAM_API_KEY` com essa chave e faça um novo deploy.
+3. Cada pessoa usa em **Perfil → Importar da Steam**. O perfil e os "Detalhes de jogos" precisam estar públicos na Steam.
+   PlayStation e Xbox não oferecem API oficial para isso.
+
+### 7. Lembretes de partida
+O `schema.sql` agenda os lembretes no próprio banco (extensão `pg_cron`, a cada 10 minutos). Se o Supabase não permitir
+ativar a extensão, o robô de sincronização envia os lembretes como reserva (com menos precisão).
+
+### 8. Tradução automática (opcional, recomendado)
+O IGDB e as notícias da Steam vêm em inglês. O robô troca pela descrição em português da Steam quando ela existe; o resto
+é traduzido pelo **DeepL** (plano gratuito: 500 mil caracteres por mês).
+1. Crie uma conta em **deepl.com/pro-api** (plano *DeepL API Free*) e copie a chave (termina com `:fx`).
+2. Crie `DEEPL_API_KEY` nos **segredos do GitHub** (notícias) e nas **variáveis do Netlify** (descrições, traduzidas na primeira vez que alguém abre o jogo e salvas).
+Sem a chave, quem usa o Chrome atualizado vê a tradução feita pelo próprio navegador.
+
+### 9. Gamificação
+Funciona sozinha depois de rodar o `schema.sql`. Os 100 primeiros membros ganham a moldura **Fundador**, e quem já tinha conta
+recebe as recompensas retroativas. A premiação do top 10 do mês roda no dia 1 pelo `pg_cron` (ou pelo robô, como reserva).
+Para criar novos itens, adicione linhas na tabela `cosmetics` e o estilo correspondente em `css/style.css`
+(`.m-<id>` para molduras, `.bn-<id>` para banners).
+
+### 10. Discord em uma comunidade
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
 - opcionalmente o **ID do servidor**, depois de ativar *Configurações do servidor → Widget → Habilitar widget*.
@@ -98,6 +128,10 @@ Os módulos JS precisam de um servidor (abrir o arquivo direto não funciona):
 ```bash
 npx serve .        # ou: python3 -m http.server 8000
 ```
+
+## Textos legais
+`privacidade.html` e `termos.html` são **modelos** escritos para o projeto. Revisem com a equipe/orientador e,
+se o site crescer ou for monetizado, com um advogado.
 
 ## Limitações conhecidas
 - **Calls** são ponto a ponto, então funcionam bem com até ~6 pessoas. Em redes muito restritas pode ser preciso

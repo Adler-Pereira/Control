@@ -11,6 +11,10 @@ $('#conteudo').insertAdjacentHTML('beforeend', `
       <div id="campo-user" class="hidden"><label for="user">Nome de usuário</label><input id="user" minlength="3" maxlength="30" pattern="[A-Za-z0-9_]+" title="Letras, números e _"></div>
       <label for="email">E-mail</label><input id="email" type="email" required autocomplete="email">
       <label for="senha">Senha</label><input id="senha" type="password" required minlength="8" autocomplete="current-password">
+      <label id="campo-termos" class="hidden" style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin-top:14px">
+        <input type="checkbox" id="termos" style="width:auto;margin-top:4px">
+        <span>Tenho 13 anos ou mais e li e aceito os <a href="termos.html" target="_blank">Termos de Uso</a> e a
+        <a href="privacidade.html" target="_blank">Política de Privacidade</a>.</span></label>
       <button class="btn" style="width:100%;margin-top:16px" id="enviar">Entrar</button>
     </form>
     <p style="margin-top:12px;text-align:center"><a href="#" id="esqueci">Esqueci minha senha</a></p>
@@ -21,6 +25,8 @@ document.querySelectorAll('.aba').forEach((b) => b.onclick = () => {
   modo = b.dataset.m;
   document.querySelectorAll('.aba').forEach((x) => x.classList.toggle('ativo', x === b));
   $('#campo-user').classList.toggle('hidden', modo !== 'criar');
+  $('#campo-termos').classList.toggle('hidden', modo !== 'criar');
+  $('#termos').required = modo === 'criar';
   $('#user').required = modo === 'criar';
   $('#enviar').textContent = modo === 'criar' ? 'Criar conta' : 'Entrar';
   $('#senha').autocomplete = modo === 'criar' ? 'new-password' : 'current-password';
@@ -33,7 +39,7 @@ $('#form').onsubmit = async (e) => {
   $('#enviar').disabled = true;
   try {
     if (modo === 'criar') {
-      const { data, error } = await sb.auth.signUp({ email, password, options: { data: { username: $('#user').value.trim() },
+      const { data, error } = await sb.auth.signUp({ email, password, options: { data: { username: $('#user').value.trim(), accepted_terms: $('#termos').checked },
         emailRedirectTo: location.origin + location.pathname.replace(/[^/]*$/, 'perfil.html') } });
       if (error) throw error;
       if (!data.session) { toast('Conta criada! Confirme pelo link enviado ao seu e-mail.'); return; }

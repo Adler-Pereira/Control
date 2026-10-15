@@ -195,3 +195,69 @@ dialog::backdrop { background: rgba(0,0,0,.7); }
 .secao-form { border-top: 1px solid var(--borda); padding-top: 14px; margin-top: 16px; }
 .secao-form h3 { font-family: 'Inter'; font-weight: 700; font-size: 1rem; }
 a.usuario { color: var(--texto); font-weight: 700; }
+
+/* ---------- Notificações, biblioteca, partidas ---------- */
+.sino { position: relative; font-size: 1.3rem; text-decoration: none !important; }
+.badge { position: absolute; top: -6px; right: -10px; background: var(--perigo); color: #fff; border-radius: 999px; font-size: .7rem; font-weight: 700; padding: 1px 6px; }
+.notif { display: flex; gap: 12px; align-items: flex-start; }
+.notif.nao-lida { border-color: var(--amarelo); }
+.bt-denunciar { background: none; border: 0; color: var(--texto-2); cursor: pointer; font-size: .82rem; margin-left: auto; }
+.bt-denunciar:hover { color: var(--perigo); }
+.biblioteca { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.biblioteca select, .biblioteca input { width: auto; }
+.btn.desejo.ativo { background: #ff4d8d; color: #fff; }
+.evento { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.evento .data { background: var(--amarelo); color: var(--preto); border-radius: 10px; padding: 8px 12px; text-align: center; font-weight: 700; min-width: 68px; line-height: 1.2; }
+.evento .data small { display: block; font-weight: 600; font-size: .75rem; }
+.legal h2 { margin-top: 24px; } .legal p, .legal li { color: var(--texto-2); margin: 8px 0; } .legal ul { margin-left: 20px; }
+
+/* ---------- Gamificação: molduras ---------- */
+.moldura { position: relative; display: inline-flex; border-radius: 50%; flex-shrink: 0; }
+.moldura.com { padding: 4px; }
+.moldura.com::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--anel); animation: var(--anim, none); }
+.moldura.com > img { position: relative; z-index: 1; border: 3px solid var(--fundo) !important; outline: none !important; }
+.moldura::after { position: absolute; z-index: 2; right: -4px; bottom: -2px; font-size: .9em; line-height: 1; filter: drop-shadow(0 1px 2px #000); }
+.m-f_bronze   { --anel: linear-gradient(135deg, #6e4520, #e3a869, #8c5a2b, #f0c08a); }
+.m-f_prata    { --anel: linear-gradient(135deg, #7d8794, #ffffff, #9aa4b1, #e9edf2); }
+.m-f_ouro     { --anel: conic-gradient(#b8860b, #ffe680, #d4a017, #fff3b0, #b8860b); --anim: girar 6s linear infinite; }
+.m-f_diamante { --anel: conic-gradient(#7ef9ff, #ffffff, #b388ff, #7ef9ff, #ffffff, #ff9ff3, #7ef9ff); --anim: girar 4s linear infinite; }
+.m-f_lenda    { --anel: conic-gradient(#ffd33c, #ff4d4d, #8a2be2, #ffd33c); --anim: girar 3s linear infinite; }
+.m-f_lenda.com { box-shadow: 0 0 14px 2px rgba(255,211,60,.55); }
+.m-f_chama7   { --anel: conic-gradient(#ff3d00, #ffb300, #ff6d00, #ffd54f, #ff3d00); --anim: girar 2.5s linear infinite; }
+.m-f_chama7::after { content: "🔥"; }
+.m-f_chama30  { --anel: conic-gradient(#0040ff, #00e5ff, #2979ff, #b3f5ff, #0040ff); --anim: girar 2.5s linear infinite; }
+.m-f_chama30::after { content: "💙"; }
+.m-f_chama100 { --anel: conic-gradient(red, orange, yellow, lime, cyan, blue, violet, red); --anim: girar 2s linear infinite; }
+.m-f_chama100::after { content: "🌈"; }
+.m-f_destaque { --anel: conic-gradient(#ffd33c, #fff6c7, #ffd33c, #e6b800, #ffd33c); --anim: girar 5s linear infinite; }
+.m-f_destaque.com { animation: pulsar 2s ease-in-out infinite; }
+.m-f_destaque::after { content: "⭐"; }
+.m-f_fundador { --anel: repeating-linear-gradient(45deg, #ffd33c 0 6px, #0b0b0d 6px 12px); }
+.m-f_fundador::after { content: "🎮"; }
+@keyframes girar { to { transform: rotate(360deg); } }
+@keyframes pulsar { 50% { filter: drop-shadow(0 0 8px rgba(255,211,60,.8)); } }
+@media (prefers-reduced-motion: reduce) { .moldura.com::before, .moldura.com { animation: none !important; } }
+
+/* ---------- Gamificação: banners ---------- */
+.bn-b_amarelo { background: linear-gradient(120deg, #0b0b0d 0 35%, #ffd33c 35% 38%, #0b0b0d 38% 60%, #ffd33c 60% 61%, #1b1b21 61%) !important; }
+.bn-b_neon    { background: radial-gradient(circle at 20% 30%, #ff00d4 0, transparent 35%), radial-gradient(circle at 80% 70%, #00f0ff 0, transparent 35%), linear-gradient(135deg, #12002b, #000) !important; }
+.bn-b_galaxia { background: radial-gradient(1px 1px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 60%, #fff, transparent), radial-gradient(2px 2px at 40% 80%, #fff, transparent), radial-gradient(1px 1px at 90% 20%, #fff, transparent), radial-gradient(ellipse at 60% 40%, #6a1b9a 0, transparent 50%), radial-gradient(ellipse at 30% 70%, #0d47a1 0, transparent 55%), #05010f !important; background-size: 200px 200px, 260px 260px, 300px 300px, 220px 220px, auto, auto, auto !important; }
+.bn-b_retro   { background: linear-gradient(transparent 60%, rgba(255,0,170,.35) 60%), repeating-linear-gradient(90deg, rgba(255,0,170,.5) 0 2px, transparent 2px 60px), linear-gradient(#1a0033 0, #ff6ec7 55%, #ffd33c 60%, #1a0033 60%) !important; }
+.bn-b_critico { background: repeating-linear-gradient(-45deg, rgba(255,211,60,.08) 0 20px, transparent 20px 40px), linear-gradient(135deg, #3a2f00, #000 50%, #6b5a12) !important; }
+.amostra-banner { height: 70px; border-radius: 10px; border: 1px solid var(--borda); }
+
+/* ---------- Conquistas ---------- */
+.itens { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
+.item { background: var(--cartao); border: 1px solid var(--borda); border-radius: 14px; padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.item.bloqueado { opacity: .45; filter: grayscale(.8); }
+.item.equipado { border-color: var(--amarelo); box-shadow: 0 0 0 1px var(--amarelo); }
+.item .selo { font-size: 2.4rem; line-height: 1; }
+.raridade { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+.r-comum { color: #a3a3b2; } .r-rara { color: #4fc3f7; } .r-epica { color: #ba68c8; } .r-lendaria { color: #ffb300; } .r-especial { color: #ff5c8a; }
+.sequencia { font-family: 'Anton'; font-size: 2.6rem; color: #ff7a00; line-height: 1; }
+.chama-topo { font-weight: 700; font-size: .9rem; color: #ff9f1c; text-decoration: none !important; white-space: nowrap; }
+.vitrine { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.vitrine span { background: var(--cartao-2); border-radius: 999px; padding: 3px 10px; font-size: .82rem; }
+.ranking-linha { display: flex; align-items: center; gap: 12px; }
+.ranking-linha .pos { font-family: 'Anton'; font-size: 1.4rem; width: 36px; text-align: center; color: var(--texto-2); }
+.ranking-linha.top .pos { color: var(--amarelo); }

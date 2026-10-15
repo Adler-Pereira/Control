@@ -58,8 +58,9 @@ async function importar(onde, ordem, inicio, quantidade) {
       if (!atual.id) continue;
       // Já existe: só preenche campos vazios (não sobrescreve o que a equipe editou)
       const patch = {};
-      for (const k of ['igdb_id', 'steam_appid', 'cover_url', 'description', 'category_id', 'release_year', 'store_ps', 'store_xbox', 'store_steam', 'store_nintendo'])
+      for (const k of ['igdb_id', 'steam_appid', 'cover_url', 'category_id', 'release_year', 'store_ps', 'store_xbox', 'store_steam', 'store_nintendo'])
         if ((atual[k] == null || atual[k] === '') && linha[k] != null) patch[k] = linha[k];
+      if (!atual.description && linha.description) { patch.description = linha.description; patch.description_lang = 'en'; }
       if (!atual.platforms?.length && linha.platforms.length) patch.platforms = linha.platforms;
       // Popularidade só é regravada quando muda bastante (evita milhares de gravações inúteis)
       if (Math.abs((atual.igdb_rating_count || 0) - linha.igdb_rating_count) > 20 || patch.igdb_id) {
