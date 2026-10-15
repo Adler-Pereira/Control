@@ -12,6 +12,7 @@ main.insertAdjacentHTML('beforeend', `
     <label for="nome">Nome</label><input id="nome" required minlength="3" maxlength="60">
     <label for="desc">Descrição</label><textarea id="desc" rows="3" maxlength="500"></textarea>
     <label for="jogo">Jogo (opcional)</label><select id="jogo"><option value="">Nenhum</option></select>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="privada" style="width:auto"> 🔒 Privada (só entra quem você aprovar ou tiver o link de convite)</label>
     <label for="discord">Convite do Discord (opcional)</label><input id="discord" placeholder="https://discord.gg/...">
     <div class="controles" style="margin-top:16px"><button class="btn" value="ok">Criar (+20 XP)</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div>
   </form></dialog>`);
@@ -27,7 +28,7 @@ if (configurado) {
     if ($('#dlg').returnValue !== 'ok') return;
     const { data, error } = await sb.from('communities').insert({
       name: $('#nome').value.trim(), description: $('#desc').value.trim() || null,
-      game_id: $('#jogo').value || null, discord_invite: $('#discord').value.trim() || null,
+      game_id: $('#jogo').value || null, is_private: $('#privada').checked, discord_invite: $('#discord').value.trim() || null,
     }).select().single();
     if (error) return falha(error.message.includes('discord') ? { message: 'Convite do Discord inválido. Use https://discord.gg/xxxx' } : error);
     toast('Comunidade criada!');
@@ -42,7 +43,7 @@ async function carregar() {
   const { data } = await q;
   $('#lista').innerHTML = (data || []).map((c) => `
     <a class="cartao" href="comunidade.html?id=${c.id}" style="color:var(--texto);text-decoration:none">
-      <h3>${esc(c.name)}</h3>
+      <h3>${c.is_private ? '🔒 ' : ''}${esc(c.name)}</h3>
       <p class="muted">${esc(c.description || '')}</p>
       <p style="margin-top:8px">${c.games ? `<span class="tag">${esc(c.games.title)}</span> ` : ''}<span class="tag">${c.members_count} membros</span>
       ${c.discord_invite ? ' <span class="tag" style="background:#5865F2;color:#fff">Discord</span>' : ''}</p>

@@ -143,10 +143,12 @@ export async function montarLayout() {
     conta.innerHTML = `
       ${p.role !== 'user' ? '<a class="btn sec pequeno" href="admin.html">Admin</a>' : ''}
       <a href="conquistas.html" class="chama-topo" id="chama" title="Sequência de dias e conquistas">🔥 ${p.streak_current || 0}</a>
+      <a href="amigos.html" class="sino" title="Amigos" aria-label="Amigos">👥</a>
       <a href="notificacoes.html" class="sino" title="Notificações" aria-label="Notificações">🔔<span class="badge hidden" id="badge"></span></a>
       <a href="perfil.html" title="${esc(p.username)}" aria-label="Meu perfil">${avatarHtml(p)}</a>`;
     contarNotificacoes(p.id);
     loginDiario();
+    entrarOnline(p);
     // Atualiza o sino em tempo real
     sb.channel('notif:' + p.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${p.id}` }, (m) => {
@@ -239,3 +241,14 @@ async function loginDiario() {
     ? `🔥 ${data.streak} dias seguidos! +${data.xp} XP${data.bonus_semanal ? ' (bônus semanal!)' : ''}${data.recorde ? ' · novo recorde' : ''}`
     : `👋 Bem-vindo de volta! +${data.xp} XP pelo login de hoje.`);
 }
+
+// ---------- Quem está online (presença global, usada na página de amigos) ----------
+let canalOnline = null;
+const ouvintesOnline = new Set();
+function entrarOnline(p) {
+  canalOnline = sb.channel('online', { config: { presence: { key: p.id } } });
+  canalOnline.on('presence', { event: 'sync' }, () => ouvintesOnline.forEach((f) => f(onlineAgora())))
+    .subscribe((st) => { if (st === 'SUBSCRIBED') canalOnline.track({ em: Date.now() }); });
+}
+export function onlineAgora() { return new Set(Object.keys(canalOnline?.presenceState() || {})); }
+export function aoMudarOnline(f) { ouvintesOnline.add(f); f(onlineAgora()); }

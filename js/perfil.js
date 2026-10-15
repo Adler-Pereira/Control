@@ -36,6 +36,10 @@ async function carregar(p, meu, u) {
     sb.from('follows').select('followed_id', { count: 'exact', head: true }).eq('follower_id', p.id),
     u && !meu ? sb.from('follows').select('followed_id').eq('follower_id', u.id).eq('followed_id', p.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
+  const [{ data: amigosDele }, { data: amizade }] = await Promise.all([
+    sb.rpc('friends_of', { uid: p.id }),
+    u && !meu ? sb.from('friendships').select('*').eq('user_a', u.id < p.id ? u.id : p.id).eq('user_b', u.id < p.id ? p.id : u.id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
   const GRUPOS = [['jogando', '🎮 Jogando'], ['quero_jogar', '📌 Quero jogar'], ['zerado', '🏆 Zerados'], ['abandonei', '💤 Abandonados'], [null, '📚 Na biblioteca']];
   const lista = bib || [];
   const desejos = lista.filter((x) => x.wishlist);
@@ -77,7 +81,8 @@ async function carregar(p, meu, u) {
           <p style="margin-top:6px"><strong id="n-seguidores">${seguidores ?? 0}</strong> seguidores · <strong>${seguindo ?? 0}</strong> seguindo ·
             <strong>${lista.filter((x) => x.status).length}</strong> jogos na biblioteca</p>
         </div>
-        ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>` : ''}
+        ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>
+          <button class="btn sec" id="amizade">${amizade?.status === 'aceita' ? '🤝 Amigos' : amizade ? (amizade.requester === u.id ? '⏳ Pedido enviado' : '✓ Aceitar amizade') : '👥 Adicionar amigo'}</button>` : ''}
           ${u ? '<button class="bt-denunciar" id="den-perfil">🚩 Denunciar perfil</button>' : ''}</div>` : ''}
         ${meu ? `<div class="controles"><button class="btn" id="editar">✏️ Editar perfil</button>
           <a class="btn sec" href="conquistas.html">🏆 Conquistas</a><button class="btn sec" id="compartilhar">🔗 Copiar link</button><button class="btn sec" id="logout">Sair</button></div>` : ''}
@@ -105,7 +110,10 @@ async function carregar(p, meu, u) {
         ${reviews.map((r) => `<div class="review"><a href="jogo.html?slug=${encodeURIComponent(r.games.slug)}">${esc(r.games.title)}</a> ${estrelas(r.rating)}
           <span class="muted">${data(r.created_at)}</span>${r.body ? `<p class="quebra muted">${esc(r.body)}</p>` : ''}</div>`).join('') || '<p class="vazio">Nenhuma avaliação ainda.</p>'}
       </div></div>
-      <div><h2>Comunidades</h2><div class="lista">
+      <div><h2>Amigos (${(amigosDele || []).length})</h2><div class="controles" style="margin-bottom:12px">
+        ${(amigosDele || []).slice(0, 24).map((a) => `<a href="perfil.html?u=${encodeURIComponent(a.username)}" title="${esc(a.username)}">${avatarHtml(a)}</a>`).join('') || '<span class="muted">Nenhum amigo ainda.</span>'}
+        ${meu ? '<a class="btn sec pequeno" href="amigos.html">Gerenciar amigos</a>' : ''}</div>
+      <h2>Comunidades</h2><div class="lista">
         ${(comms || []).map((m) => `<a class="cartao" href="comunidade.html?id=${m.communities.id}">${esc(m.communities.name)}</a>`).join('') || '<p class="vazio">Nenhuma comunidade ainda.</p>'}
       </div></div>
     </div>
@@ -127,6 +135,14 @@ async function carregar(p, meu, u) {
 
   if (!meu) {
     $('#den-perfil')?.addEventListener('click', () => denunciar('profile', p.id));
+    $('#amizade')?.addEventListener('click', async (e) => {
+      if (amizade?.status === 'aceita') return (location.href = 'amigos.html');
+      if (amizade && amizade.requester === u.id) return;
+      const { data: r, error } = await sb.rpc('friend_request', { alvo: p.id });
+      if (error) return falha(error);
+      e.currentTarget.textContent = r === 'amigos' ? '🤝 Amigos' : '⏳ Pedido enviado';
+      toast(r === 'amigos' ? 'Agora vocês são amigos! 🤝' : 'Pedido de amizade enviado!');
+    });
     $('#seguir')?.addEventListener('click', async (e) => {
       const b = e.currentTarget, seguir = b.textContent.includes('Seguir') && !b.textContent.includes('✓');
       const { error } = seguir
@@ -286,7 +302,7 @@ async function enviar(uid, tipo, arq) {
 // LGPD: baixa um arquivo JSON com todos os dados da pessoa
 async function exportarDados(p) {
   const tabelas = [['avaliacoes', 'reviews', 'user_id'], ['posts', 'posts', 'user_id'], ['biblioteca', 'user_games', 'user_id'],
-    ['comunidades', 'community_members', 'user_id'], ['seguindo', 'follows', 'follower_id'], ['seguidores', 'follows', 'followed_id'],
+    ['comunidades', 'community_members', 'user_id'], ['seguindo', 'follows', 'follower_id'], ['seguidores', 'follows', 'followed_id'], ['amizades_a', 'friendships', 'user_a'], ['amizades_b', 'friendships', 'user_b'],
     ['partidas', 'event_attendees', 'user_id'], ['notificacoes', 'notifications', 'user_id']];
   const out = { exportado_em: new Date().toISOString(), perfil: p };
   const { data: { user } } = await sb.auth.getUser();
