@@ -2,17 +2,17 @@ name: Importar jogos (IGDB)
 
 on:
   schedule:
-    - cron: '41 4 * * 1'      # toda segunda-feira: lançamentos recentes
+    - cron: '41 4 * * *'      # todo dia: amplia o catálogo (+2000 populares) e traz lançamentos
   workflow_dispatch:
     inputs:
       modo:
-        description: 'populares = carga dos mais avaliados | recentes = lançamentos dos últimos 60 dias'
+        description: 'continuo = próximos da lista + lançamentos (o mesmo do automático) | populares = do início | recentes = só lançamentos'
         type: choice
-        options: [populares, recentes]
-        default: populares
+        options: [continuo, populares, recentes]
+        default: continuo
       quantidade:
-        description: 'Quantos jogos importar no modo "populares" (máx. 20000)'
-        default: '5000'
+        description: 'Quantos jogos da lista de populares ler nesta execução (máx. 20000)'
+        default: '2000'
 
 jobs:
   importar:
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node scripts/igdb.mjs "${{ inputs.modo || 'recentes' }}" "${{ inputs.quantidade || '300' }}"
+      - run: node scripts/igdb.mjs "${{ inputs.modo || 'continuo' }}" "${{ inputs.quantidade || '2000' }}"
         env:
           IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}

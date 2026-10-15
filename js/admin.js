@@ -278,6 +278,13 @@ async function auto() {
         ${ultimo.news ?? 0} notícia(s) nova(s), ${ultimo.deals ?? 0} preço(s) atualizado(s)${ultimo.errors?.length ? `, <span style="color:var(--perigo)">${ultimo.errors.length} erro(s)</span>` : ''}` : 'ainda não executou'}</p>
       ${ultimo?.errors?.length ? `<ul class="muted" style="margin:6px 0 0 18px">${ultimo.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
     </div>
+    <div class="cartao" style="margin-top:14px">
+      <h3>Catálogo automático (IGDB)</h3>
+      <p class="muted">Todo dia o robô "Importar jogos (IGDB)" adiciona os próximos 2.000 jogos mais populares e os lançamentos recentes.
+      Além disso, quando alguém busca um jogo que não está no site, ele é importado na hora.</p>
+      <p style="margin-top:10px"><strong>Última importação:</strong> ${cfg.last_igdb?.at ? `${new Date(cfg.last_igdb.at).toLocaleString('pt-BR')} —
+        ${cfg.last_igdb.novos ?? 0} jogo(s) novo(s), ${cfg.last_igdb.completados ?? 0} atualizado(s); catálogo com ${(cfg.last_igdb.catalogo ?? 0).toLocaleString('pt-BR')} jogos` : 'ainda não executou'}</p>
+    </div>
     <form class="cartao" id="form-auto" style="margin-top:14px">
       <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="autopub" style="width:auto" ${cfg.auto_publish_news ? 'checked' : ''}>
         Publicar notícias oficiais automaticamente (desmarcado = ficam pendentes para aprovação na aba Notícias)</label>
