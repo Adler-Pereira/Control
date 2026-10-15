@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -37,9 +37,10 @@ async function carregar(p, meu, u) {
     sb.from('follows').select('followed_id', { count: 'exact', head: true }).eq('follower_id', p.id),
     u && !meu ? sb.from('follows').select('followed_id').eq('follower_id', u.id).eq('followed_id', p.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
-  const [{ data: amigosDele }, { data: amizade }] = await Promise.all([
+  const [{ data: amigosDele }, { data: amizade }, { data: titulos }] = await Promise.all([
     sb.rpc('friends_of', { uid: p.id }),
     u && !meu ? sb.from('friendships').select('*').eq('user_a', u.id < p.id ? u.id : p.id).eq('user_b', u.id < p.id ? p.id : u.id).maybeSingle() : Promise.resolve({ data: null }),
+    (p.titles || []).length ? sb.from('site_titles').select('*').order('sort') : Promise.resolve({ data: [] }),
   ]);
   const GRUPOS = [['jogando', '🎮 Jogando'], ['quero_jogar', '📌 Quero jogar'], ['zerado', '🏆 Zerados'], ['abandonei', '💤 Abandonados'], [null, '📚 Na biblioteca']];
   const lista = bib || [];
@@ -70,7 +71,9 @@ async function carregar(p, meu, u) {
         ${avatarHtml(p, 'grande', 'Foto de ' + p.username)}
         <div class="nome-bloco">
           <h1 style="margin:0">${esc(p.username)}</h1>
-          <p><span class="tag amarela">Nível ${n.lv} · ${n.titulo}</span> ${p.role !== 'user' ? `<span class="tag">${esc(p.role)}</span>` : ''}</p>
+          <p><span class="tag amarela">Nível ${n.lv} · ${n.titulo}</span>
+            ${p.role === 'admin' ? '<span class="tag">🛡️ Administrador</span>' : p.role === 'moderator' ? '<span class="tag">🛡️ Moderador</span>' : ''}
+            ${(titulos || []).filter((t) => (p.titles || []).includes(t.id)).map((t) => `<span class="tag" style="background:${esc(t.color)};color:#000">${esc(t.icon || '')} ${esc(t.name)}</span>`).join(' ')}</p>
           ${p.bio ? `<p class="quebra" style="margin-top:6px">${esc(p.bio)}</p>` : meu ? '<p class="muted" style="margin-top:6px">Adicione uma bio contando o que você joga.</p>' : ''}
           ${contas ? `<div class="contas-jogo">${contas}</div>` : ''}
           ${(() => { const s = (selos || []).filter((x) => x.cosmetics?.kind === 'badge').sort((a, b) => a.cosmetics.sort - b.cosmetics.sort);
@@ -164,11 +167,10 @@ async function carregar(p, meu, u) {
     if (conf.trim() !== p.username) return toast('Nome de usuário não confere. Nada foi apagado.', true);
     const { error } = await sb.rpc('delete_my_account');
     if (error) return falha(error);
-    await sb.auth.signOut().catch(() => {});
     alert('Sua conta foi excluída. Sentiremos sua falta!');
-    location.href = 'index.html';
+    await sair();
   };
-  $('#logout').onclick = () => sb.auth.signOut();
+  $('#logout').onclick = () => sair();
   $('#compartilhar').onclick = async () => {
     const link = location.origin + location.pathname + '?u=' + encodeURIComponent(p.username);
     try { await navigator.clipboard.writeText(link); toast('Link do perfil copiado!'); } catch { prompt('Copie o link do seu perfil:', link); }
