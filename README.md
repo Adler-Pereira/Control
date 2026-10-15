@@ -27,8 +27,8 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 - **Front-end:** HTML, CSS e JavaScript puro (módulos ES). Sem build.
 - **Back-end:** [Supabase](https://supabase.com) (login, Postgres, armazenamento de imagens e tempo real).
   Toda a segurança fica no banco, com Row Level Security (`supabase/schema.sql`).
-- **Automação:** GitHub Actions roda `scripts/sync.mjs` a cada 6 horas (notícias e promoções, em lotes de 200 jogos por vez) e `scripts/igdb.mjs` toda semana (novos jogos).
-- **Função no servidor:** `netlify/functions/buscar-jogo.mjs` faz a busca ampliada no IGDB sem expor as chaves.
+- **Automação:** GitHub Actions roda `scripts/sync.mjs` a cada 6 horas (notícias e promoções, em lotes de 200 jogos por vez) e `scripts/igdb.mjs` todo dia (amplia o catálogo e traz lançamentos).
+- **Função no servidor:** `netlify/functions/buscar-jogo.mjs` busca no IGDB e adiciona automaticamente os jogos procurados, sem expor as chaves.
 - **Hospedagem:** Netlify, com deploy automático a cada push na `main`.
 
 ```
@@ -76,8 +76,10 @@ O resultado aparece no painel de admin, na aba Automação.
 4. No **GitHub** (Settings → Secrets and variables → Actions), crie `IGDB_CLIENT_ID` e `IGDB_CLIENT_SECRET`.
 5. No **Netlify** (Site configuration → Environment variables), crie `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET`,
    `SUPABASE_URL` e `SUPABASE_SERVICE_KEY`, e faça um novo deploy. Essas variáveis ficam só no servidor e não aparecem no site.
-6. Rode **Actions → Importar jogos (IGDB) → Run workflow** com modo `populares` e a quantidade desejada (ex.: 5000).
-   Depois disso, toda segunda-feira o robô traz os lançamentos recentes.
+6. Pronto: **todo dia** o robô "Importar jogos (IGDB)" adiciona os próximos 2.000 jogos mais populares e os lançamentos
+   recentes, e a busca do site importa na hora qualquer jogo que alguém procurar e ainda não esteja no catálogo.
+   Para acelerar a carga inicial, rode **Actions → Importar jogos (IGDB) → Run workflow** com uma quantidade maior.
+   O resultado de cada execução aparece no resumo da execução no GitHub e em **Admin → Automação**.
 
 Os dados de jogos vêm do [IGDB](https://www.igdb.com) (Twitch), com crédito no rodapé do site. Para uso comercial, confira os termos de uso do IGDB.
 

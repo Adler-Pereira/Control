@@ -1,4 +1,4 @@
-import { sb, $, $$, esc, montarLayout, cardJogo, configurado, param, usuario, toast, falha } from './app.js';
+import { sb, $, $$, esc, montarLayout, cardJogo, configurado, param } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -22,14 +22,10 @@ main.insertAdjacentHTML('beforeend', `
   <p class="muted" id="contagem" style="margin-bottom:10px"></p>
   <div class="grade" id="lista"></div>
   <div style="text-align:center;margin:20px 0"><button class="btn sec hidden" id="mais">Carregar mais</button></div>
-  <section class="cartao hidden" id="ampliada" style="margin-top:12px">
-    <h3>Não encontrou? Busque em todas as plataformas</h3>
-    <p class="muted">Procura no catálogo completo (PlayStation, Xbox, PC, Nintendo e mobile) e adiciona o jogo ao Control Critic.</p>
-    <button class="btn" id="buscar-ampliado" style="margin-top:10px">🔎 Buscar "<span id="termo"></span>" em todas as plataformas</button>
-    <div class="lista" id="resultados" style="margin-top:14px"></div>
-  </section>`);
+  <p class="muted hidden" id="ampliada" style="text-align:center">🔎 Procurando "<span id="termo"></span>" em todas as plataformas...</p>`);
 
 let cat = param('cat') || '', plat = param('plat') || '', pagina = 0;
+const buscados = new Set(); // termos já procurados no catálogo completo
 if (configurado) {
   const { data: cats } = await sb.from('categories').select('*').order('name');
   $('#cats').innerHTML = `<button class="chip" data-c="">Todas as categorias</button>` +
@@ -39,7 +35,6 @@ if (configurado) {
   let t; $('#q').oninput = () => { clearTimeout(t); t = setTimeout(carregar, 350); };
   $('#ordem').onchange = () => carregar();
   $('#mais').onclick = () => carregar(true);
-  $('#buscar-ampliado').onclick = buscarAmpliado;
   carregar();
 }
 
@@ -65,46 +60,19 @@ async function carregar(continuar = false) {
   $('#contagem').textContent = `${(count ?? 0).toLocaleString('pt-BR')} jogo(s)`;
   $('#mais').classList.toggle('hidden', (pagina + 1) * POR_PAGINA >= (count ?? 0));
 
-  // Busca ampliada aparece quando há termo e poucos resultados
-  $('#ampliada').classList.toggle('hidden', !(termo.length >= 2 && (count ?? 0) < 6));
-  $('#termo').textContent = termo;
-  $('#resultados').innerHTML = '';
+  // Poucos resultados? Busca no catálogo completo, que adiciona os jogos sozinho, e recarrega
+  if (!continuar && termo.length >= 2 && (count ?? 0) < 6 && !buscados.has(termo.toLowerCase())) buscarCompleto(termo);
 }
 
-async function buscarAmpliado() {
-  const termo = $('#q').value.trim();
-  const box = $('#resultados');
-  box.innerHTML = '<p class="muted">Buscando...</p>';
+async function buscarCompleto(termo) {
+  buscados.add(termo.toLowerCase());
+  $('#termo').textContent = termo;
+  $('#ampliada').classList.remove('hidden');
   try {
     const r = await fetch(`/.netlify/functions/buscar-jogo?q=${encodeURIComponent(termo)}`);
-    const dados = await r.json();
-    if (!r.ok) throw new Error(dados.erro || 'Falha na busca.');
-    if (!dados.length) { box.innerHTML = '<p class="vazio">Nada encontrado com esse nome.</p>'; return; }
-    const logado = !!(await usuario());
-    box.innerHTML = dados.map((g) => `
-      <div class="review" style="display:flex;gap:12px;align-items:center">
-        ${g.capa ? `<img src="${esc(g.capa)}" alt="" style="width:45px;height:64px;object-fit:cover;border-radius:6px">` : ''}
-        <div style="flex:1"><strong>${esc(g.titulo)}</strong> ${g.ano ? `<span class="muted">(${g.ano})</span>` : ''}<br>
-          ${g.plataformas.map((p) => `<span class="tag">${esc(p)}</span>`).join(' ')}</div>
-        ${g.slug_no_site ? `<a class="btn sec pequeno" href="jogo.html?slug=${encodeURIComponent(g.slug_no_site)}">Ver no site</a>`
-          : logado ? `<button class="btn pequeno" data-add="${g.igdb_id}">+ Adicionar</button>`
-          : `<a class="btn sec pequeno" href="entrar.html?volta=jogos.html">Entre para adicionar</a>`}
-      </div>`).join('');
-    box.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => adicionar(Number(b.dataset.add), b));
-  } catch (e) { box.innerHTML = ''; falha(e); }
-}
-
-async function adicionar(igdbId, botao) {
-  botao.disabled = true; botao.textContent = 'Adicionando...';
-  try {
-    const { data: { session } } = await sb.auth.getSession();
-    const r = await fetch('/.netlify/functions/buscar-jogo', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
-      body: JSON.stringify({ igdb_id: igdbId }),
-    });
-    const dados = await r.json();
-    if (!r.ok) throw new Error(dados.erro || 'Não foi possível adicionar.');
-    toast('Jogo adicionado ao Control Critic! +5 XP');
-    location.href = 'jogo.html?slug=' + encodeURIComponent(dados.slug);
-  } catch (e) { falha(e); botao.disabled = false; botao.textContent = '+ Adicionar'; }
+    const dados = await r.json().catch(() => ({}));
+    if (r.ok && dados.adicionados > 0 && $('#q').value.trim() === termo) carregar();
+  } catch { /* sem conexão com a função: fica só com o catálogo local */ } finally {
+    $('#ampliada').classList.add('hidden');
+  }
 }
