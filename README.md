@@ -24,6 +24,7 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 | Social | Seguir pessoas, perfil público, notificações em tempo real (sino) |
 | Partidas | Agendar partidas nas comunidades, confirmar presença com limite de vagas, lembrete 1h antes e exportar para a agenda (.ics) |
 | Segurança e LGPD | Denúncias com fila de moderação, Política de Privacidade, Termos de Uso, aceite no cadastro, baixar meus dados e excluir conta |
+| Gamificação | Login diário com sequência (🔥), XP e bônus semanal; molduras de avatar, banners e selos desbloqueados por nível, sequência e conquistas; ranking mensal com moldura temporária para o top 10. Tudo cosmético, sem vantagem paga |
 | App instalável | PWA: instala no celular/computador e abre mesmo sem internet (última versão) |
 | Fale Conosco | Mensagens com assunto (inclusive pedidos de privacidade), respondidas pelo painel |
 | Painel de Admin | Visão geral com números, jogos, notícias, promoções, moderação de avaliações/posts/comunidades, mensagens, usuários (papéis e banimento) e configuração do robô |
@@ -106,7 +107,13 @@ O IGDB e as notícias da Steam vêm em inglês. O robô troca pela descrição e
 2. Crie `DEEPL_API_KEY` nos **segredos do GitHub** (notícias) e nas **variáveis do Netlify** (descrições, traduzidas na primeira vez que alguém abre o jogo e salvas).
 Sem a chave, quem usa o Chrome atualizado vê a tradução feita pelo próprio navegador.
 
-### 9. Discord em uma comunidade
+### 9. Gamificação
+Funciona sozinha depois de rodar o `schema.sql`. Os 100 primeiros membros ganham a moldura **Fundador**, e quem já tinha conta
+recebe as recompensas retroativas. A premiação do top 10 do mês roda no dia 1 pelo `pg_cron` (ou pelo robô, como reserva).
+Para criar novos itens, adicione linhas na tabela `cosmetics` e o estilo correspondente em `css/style.css`
+(`.m-<id>` para molduras, `.bn-<id>` para banners).
+
+### 10. Discord em uma comunidade
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
 - opcionalmente o **ID do servidor**, depois de ativar *Configurações do servidor → Widget → Habilitar widget*.

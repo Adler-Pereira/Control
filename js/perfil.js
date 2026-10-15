@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -29,7 +29,8 @@ async function carregar(p, meu, u) {
     sb.from('community_members').select('communities(id,name)').eq('user_id', p.id),
     meu ? sb.rpc('recommend_games', { lim: 8 }) : Promise.resolve({ data: null }),
   ]);
-  const [{ data: bib }, { count: seguidores }, { count: seguindo }, { data: sigo }] = await Promise.all([
+  const [{ data: selos }, { data: bib }, { count: seguidores }, { count: seguindo }, { data: sigo }] = await Promise.all([
+    sb.from('user_cosmetics').select('cosmetic_id, cosmetics(name,icon,kind,rarity,sort)').eq('user_id', p.id),
     sb.from('user_games').select('*, games(id,slug,title,cover_url,avg_rating,reviews_count, deals(discount_pct,price_cents,store))').eq('user_id', p.id).order('updated_at', { ascending: false }).limit(500),
     sb.from('follows').select('follower_id', { count: 'exact', head: true }).eq('followed_id', p.id),
     sb.from('follows').select('followed_id', { count: 'exact', head: true }).eq('follower_id', p.id),
@@ -59,14 +60,18 @@ async function carregar(p, meu, u) {
       <form id="form-senha" class="controles"><input id="nova-senha" type="password" minlength="8" required placeholder="Nova senha" style="max-width:280px"><button class="btn">Salvar senha</button></form></div>` : ''}
 
     <section class="perfil-capa">
-      <div class="perfil-banner" ${banner ? `style="background-image:url('${banner}')"` : ''}></div>
+      <div class="perfil-banner ${/^[a-z0-9_]+$/.test(p.equipped_banner || '') ? 'bn-' + p.equipped_banner : ''}" ${banner && !p.equipped_banner ? `style="background-image:url('${banner}')"` : ''}></div>
       <div class="perfil-info">
-        <img class="avatar grande" src="${avatar(p)}" alt="Foto de ${esc(p.username)}">
+        ${avatarHtml(p, 'grande', 'Foto de ' + p.username)}
         <div class="nome-bloco">
           <h1 style="margin:0">${esc(p.username)}</h1>
           <p><span class="tag amarela">Nível ${n.lv} · ${n.titulo}</span> ${p.role !== 'user' ? `<span class="tag">${esc(p.role)}</span>` : ''}</p>
           ${p.bio ? `<p class="quebra" style="margin-top:6px">${esc(p.bio)}</p>` : meu ? '<p class="muted" style="margin-top:6px">Adicione uma bio contando o que você joga.</p>' : ''}
           ${contas ? `<div class="contas-jogo">${contas}</div>` : ''}
+          ${(() => { const s = (selos || []).filter((x) => x.cosmetics?.kind === 'badge').sort((a, b) => a.cosmetics.sort - b.cosmetics.sort);
+            return s.length || p.streak_current ? `<div class="vitrine">${p.streak_current ? `<span title="Dias seguidos">🔥 ${p.streak_current} dias</span>` : ''}
+              ${s.slice(-6).reverse().map((x) => `<span title="${esc(x.cosmetics.name)}">${esc(x.cosmetics.icon || '🏅')} ${esc(x.cosmetics.name)}</span>`).join('')}
+              <a href="conquistas.html" style="font-size:.82rem;align-self:center">${meu ? 'Ver conquistas →' : ''}</a></div>` : ''; })()}
           <div class="barra-xp" style="margin-top:10px;max-width:360px" title="${p.xp} XP"><div style="width:${n.pct}%"></div></div>
           <p class="muted" style="font-size:.85rem">${p.xp} XP · próximo nível em ${n.prox} XP</p>
           <p style="margin-top:6px"><strong id="n-seguidores">${seguidores ?? 0}</strong> seguidores · <strong>${seguindo ?? 0}</strong> seguindo ·
@@ -75,7 +80,7 @@ async function carregar(p, meu, u) {
         ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>` : ''}
           ${u ? '<button class="bt-denunciar" id="den-perfil">🚩 Denunciar perfil</button>' : ''}</div>` : ''}
         ${meu ? `<div class="controles"><button class="btn" id="editar">✏️ Editar perfil</button>
-          <button class="btn sec" id="compartilhar">🔗 Copiar link</button><button class="btn sec" id="logout">Sair</button></div>` : ''}
+          <a class="btn sec" href="conquistas.html">🏆 Conquistas</a><button class="btn sec" id="compartilhar">🔗 Copiar link</button><button class="btn sec" id="logout">Sair</button></div>` : ''}
       </div>
     </section>
 

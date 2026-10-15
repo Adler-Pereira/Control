@@ -182,12 +182,12 @@ create or replace function public.reviews_after_change() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   if tg_op = 'INSERT' then
-    perform add_xp(new.user_id, 10);
+    perform add_xp(new.user_id, 10, 'avaliação');
     perform refresh_game_rating(new.game_id);
   elsif tg_op = 'UPDATE' then
     perform refresh_game_rating(new.game_id);
   elsif tg_op = 'DELETE' then
-    perform add_xp(old.user_id, -10);
+    perform add_xp(old.user_id, -10, 'avaliação removida');
     perform refresh_game_rating(old.game_id);
   end if;
   return null;
@@ -200,7 +200,7 @@ create trigger reviews_changed after insert or update or delete on public.review
 -- 5) Posts dão XP
 create or replace function public.posts_after_insert() returns trigger
 language plpgsql security definer set search_path = public as $$
-begin perform add_xp(new.user_id, 5); return null; end $$;
+begin perform add_xp(new.user_id, 5, 'post'); return null; end $$;
 
 drop trigger if exists posts_inserted on public.posts;
 create trigger posts_inserted after insert on public.posts
@@ -229,7 +229,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   if new.owner_id is not null then
     insert into community_members (community_id, user_id) values (new.id, new.owner_id) on conflict do nothing;
-    perform add_xp(new.owner_id, 20);
+    perform add_xp(new.owner_id, 20, 'comunidade criada');
   end if;
   return null;
 end $$;
@@ -810,3 +810,335 @@ update public.news set lang = case
     then 'en' else 'pt' end
   where lang is null;
 create index if not exists games_desc_en_idx on public.games(id) where description_lang = 'en' and steam_appid is not null;
+
+-- =====================================================================
+-- GAMIFICAÇÃO: login diário, molduras, banners, conquistas e ranking
+-- =====================================================================
+
+-- Correção: XP concedido pelo sistema (avaliações, posts...) era bloqueado pela proteção
+-- do perfil quando a ação vinha do próprio usuário. Agora o sistema se identifica.
+create or replace function public.protect_profile_fields() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if auth.uid() is not null and not is_admin() and coalesce(current_setting('cc.sistema', true), '') <> 'on' then
+    new.role := old.role; new.xp := old.xp; new.banned := old.banned;
+    new.streak_current := old.streak_current; new.streak_best := old.streak_best; new.last_checkin := old.last_checkin;
+    new.equipped_frame := old.equipped_frame; new.equipped_banner := old.equipped_banner;
+  end if;
+  return new;
+end $$;
+
+alter table public.profiles add column if not exists streak_current integer not null default 0;
+alter table public.profiles add column if not exists streak_best integer not null default 0;
+alter table public.profiles add column if not exists last_checkin date;
+alter table public.profiles add column if not exists equipped_frame text;
+alter table public.profiles add column if not exists equipped_banner text;
+alter table public.profiles add column if not exists showcase text[] not null default '{}';   -- selos em destaque
+
+-- Histórico de XP (para o ranking mensal)
+create table if not exists public.xp_log (
+  id          bigserial primary key,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  amount      integer not null,
+  reason      text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists xp_log_mes_idx on public.xp_log(created_at, user_id);
+alter table public.xp_log enable row level security;
+drop policy if exists xp_log_own on public.xp_log;
+create policy xp_log_own on public.xp_log for select using (user_id = auth.uid());
+
+create or replace function public.add_xp(uid uuid, amount int, reason text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if uid is null or amount = 0 then return; end if;
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set xp = greatest(0, xp + amount) where id = uid;
+  perform set_config('cc.sistema', 'off', true);
+  insert into xp_log (user_id, amount, reason) values (uid, amount, reason);
+end $$;
+revoke execute on function public.add_xp(uuid,int,text) from public, anon, authenticated;
+grant execute on function public.add_xp(uuid,int,text) to service_role;
+-- versão antiga (2 parâmetros) continua funcionando
+create or replace function public.add_xp(uid uuid, amount int) returns void
+language sql security definer set search_path = public as $$ select public.add_xp(uid, amount, null); $$;
+revoke execute on function public.add_xp(uuid,int) from public, anon, authenticated;
+grant execute on function public.add_xp(uuid,int) to service_role;
+
+-- Catálogo de itens (molduras, banners e selos)
+create table if not exists public.cosmetics (
+  id          text primary key,
+  kind        text not null check (kind in ('frame','banner','badge')),
+  name        text not null,
+  description text not null,            -- como desbloquear
+  rarity      text not null default 'comum' check (rarity in ('comum','rara','epica','lendaria','especial')),
+  icon        text,                     -- emoji dos selos
+  sort        integer not null default 0
+);
+alter table public.cosmetics enable row level security;
+drop policy if exists cosmetics_read on public.cosmetics;
+create policy cosmetics_read on public.cosmetics for select using (true);
+drop policy if exists cosmetics_admin on public.cosmetics;
+create policy cosmetics_admin on public.cosmetics for all using (is_admin()) with check (is_admin());
+
+insert into public.cosmetics (id, kind, name, description, rarity, icon, sort) values
+  -- Molduras
+  ('f_bronze',    'frame',  'Bronze',            'Alcance o nível 5',                         'comum',    null, 10),
+  ('f_prata',     'frame',  'Prata',             'Alcance o nível 10',                        'rara',     null, 20),
+  ('f_ouro',      'frame',  'Ouro',              'Alcance o nível 20',                        'epica',    null, 30),
+  ('f_diamante',  'frame',  'Diamante',          'Alcance o nível 30',                        'lendaria', null, 40),
+  ('f_lenda',     'frame',  'Lenda',             'Alcance o nível 50',                        'lendaria', null, 50),
+  ('f_chama7',    'frame',  'Chama',             'Entre 7 dias seguidos',                     'comum',    null, 60),
+  ('f_chama30',   'frame',  'Chama Azul',        'Entre 30 dias seguidos',                    'epica',    null, 70),
+  ('f_chama100',  'frame',  'Chama Arco-íris',   'Entre 100 dias seguidos',                   'lendaria', null, 80),
+  ('f_destaque',  'frame',  'Destaque do Mês',   'Fique no top 10 do ranking mensal (vale por um mês)', 'especial', null, 90),
+  ('f_fundador',  'frame',  'Fundador',          'Um dos 100 primeiros membros do Control Critic', 'especial', null, 5),
+  -- Banners
+  ('b_neon',      'banner', 'Neon',              'Alcance o nível 15',                        'rara',     null, 10),
+  ('b_galaxia',   'banner', 'Galáxia',           'Alcance o nível 40',                        'lendaria', null, 20),
+  ('b_retro',     'banner', 'Retrô',             'Entre 30 dias seguidos',                    'epica',    null, 30),
+  ('b_critico',   'banner', 'Crítico de Ouro',   'Publique 50 avaliações',                    'epica',    null, 40),
+  ('b_amarelo',   'banner', 'Control Critic',    'Faça seu primeiro login diário',            'comum',    null, 0),
+  -- Selos (conquistas)
+  ('s_primeira',     'badge', 'Primeira Crítica',  'Publique sua primeira avaliação',   'comum',    '✍️', 10),
+  ('s_critico10',    'badge', 'Crítico',           'Publique 10 avaliações',            'rara',     '⭐', 20),
+  ('s_critico50',    'badge', 'Crítico Veterano',  'Publique 50 avaliações',            'epica',    '🌟', 30),
+  ('s_colecao25',    'badge', 'Colecionador',      'Tenha 25 jogos na biblioteca',      'comum',    '📚', 40),
+  ('s_colecao100',   'badge', 'Arquivista',        'Tenha 100 jogos na biblioteca',     'rara',     '🗄️', 50),
+  ('s_zerou10',      'badge', 'Finalizador',       'Marque 10 jogos como zerados',      'rara',     '🏆', 55),
+  ('s_organizador',  'badge', 'Organizador',       'Agende sua primeira partida',       'comum',    '📅', 60),
+  ('s_organizador10','badge', 'Líder de Squad',    'Agende 10 partidas',                'epica',    '🎖️', 70),
+  ('s_social10',     'badge', 'Conhecido',         'Tenha 10 seguidores',               'rara',     '👥', 80),
+  ('s_social100',    'badge', 'Influente',         'Tenha 100 seguidores',              'lendaria', '📣', 90),
+  ('s_falante',      'badge', 'Comunicador',       'Publique 50 posts em comunidades',  'rara',     '💬', 100),
+  ('s_fundou',       'badge', 'Fundador de Comunidade', 'Crie uma comunidade',          'comum',    '🏰', 110),
+  ('s_semana',       'badge', 'Assíduo',           'Entre 7 dias seguidos',             'comum',    '🔥', 120),
+  ('s_mes',          'badge', 'Dedicado',          'Entre 30 dias seguidos',            'epica',    '💎', 130),
+  ('s_top10',        'badge', 'Top 10 do Mês',     'Termine um mês no top 10 do ranking', 'especial', '🥇', 140)
+on conflict (id) do update set name = excluded.name, description = excluded.description, rarity = excluded.rarity, icon = excluded.icon, sort = excluded.sort;
+
+create table if not exists public.user_cosmetics (
+  user_id      uuid not null references public.profiles(id) on delete cascade,
+  cosmetic_id  text not null references public.cosmetics(id) on delete cascade,
+  unlocked_at  timestamptz not null default now(),
+  expires_at   timestamptz,               -- itens temporários (ex.: Destaque do Mês)
+  primary key (user_id, cosmetic_id)
+);
+alter table public.user_cosmetics enable row level security;
+drop policy if exists uc_read on public.user_cosmetics;
+create policy uc_read on public.user_cosmetics for select using (true);
+
+-- Concede um item (uma vez) e avisa por notificação
+create or replace function public.grant_cosmetic(uid uuid, cid text, expira timestamptz default null) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare c cosmetics; novo boolean;
+begin
+  select * into c from cosmetics where id = cid;
+  if c.id is null or uid is null then return false; end if;
+  insert into user_cosmetics (user_id, cosmetic_id, expires_at) values (uid, cid, expira)
+  on conflict (user_id, cosmetic_id) do update set expires_at = excluded.expires_at
+    where user_cosmetics.expires_at is not null and user_cosmetics.expires_at < coalesce(excluded.expires_at, 'infinity')
+  returning true into novo;
+  if novo then
+    insert into notifications (user_id, type, title, body, link)
+    values (uid, 'reward', case c.kind when 'frame' then 'Nova moldura desbloqueada: ' when 'banner' then 'Novo banner desbloqueado: ' else 'Nova conquista: ' end || c.name,
+            c.description, 'conquistas.html');
+  end if;
+  return coalesce(novo, false);
+end $$;
+revoke execute on function public.grant_cosmetic(uuid,text,timestamptz) from public, anon, authenticated;
+
+-- Nível a partir do XP (mesma fórmula do site)
+create or replace function public.level_of(xp int) returns int language sql immutable as $$
+  select floor(sqrt(greatest(xp, 0) / 50.0))::int + 1;
+$$;
+
+-- Recompensas por nível (dispara quando o XP muda)
+create or replace function public.rewards_on_xp() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare lv int := level_of(new.xp);
+begin
+  if level_of(old.xp) >= lv then return null; end if;
+  if lv >= 5  then perform grant_cosmetic(new.id, 'f_bronze'); end if;
+  if lv >= 10 then perform grant_cosmetic(new.id, 'f_prata'); end if;
+  if lv >= 15 then perform grant_cosmetic(new.id, 'b_neon'); end if;
+  if lv >= 20 then perform grant_cosmetic(new.id, 'f_ouro'); end if;
+  if lv >= 30 then perform grant_cosmetic(new.id, 'f_diamante'); end if;
+  if lv >= 40 then perform grant_cosmetic(new.id, 'b_galaxia'); end if;
+  if lv >= 50 then perform grant_cosmetic(new.id, 'f_lenda'); end if;
+  insert into notifications (user_id, type, title, body, link)
+  values (new.id, 'levelup', 'Você subiu para o nível ' || lv || '! 🎉', 'Veja as recompensas em Conquistas.', 'conquistas.html');
+  return null;
+end $$;
+drop trigger if exists profiles_rewards on public.profiles;
+create trigger profiles_rewards after update of xp on public.profiles
+  for each row when (new.xp > old.xp) execute function public.rewards_on_xp();
+
+-- Conquistas por atividade
+create or replace function public.check_achievements(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if uid is null then return; end if;
+  select count(*) into n from reviews where user_id = uid;
+  if n >= 1 then perform grant_cosmetic(uid, 's_primeira'); end if;
+  if n >= 10 then perform grant_cosmetic(uid, 's_critico10'); end if;
+  if n >= 50 then perform grant_cosmetic(uid, 's_critico50'); perform grant_cosmetic(uid, 'b_critico'); end if;
+  select count(*) into n from user_games where user_id = uid and status is not null;
+  if n >= 25 then perform grant_cosmetic(uid, 's_colecao25'); end if;
+  if n >= 100 then perform grant_cosmetic(uid, 's_colecao100'); end if;
+  select count(*) into n from user_games where user_id = uid and status = 'zerado';
+  if n >= 10 then perform grant_cosmetic(uid, 's_zerou10'); end if;
+  select count(*) into n from events where creator_id = uid;
+  if n >= 1 then perform grant_cosmetic(uid, 's_organizador'); end if;
+  if n >= 10 then perform grant_cosmetic(uid, 's_organizador10'); end if;
+  select count(*) into n from follows where followed_id = uid;
+  if n >= 10 then perform grant_cosmetic(uid, 's_social10'); end if;
+  if n >= 100 then perform grant_cosmetic(uid, 's_social100'); end if;
+  select count(*) into n from posts where user_id = uid;
+  if n >= 50 then perform grant_cosmetic(uid, 's_falante'); end if;
+  if exists (select 1 from communities where owner_id = uid) then perform grant_cosmetic(uid, 's_fundou'); end if;
+end $$;
+revoke execute on function public.check_achievements(uuid) from public, anon, authenticated;
+
+create or replace function public.achievements_trigger() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  -- cada tabela guarda o dono da ação numa coluna diferente
+  if tg_table_name = 'follows' then perform check_achievements(new.followed_id);
+  elsif tg_table_name = 'events' then perform check_achievements(new.creator_id);
+  elsif tg_table_name = 'communities' then perform check_achievements(new.owner_id);
+  else perform check_achievements(new.user_id);
+  end if;
+  return null;
+end $$;
+do $$ declare t text; begin
+  foreach t in array array['reviews','user_games','events','follows','posts','communities'] loop
+    execute format('drop trigger if exists achievements_%1$s on public.%1$s', t);
+    execute format('create trigger achievements_%1$s after insert or update on public.%1$s for each row execute function public.achievements_trigger()', t);
+  end loop;
+end $$;
+
+-- Login diário: sequência, XP e recompensas. Chamado pelo site uma vez por dia.
+create or replace function public.daily_checkin() returns json
+language plpgsql security definer set search_path = public as $$
+declare p profiles; hoje date := (now() at time zone 'America/Sao_Paulo')::date; seq int; ganho int;
+begin
+  select * into p from profiles where id = auth.uid() for update;
+  if p.id is null then raise exception 'não autenticado'; end if;
+  if p.last_checkin = hoje then
+    return json_build_object('ja_feito', true, 'streak', p.streak_current, 'best', p.streak_best);
+  end if;
+  seq := case when p.last_checkin = hoje - 1 then p.streak_current + 1 else 1 end;
+  ganho := 5 + least(seq - 1, 10) * 2;            -- 5 XP no 1º dia, até 25 XP por dia na sequência
+  if seq % 7 = 0 then ganho := ganho + 25; end if; -- bônus semanal
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set streak_current = seq, streak_best = greatest(streak_best, seq), last_checkin = hoje where id = p.id;
+  perform set_config('cc.sistema', 'off', true);
+  perform add_xp(p.id, ganho, 'login diário');
+  perform grant_cosmetic(p.id, 'b_amarelo');
+  if seq >= 7 then perform grant_cosmetic(p.id, 'f_chama7'); perform grant_cosmetic(p.id, 's_semana'); end if;
+  if seq >= 30 then perform grant_cosmetic(p.id, 'f_chama30'); perform grant_cosmetic(p.id, 'b_retro'); perform grant_cosmetic(p.id, 's_mes'); end if;
+  if seq >= 100 then perform grant_cosmetic(p.id, 'f_chama100'); end if;
+  return json_build_object('ja_feito', false, 'streak', seq, 'best', greatest(p.streak_best, seq), 'xp', ganho,
+                           'bonus_semanal', seq % 7 = 0, 'recorde', seq > p.streak_best and seq > 1);
+end $$;
+revoke execute on function public.daily_checkin() from public, anon;
+grant execute on function public.daily_checkin() to authenticated;
+
+-- Equipar moldura/banner (só itens desbloqueados e válidos; null = remover)
+create or replace function public.equip_cosmetic(tipo text, cid text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'não autenticado'; end if;
+  if tipo not in ('frame','banner') then raise exception 'tipo inválido'; end if;
+  if cid is not null and not exists (
+    select 1 from user_cosmetics uc join cosmetics c on c.id = uc.cosmetic_id
+    where uc.user_id = auth.uid() and uc.cosmetic_id = cid and c.kind = tipo and (uc.expires_at is null or uc.expires_at > now())
+  ) then raise exception 'Item ainda não desbloqueado.'; end if;
+  perform set_config('cc.sistema', 'on', true);
+  if tipo = 'frame' then update profiles set equipped_frame = cid where id = auth.uid();
+  else update profiles set equipped_banner = cid where id = auth.uid(); end if;
+  perform set_config('cc.sistema', 'off', true);
+end $$;
+grant execute on function public.equip_cosmetic(text,text) to authenticated;
+
+-- Ranking do mês (XP ganho no mês, horário de Brasília)
+create or replace function public.monthly_ranking(mes date default null, lim int default 20)
+returns table (posicao bigint, user_id uuid, username text, avatar_url text, equipped_frame text, xp_mes bigint)
+language sql stable security definer set search_path = public as $$
+  with periodo as (
+    select date_trunc('month', coalesce(mes, (now() at time zone 'America/Sao_Paulo')::date))::date as ini
+  )
+  select row_number() over (order by sum(l.amount) desc, min(l.created_at)), p.id, p.username, p.avatar_url, p.equipped_frame, sum(l.amount)
+  from xp_log l join profiles p on p.id = l.user_id, periodo
+  where (l.created_at at time zone 'America/Sao_Paulo')::date >= periodo.ini
+    and (l.created_at at time zone 'America/Sao_Paulo')::date < (periodo.ini + interval '1 month')::date
+    and not p.banned
+  group by p.id
+  having sum(l.amount) > 0
+  order by 6 desc, min(l.created_at)
+  limit least(lim, 100);
+$$;
+
+-- Premia o top 10 do mês anterior (roda no dia 1; seguro rodar mais de uma vez)
+create or replace function public.award_monthly_top() returns integer
+language plpgsql security definer set search_path = public as $$
+declare anterior date := (date_trunc('month', (now() at time zone 'America/Sao_Paulo')::date) - interval '1 month')::date;
+        chave text := 'top10_' || to_char(anterior, 'YYYY_MM'); r record; n int := 0;
+begin
+  if exists (select 1 from settings where key = chave) then return 0; end if;
+  for r in select * from monthly_ranking(anterior, 10) loop
+    perform grant_cosmetic(r.user_id, 'f_destaque', (date_trunc('month', now()) + interval '1 month'));
+    perform grant_cosmetic(r.user_id, 's_top10');
+    n := n + 1;
+  end loop;
+  insert into settings (key, value) values (chave, to_jsonb(n));
+  return n;
+end $$;
+revoke execute on function public.award_monthly_top() from public, anon, authenticated;
+grant execute on function public.award_monthly_top() to service_role;
+
+-- Itens temporários vencidos saem do perfil
+create or replace function public.expire_cosmetics() returns integer
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  perform set_config('cc.sistema', 'on', true);
+  update profiles p set equipped_frame = null where equipped_frame is not null and exists (
+    select 1 from user_cosmetics uc where uc.user_id = p.id and uc.cosmetic_id = p.equipped_frame and uc.expires_at < now());
+  get diagnostics n = row_count;
+  perform set_config('cc.sistema', 'off', true);
+  return n;
+end $$;
+revoke execute on function public.expire_cosmetics() from public, anon, authenticated;
+grant execute on function public.expire_cosmetics() to service_role;
+
+-- Fundadores: os 100 primeiros membros (contas atuais e as próximas até completar 100)
+create or replace function public.founder_on_signup() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from profiles) <= 100 then perform grant_cosmetic(new.id, 'f_fundador'); end if;
+  return null;
+end $$;
+drop trigger if exists profiles_founder on public.profiles;
+create trigger profiles_founder after insert on public.profiles for each row execute function public.founder_on_signup();
+
+-- Agendamentos no banco (se o pg_cron estiver disponível)
+do $$ begin
+  perform cron.unschedule('premiar-top10') where exists (select 1 from cron.job where jobname = 'premiar-top10');
+  perform cron.schedule('premiar-top10', '15 3 1 * *', 'select public.award_monthly_top(); select public.expire_cosmetics();');
+exception when others then raise notice 'pg_cron indisponível: o robô premia o ranking mensal.'; end $$;
+
+-- Recompensas retroativas para quem já tem conta
+do $$ declare r record; begin
+  for r in select id, xp from profiles loop
+    perform check_achievements(r.id);
+    if level_of(r.xp) >= 5  then perform grant_cosmetic(r.id, 'f_bronze'); end if;
+    if level_of(r.xp) >= 10 then perform grant_cosmetic(r.id, 'f_prata'); end if;
+    if level_of(r.xp) >= 15 then perform grant_cosmetic(r.id, 'b_neon'); end if;
+    if level_of(r.xp) >= 20 then perform grant_cosmetic(r.id, 'f_ouro'); end if;
+    if level_of(r.xp) >= 30 then perform grant_cosmetic(r.id, 'f_diamante'); end if;
+  end loop;
+  perform grant_cosmetic(p.id, 'f_fundador') from (select id from profiles order by created_at limit 100) p;
+end $$;

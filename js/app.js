@@ -60,6 +60,12 @@ export function nivel(xp) {
 
 export const avatar = (p) => urlSegura(p?.avatar_url) || 'img/perfilpadrao.png';
 
+// Foto com a moldura equipada (gamificação). classe: classes extras da <img>
+export function avatarHtml(p, classe = '', alt = '') {
+  const m = /^[a-z0-9_]+$/.test(p?.equipped_frame || '') ? p.equipped_frame : '';
+  return `<span class="moldura ${m ? 'com m-' + m : ''}"><img class="avatar ${classe}" src="${avatar(p)}" alt="${esc(alt)}"></span>`;
+}
+
 // ---------- Sessão ----------
 let _perfil;
 export async function usuario() {
@@ -136,9 +142,11 @@ export async function montarLayout() {
   } else {
     conta.innerHTML = `
       ${p.role !== 'user' ? '<a class="btn sec pequeno" href="admin.html">Admin</a>' : ''}
+      <a href="conquistas.html" class="chama-topo" id="chama" title="Sequência de dias e conquistas">🔥 ${p.streak_current || 0}</a>
       <a href="notificacoes.html" class="sino" title="Notificações" aria-label="Notificações">🔔<span class="badge hidden" id="badge"></span></a>
-      <a href="perfil.html" title="${esc(p.username)}"><img class="avatar" src="${avatar(p)}" alt="Meu perfil"></a>`;
+      <a href="perfil.html" title="${esc(p.username)}" aria-label="Meu perfil">${avatarHtml(p)}</a>`;
     contarNotificacoes(p.id);
+    loginDiario();
     // Atualiza o sino em tempo real
     sb.channel('notif:' + p.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${p.id}` }, (m) => {
@@ -215,4 +223,19 @@ export async function traduzirNoNavegador(texto) {
     const t = await self.Translator.create({ sourceLanguage: 'en', targetLanguage: 'pt' });
     return await t.translate(texto);
   } catch { return null; }
+}
+
+// ---------- Login diário ----------
+async function loginDiario() {
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  try { if (localStorage.getItem('cc_checkin') === hoje) return; } catch { /* sem armazenamento: o servidor evita duplicar */ }
+  const { data, error } = await sb.rpc('daily_checkin');
+  if (error) return;
+  try { localStorage.setItem('cc_checkin', hoje); } catch { /* ignora */ }
+  const chama = $('#chama');
+  if (chama) chama.textContent = `🔥 ${data.streak}`;
+  if (data.ja_feito) return;
+  toast(data.streak > 1
+    ? `🔥 ${data.streak} dias seguidos! +${data.xp} XP${data.bonus_semanal ? ' (bônus semanal!)' : ''}${data.recorde ? ' · novo recorde' : ''}`
+    : `👋 Bem-vindo de volta! +${data.xp} XP pelo login de hoje.`);
 }

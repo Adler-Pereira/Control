@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatar, data, toast, falha, urlSegura, denunciar } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatar, avatarHtml, data, toast, falha, urlSegura, denunciar } from './app.js';
 import { SalaVoz } from './voz.js';
 
 await montarLayout();
@@ -168,10 +168,10 @@ async function carregar() {
 }
 
 async function carregarPosts(u, dono) {
-  const { data: posts } = await sb.from('posts').select('*, profiles(username,avatar_url)').eq('community_id', id).eq('status', 'published')
+  const { data: posts } = await sb.from('posts').select('*, profiles(username,avatar_url,equipped_frame)').eq('community_id', id).eq('status', 'published')
     .order('created_at', { ascending: false }).limit(100);
   $('#posts').innerHTML = (posts || []).map((x) => `
-    <article class="post"><header><img class="avatar" src="${avatar(x.profiles)}" alt="">
+    <article class="post"><header>${avatarHtml(x.profiles)}
       <a class="usuario" href="perfil.html?u=${encodeURIComponent(x.profiles?.username || '')}">${esc(x.profiles?.username)}</a><span class="muted">${data(x.created_at)}</span>
       ${u && (x.user_id === u.id || dono) ? `<button class="btn sec pequeno" data-del="${x.id}" style="margin-left:auto">Apagar</button>`
         : u ? `<button class="bt-denunciar" data-den="${x.id}">🚩 Denunciar</button>` : ''}</header>

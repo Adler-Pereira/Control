@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, toast, falha, denunciar, traduzirNoNavegador } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -13,7 +13,7 @@ async function carregar() {
   document.title = `${g.title} | Control Critic`;
   const u = await usuario();
   const [{ data: reviews }, { data: deals }, { data: comms }] = await Promise.all([
-    sb.from('reviews').select('*, profiles(username,avatar_url)').eq('game_id', g.id).eq('status', 'published').order('created_at', { ascending: false }),
+    sb.from('reviews').select('*, profiles(username,avatar_url,equipped_frame)').eq('game_id', g.id).eq('status', 'published').order('created_at', { ascending: false }),
     sb.from('deals').select('*').eq('game_id', g.id).order('discount_pct', { ascending: false }),
     sb.from('communities').select('id,name,members_count').eq('game_id', g.id).limit(5),
   ]);
@@ -81,7 +81,7 @@ async function carregar() {
 
     <h2>Avaliações da comunidade</h2>
     <div class="lista">${reviews.map((r) => `
-      <article class="review"><header><img class="avatar" src="${avatar(r.profiles)}" alt="">
+      <article class="review"><header>${avatarHtml(r.profiles)}
         <a class="usuario" href="perfil.html?u=${encodeURIComponent(r.profiles?.username || '')}">${esc(r.profiles?.username)}</a> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span>
         ${u && r.user_id !== u.id ? `<button class="bt-denunciar" data-den="${r.id}" title="Denunciar">🚩 Denunciar</button>` : ''}</header>
         ${r.body ? `<p class="quebra">${esc(r.body)}</p>` : ''}</article>`).join('') || '<p class="vazio">Seja o primeiro a avaliar!</p>'}

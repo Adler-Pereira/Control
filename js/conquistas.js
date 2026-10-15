@@ -1,0 +1,100 @@
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatarHtml, toast, falha, param } from './app.js';
+
+await montarLayout();
+const main = $('#conteudo');
+const RARIDADE = { comum: 'Comum', rara: 'Rara', epica: 'Épica', lendaria: 'Lendária', especial: 'Especial' };
+
+if (configurado) carregar();
+
+async function carregar() {
+  const u = await usuario();
+  const p = u ? await perfil() : null;
+  const [{ data: itens }, { data: meus }, { data: ranking }] = await Promise.all([
+    sb.from('cosmetics').select('*').order('kind').order('sort'),
+    u ? sb.from('user_cosmetics').select('*').eq('user_id', u.id) : Promise.resolve({ data: [] }),
+    sb.rpc('monthly_ranking', { lim: 20 }),
+  ]);
+  const tenho = new Map((meus || []).filter((m) => !m.expires_at || new Date(m.expires_at) > new Date()).map((m) => [m.cosmetic_id, m]));
+  const n = p ? nivel(p.xp) : null;
+  const porTipo = (k) => itens.filter((i) => i.kind === k);
+  const total = itens.length, desbloqueados = itens.filter((i) => tenho.has(i.id)).length;
+  const mes = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
+
+  main.innerHTML = `
+    <h1>Conquistas</h1>
+    ${p ? `<div class="grade" style="margin-bottom:18px">
+      <div class="cartao" style="text-align:center"><div class="sequencia">🔥 ${p.streak_current}</div>
+        <p>dia(s) seguidos</p><p class="muted" style="font-size:.85rem">Recorde: ${p.streak_best} · entre todo dia para ganhar mais XP e molduras de chama</p></div>
+      <div class="cartao" style="text-align:center"><div class="sequencia" style="color:var(--amarelo)">Nv. ${n.lv}</div>
+        <p>${n.titulo} · ${p.xp} XP</p><div class="barra-xp" style="margin-top:8px"><div style="width:${n.pct}%"></div></div>
+        <p class="muted" style="font-size:.85rem;margin-top:4px">Próximo nível em ${n.prox} XP</p></div>
+      <div class="cartao" style="text-align:center"><div class="sequencia" style="color:#ba68c8">${desbloqueados}/${total}</div>
+        <p>itens desbloqueados</p><p class="muted" style="font-size:.85rem">Avalie, organize partidas e participe das comunidades</p></div>
+    </div>` : `<div class="aviso"><a href="entrar.html?volta=conquistas.html">Entre</a> para ganhar XP, manter sua sequência de dias e desbloquear molduras, banners e selos.</div>`}
+
+    <div class="abas">
+      <button class="aba ativo" data-a="molduras">Molduras</button><button class="aba" data-a="banners">Banners</button>
+      <button class="aba" data-a="selos">Selos</button><button class="aba" data-a="ranking">Ranking do mês</button><button class="aba" data-a="como">Como ganhar XP</button>
+    </div>
+
+    <section data-p="molduras"><div class="itens">${porTipo('frame').map((i) => cartaoItem(i, tenho, p, 'frame')).join('')}</div></section>
+    <section data-p="banners" class="hidden"><div class="itens">${porTipo('banner').map((i) => cartaoItem(i, tenho, p, 'banner')).join('')}</div></section>
+    <section data-p="selos" class="hidden"><div class="itens">${porTipo('badge').map((i) => cartaoItem(i, tenho, p, 'badge')).join('')}</div></section>
+
+    <section data-p="ranking" class="hidden">
+      <p class="muted" style="margin-bottom:12px">Quem mais ganhou XP em ${esc(mes)}. No fim do mês, o <strong>top 10</strong> ganha a moldura
+        <strong>Destaque do Mês</strong> (válida por um mês) e o selo permanente <strong>Top 10 do Mês</strong>.</p>
+      <div class="lista">${(ranking || []).map((r) => `
+        <a class="cartao ranking-linha ${r.posicao <= 10 ? 'top' : ''}" href="perfil.html?u=${encodeURIComponent(r.username)}" style="color:var(--texto);text-decoration:none">
+          <span class="pos">${r.posicao <= 3 ? ['🥇', '🥈', '🥉'][r.posicao - 1] : r.posicao}</span>
+          ${avatarHtml(r)}
+          <strong style="flex:1">${esc(r.username)}${p && r.user_id === p.id ? ' (você)' : ''}</strong>
+          <span class="tag amarela">${Number(r.xp_mes).toLocaleString('pt-BR')} XP</span>
+        </a>`).join('') || '<p class="vazio">Ninguém pontuou este mês ainda. Seja o primeiro!</p>'}</div>
+    </section>
+
+    <section data-p="como" class="hidden"><div class="cartao">
+      <table><tbody>
+        <tr><td>🔥 Login diário</td><td>5 XP, +2 por dia de sequência (até 25 XP/dia)</td></tr>
+        <tr><td>📅 A cada 7 dias seguidos</td><td>+25 XP de bônus</td></tr>
+        <tr><td>⭐ Avaliar um jogo</td><td>10 XP</td></tr>
+        <tr><td>🏰 Criar uma comunidade</td><td>20 XP</td></tr>
+        <tr><td>💬 Postar numa comunidade</td><td>5 XP</td></tr>
+        <tr><td>🔎 Adicionar um jogo ao catálogo pela busca</td><td>5 XP</td></tr>
+      </tbody></table>
+      <p class="muted" style="margin-top:10px;font-size:.85rem">Molduras e banners são só visuais e não dão vantagem nenhuma. Tudo é conquistado jogando e participando.</p>
+    </div></section>`;
+
+  main.querySelectorAll('.aba').forEach((b) => b.onclick = () => {
+    main.querySelectorAll('.aba').forEach((x) => x.classList.toggle('ativo', x === b));
+    main.querySelectorAll('[data-p]').forEach((s) => s.classList.toggle('hidden', s.dataset.p !== b.dataset.a));
+  });
+  const abaInicial = main.querySelector(`.aba[data-a="${param('aba') || location.hash.slice(1)}"]`);
+  if (abaInicial) abaInicial.click();
+
+  main.querySelectorAll('[data-equipar]').forEach((b) => b.onclick = async () => {
+    const [tipo, id] = b.dataset.equipar.split(':');
+    const { error } = await sb.rpc('equip_cosmetic', { tipo, cid: id || null });
+    if (error) return falha(error);
+    toast(id ? 'Equipado! Já aparece no seu perfil.' : 'Removido.');
+    setTimeout(() => location.reload(), 500);
+  });
+}
+
+function cartaoItem(i, tenho, p, tipo) {
+  const meu = tenho.get(i.id);
+  const equipado = p && ((tipo === 'frame' && p.equipped_frame === i.id) || (tipo === 'banner' && p.equipped_banner === i.id));
+  const visual = tipo === 'frame' ? avatarHtml({ ...(p || {}), equipped_frame: i.id }, 'grande')
+    : tipo === 'banner' ? `<div class="amostra-banner bn-${i.id}" style="width:100%"></div>`
+    : `<div class="selo">${esc(i.icon || '🏅')}</div>`;
+  const acao = !p || !meu || tipo === 'badge' ? ''
+    : equipado ? `<button class="btn sec pequeno" data-equipar="${tipo}:">Remover</button>`
+    : `<button class="btn pequeno" data-equipar="${tipo}:${i.id}">Equipar</button>`;
+  return `<div class="item ${meu ? '' : 'bloqueado'} ${equipado ? 'equipado' : ''}">
+    ${visual}
+    <strong>${esc(i.name)}</strong>
+    <span class="raridade r-${i.rarity}">${RARIDADE[i.rarity] || ''}</span>
+    <span class="muted" style="font-size:.82rem">${meu ? (meu.expires_at ? `Válido até ${new Date(meu.expires_at).toLocaleDateString('pt-BR')}` : '✓ Desbloqueado') : '🔒 ' + esc(i.description)}</span>
+    ${acao}
+  </div>`;
+}
