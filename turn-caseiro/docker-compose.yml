@@ -1,0 +1,14 @@
+# TURN caseiro do Control Critic (coturn). Rode com:  docker compose up -d
+# Antes, edite turnserver.conf (segredo, IP externo e domínio).
+services:
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: controlcritic-turn
+    restart: unless-stopped
+    network_mode: host          # no Windows/Mac (Docker Desktop) troque pelas linhas "ports" abaixo
+    # ports:
+    #   - "3478:3478/udp"
+    #   - "3478:3478/tcp"
+    #   - "49160-49200:49160-49200/udp"
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro

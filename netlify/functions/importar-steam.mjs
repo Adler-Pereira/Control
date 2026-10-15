@@ -2,7 +2,7 @@
 //   POST /.netlify/functions/importar-steam  { perfil: "https://steamcommunity.com/id/fulano" }
 // Usa a Steam Web API oficial (GetOwnedGames). O perfil e os "detalhes de jogos" precisam estar públicos.
 // Variáveis no Netlify: STEAM_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
-import { supabaseRest } from '../../lib/igdb.mjs';
+import { supabaseRest, usuarioLogado } from '../../lib/igdb.mjs';
 
 const MAX_NOVOS_NO_CATALOGO = 3000;
 const env = (k) => (process.env[k] || '').trim();
@@ -35,11 +35,12 @@ export default async (req) => {
 
   try {
     // Login
-    const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-    const base = env('SUPABASE_URL').replace(/\/+(rest\/v1)?\/*$/, '');
-    const ru = token && await fetch(`${base}/auth/v1/user`, { headers: { apikey: env('SUPABASE_SERVICE_KEY'), Authorization: `Bearer ${token}` } });
-    if (!ru || !ru.ok) return json(401, { erro: 'Entre na sua conta para importar.' });
-    const { id: uid } = await ru.json();
+    const login = await usuarioLogado(req, env('SUPABASE_URL'), env('SUPABASE_SERVICE_KEY'));
+    if (!login.usuario) {
+      console.error('importar-steam:', login.erro);
+      return json(401, { erro: `Não foi possível confirmar seu login (${login.erro}). Saia e entre de novo na sua conta e tente outra vez.` });
+    }
+    const { id: uid } = login.usuario;
 
     const { perfil } = await req.json().catch(() => ({}));
     if (!perfil || String(perfil).length > 200) return json(400, { erro: 'Informe o link do seu perfil da Steam.' });
