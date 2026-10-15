@@ -133,7 +133,11 @@ for (const g of jogos) {
   await new Promise((r) => setTimeout(r, 1600)); // respeita o limite de requisições da Steam
 }
 
-// 4) Limpa promoções manuais vencidas
+// 4) Lembretes de partidas que começam na próxima 1h30
+const lembretes = await api('rpc/send_event_reminders', { method: 'POST', body: {} }).catch((e) => { erros.push(`Lembretes: ${e.message}`); return 0; });
+if (lembretes) console.log(`Lembretes de partida enviados: ${lembretes}`);
+
+// 5) Limpa promoções manuais vencidas
 await api(`deals?auto=eq.false&ends_at=lt.${new Date().toISOString()}`, { method: 'DELETE' }).catch((e) => erros.push(e.message));
 
 await api('settings?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates',

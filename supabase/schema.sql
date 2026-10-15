@@ -484,3 +484,308 @@ create index if not exists games_steam_check_idx on public.games(steam_checked_a
 create index if not exists games_title_idx on public.games(lower(title));
 -- A busca sob demanda (Netlify, com a chave secreta) dá XP a quem adiciona um jogo
 grant execute on function public.add_xp(uuid,int) to service_role;
+
+-- =====================================================================
+-- LGPD: aceite dos termos, exclusão da conta
+-- =====================================================================
+alter table public.profiles add column if not exists accepted_terms_at timestamptz;
+
+-- Exclui a conta de quem chamou (perfil, avaliações, posts etc. caem em cascata)
+create or replace function public.delete_my_account() returns void
+language plpgsql security definer set search_path = public, auth as $$
+begin
+  if auth.uid() is null then raise exception 'não autenticado'; end if;
+  delete from storage.objects where bucket_id = 'media' and name like 'avatars/' || auth.uid()::text || '/%';
+  delete from auth.users where id = auth.uid();
+end $$;
+revoke execute on function public.delete_my_account() from public, anon;
+grant execute on function public.delete_my_account() to authenticated;
+
+-- =====================================================================
+-- DENÚNCIAS
+-- =====================================================================
+create table if not exists public.reports (
+  id           bigserial primary key,
+  reporter_id  uuid references public.profiles(id) on delete set null,
+  target_type  text not null check (target_type in ('review','post','profile','community','event')),
+  target_id    text not null,
+  reason       text not null check (reason in ('spam','ofensivo','assedio','conteudo_impróprio','golpe','outro')),
+  details      text check (char_length(details) <= 1000),
+  status       text not null default 'aberta' check (status in ('aberta','resolvida','descartada')),
+  created_at   timestamptz not null default now(),
+  unique (reporter_id, target_type, target_id)
+);
+alter table public.reports enable row level security;
+drop policy if exists reports_insert on public.reports;
+create policy reports_insert on public.reports for insert with check (reporter_id = auth.uid() and status = 'aberta');
+drop policy if exists reports_staff on public.reports;
+create policy reports_staff on public.reports for all using (is_staff()) with check (is_staff());
+
+-- =====================================================================
+-- BIBLIOTECA E LISTA DE DESEJOS
+-- =====================================================================
+create table if not exists public.user_games (
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  game_id    integer not null references public.games(id) on delete cascade,
+  status     text check (status in ('jogando','zerado','quero_jogar','abandonei')),
+  wishlist   boolean not null default false,
+  hours      numeric(7,1) check (hours is null or hours between 0 and 100000),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, game_id)
+);
+create index if not exists user_games_wish_idx on public.user_games(game_id) where wishlist;
+alter table public.user_games enable row level security;
+drop policy if exists ug_read on public.user_games;
+create policy ug_read on public.user_games for select using (true);
+drop policy if exists ug_write on public.user_games;
+create policy ug_write on public.user_games for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- =====================================================================
+-- SEGUIDORES
+-- =====================================================================
+create table if not exists public.follows (
+  follower_id  uuid not null references public.profiles(id) on delete cascade,
+  followed_id  uuid not null references public.profiles(id) on delete cascade,
+  created_at   timestamptz not null default now(),
+  primary key (follower_id, followed_id),
+  check (follower_id <> followed_id)
+);
+alter table public.follows enable row level security;
+drop policy if exists follows_read on public.follows;
+create policy follows_read on public.follows for select using (true);
+drop policy if exists follows_write on public.follows;
+create policy follows_write on public.follows for insert with check (follower_id = auth.uid() and is_active_user());
+drop policy if exists follows_delete on public.follows;
+create policy follows_delete on public.follows for delete using (follower_id = auth.uid());
+
+-- =====================================================================
+-- PARTIDAS AGENDADAS
+-- =====================================================================
+create table if not exists public.events (
+  id            bigserial primary key,
+  community_id  bigint not null references public.communities(id) on delete cascade,
+  creator_id    uuid references public.profiles(id) on delete set null,
+  title         text not null check (char_length(title) between 3 and 80),
+  game_id       integer references public.games(id) on delete set null,
+  platform      text check (platform in ('PlayStation','Xbox','PC','Nintendo','Mobile','Crossplay')),
+  starts_at     timestamptz not null,
+  slots         integer check (slots is null or slots between 2 and 100),
+  description   text check (char_length(description) <= 1000),
+  reminded      boolean not null default false,
+  created_at    timestamptz not null default now()
+);
+create index if not exists events_comm_idx on public.events(community_id, starts_at);
+create table if not exists public.event_attendees (
+  event_id   bigint not null references public.events(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  joined_at  timestamptz not null default now(),
+  primary key (event_id, user_id)
+);
+alter table public.events enable row level security;
+alter table public.event_attendees enable row level security;
+drop policy if exists events_read on public.events;
+create policy events_read on public.events for select using (true);
+drop policy if exists events_insert on public.events;
+create policy events_insert on public.events for insert with check (
+  creator_id = auth.uid() and is_active_user()
+  and exists (select 1 from community_members m where m.community_id = events.community_id and m.user_id = auth.uid()));
+drop policy if exists events_update on public.events;
+create policy events_update on public.events for update using (creator_id = auth.uid() or is_staff()) with check (creator_id = auth.uid() or is_staff());
+drop policy if exists events_delete on public.events;
+create policy events_delete on public.events for delete using (creator_id = auth.uid() or is_staff());
+drop policy if exists att_read on public.event_attendees;
+create policy att_read on public.event_attendees for select using (true);
+drop policy if exists att_join on public.event_attendees;
+create policy att_join on public.event_attendees for insert with check (user_id = auth.uid() and is_active_user());
+drop policy if exists att_leave on public.event_attendees;
+create policy att_leave on public.event_attendees for delete using (user_id = auth.uid());
+
+-- Vagas: bloqueia inscrição em partida lotada ou que já passou
+create or replace function public.event_join_check() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare e events;
+begin
+  select * into e from events where id = new.event_id;
+  if e.starts_at < now() - interval '3 hours' then raise exception 'Essa partida já aconteceu.'; end if;
+  if e.slots is not null and (select count(*) from event_attendees where event_id = e.id) >= e.slots then
+    raise exception 'Partida lotada.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists event_join on public.event_attendees;
+create trigger event_join before insert on public.event_attendees for each row execute function public.event_join_check();
+
+-- =====================================================================
+-- NOTIFICAÇÕES (criadas só por automações)
+-- =====================================================================
+create table if not exists public.notifications (
+  id          bigserial primary key,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  type        text not null,
+  title       text not null,
+  body        text,
+  link        text,
+  read        boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index if not exists notif_user_idx on public.notifications(user_id, created_at desc);
+alter table public.notifications enable row level security;
+drop policy if exists notif_own on public.notifications;
+create policy notif_own on public.notifications for select using (user_id = auth.uid());
+drop policy if exists notif_upd on public.notifications;
+create policy notif_upd on public.notifications for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists notif_del on public.notifications;
+create policy notif_del on public.notifications for delete using (user_id = auth.uid());
+do $$ begin
+  alter publication supabase_realtime add table public.notifications;
+exception when duplicate_object then null; end $$;
+
+-- Alguém te seguiu
+create or replace function public.notify_follow() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare quem text;
+begin
+  select username into quem from profiles where id = new.follower_id;
+  insert into notifications (user_id, type, title, link)
+  values (new.followed_id, 'follow', quem || ' começou a seguir você', 'perfil.html?u=' || quem);
+  return null;
+end $$;
+drop trigger if exists follows_notify on public.follows;
+create trigger follows_notify after insert on public.follows for each row execute function public.notify_follow();
+
+-- Jogo da lista de desejos entrou em promoção (ou ficou mais barato)
+create or replace function public.notify_deal() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare g games;
+begin
+  if new.discount_pct <= 0 then return null; end if;
+  if tg_op = 'UPDATE' and old.discount_pct >= new.discount_pct and coalesce(old.price_cents, 0) <= coalesce(new.price_cents, 0) then return null; end if;
+  select * into g from games where id = new.game_id;
+  insert into notifications (user_id, type, title, body, link)
+  select ug.user_id, 'deal', g.title || ' está com ' || new.discount_pct || '% de desconto!',
+         'Na ' || new.store || coalesce(' por R$ ' || replace(to_char(new.price_cents / 100.0, 'FM999990.00'), '.', ','), ''),
+         'jogo.html?slug=' || g.slug
+  from user_games ug where ug.game_id = new.game_id and ug.wishlist;
+  return null;
+end $$;
+drop trigger if exists deals_notify on public.deals;
+create trigger deals_notify after insert or update on public.deals for each row execute function public.notify_deal();
+
+-- Nova partida na comunidade: avisa os membros
+create or replace function public.notify_event() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare c text;
+begin
+  select name into c from communities where id = new.community_id;
+  insert into notifications (user_id, type, title, body, link)
+  select m.user_id, 'event', 'Nova partida em ' || c || ': ' || new.title,
+         to_char(new.starts_at at time zone 'America/Sao_Paulo', 'DD/MM "às" HH24:MI'),
+         'comunidade.html?id=' || new.community_id || '#partidas'
+  from community_members m where m.community_id = new.community_id and m.user_id <> coalesce(new.creator_id, '00000000-0000-0000-0000-000000000000');
+  -- quem cria já está confirmado
+  if new.creator_id is not null then insert into event_attendees (event_id, user_id) values (new.id, new.creator_id) on conflict do nothing; end if;
+  return null;
+end $$;
+drop trigger if exists events_notify on public.events;
+create trigger events_notify after insert on public.events for each row execute function public.notify_event();
+
+-- Lembrete 1h antes (chamado pelo robô a cada execução)
+create or replace function public.send_event_reminders() returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  with prox as (
+    update events set reminded = true
+    where not reminded and starts_at between now() and now() + interval '60 minutes'
+    returning id, title, community_id, starts_at
+  ), ins as (
+    insert into notifications (user_id, type, title, body, link)
+    select a.user_id, 'reminder', 'Sua partida começa em breve: ' || p.title,
+           to_char(p.starts_at at time zone 'America/Sao_Paulo', 'HH24:MI') || ' — entre na call da comunidade',
+           'comunidade.html?id=' || p.community_id || '#call'
+    from prox p join event_attendees a on a.event_id = p.id
+    returning 1
+  ) select count(*) into n from ins;
+  return n;
+end $$;
+revoke execute on function public.send_event_reminders() from public, anon, authenticated;
+grant execute on function public.send_event_reminders() to service_role;
+
+-- =====================================================================
+-- RECOMENDAÇÕES (agora também usam a biblioteca e a popularidade)
+-- =====================================================================
+create or replace function public.recommend_games(lim int default 8)
+returns setof public.games
+language sql stable security definer set search_path = public as $$
+  with gostos as (
+    select unnest(fav_categories) as cat, 3 as peso from profiles where id = auth.uid()
+    union all
+    select g.category_id, r.rating - 2 from reviews r join games g on g.id = r.game_id
+     where r.user_id = auth.uid() and r.rating >= 4 and g.category_id is not null
+    union all
+    select g.category_id, case ug.status when 'zerado' then 2 when 'jogando' then 2 when 'abandonei' then -2 else 1 end
+      from user_games ug join games g on g.id = ug.game_id
+     where ug.user_id = auth.uid() and g.category_id is not null
+  ), pontos as (
+    select cat, sum(peso) as score from gostos group by cat
+  )
+  select g.* from games g
+  left join pontos p on p.cat = g.category_id
+  where not exists (select 1 from reviews r where r.game_id = g.id and r.user_id = auth.uid())
+    and not exists (select 1 from user_games ug where ug.game_id = g.id and ug.user_id = auth.uid())
+  order by coalesce(p.score, 0) desc, g.avg_rating desc, g.igdb_rating_count desc, g.id
+  limit lim;
+$$;
+
+-- Estatísticas do admin incluem denúncias abertas
+create or replace function public.admin_stats() returns json
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_staff() then raise exception 'acesso negado'; end if;
+  return json_build_object(
+    'users',        (select count(*) from profiles),
+    'users_7d',     (select count(*) from profiles where created_at > now() - interval '7 days'),
+    'games',        (select count(*) from games),
+    'reviews',      (select count(*) from reviews),
+    'reviews_7d',   (select count(*) from reviews where created_at > now() - interval '7 days'),
+    'communities',  (select count(*) from communities),
+    'posts',        (select count(*) from posts),
+    'messages_new', (select count(*) from contact_messages where status = 'novo'),
+    'reports_open', (select count(*) from reports where status = 'aberta'),
+    'events_next',  (select count(*) from events where starts_at > now()),
+    'top_games',    (select coalesce(json_agg(t), '[]'::json) from (
+                       select title, avg_rating, reviews_count from games
+                       where reviews_count > 0 order by avg_rating desc, reviews_count desc limit 5) t)
+  );
+end $$;
+
+-- Cadastro registra o aceite dos termos (enviado pelo formulário de cadastro)
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare base text; candidate text; n int := 0;
+begin
+  base := lower(regexp_replace(coalesce(new.raw_user_meta_data->>'username', split_part(new.email,'@',1)), '[^a-zA-Z0-9_]', '', 'g'));
+  if char_length(base) < 3 then base := 'jogador'; end if;
+  base := left(base, 24);
+  candidate := base;
+  while exists (select 1 from profiles where username = candidate) loop
+    n := n + 1; candidate := base || n;
+  end loop;
+  insert into profiles (id, username, accepted_terms_at)
+  values (new.id, candidate, case when (new.raw_user_meta_data->>'accepted_terms') = 'true' then now() end);
+  return new;
+end $$;
+
+-- Assunto no Fale Conosco (ex.: pedidos de privacidade)
+alter table public.contact_messages add column if not exists subject text not null default 'geral'
+  check (subject in ('geral','sugestao','problema','privacidade','parceria'));
+
+-- Lembretes de partida a cada 10 minutos, dentro do próprio banco (pg_cron do Supabase).
+-- Se a extensão não puder ser ativada, o robô de sincronização envia os lembretes como reserva.
+do $$ begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule('lembretes-partidas') where exists (select 1 from cron.job where jobname = 'lembretes-partidas');
+  perform cron.schedule('lembretes-partidas', '*/10 * * * *', 'select public.send_event_reminders()');
+exception when others then
+  raise notice 'pg_cron indisponível (%): lembretes ficam a cargo do robô.', sqlerrm;
+end $$;

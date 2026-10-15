@@ -9,6 +9,9 @@ $('#conteudo').insertAdjacentHTML('beforeend', `
       <div><label for="email">E-mail</label><input id="email" type="email" required placeholder="voce@exemplo.com"></div>
       <div><label for="idade">Idade</label><input id="idade" type="number" min="13" max="120"></div>
     </div>
+    <label for="assunto">Assunto</label>
+    <select id="assunto"><option value="geral">Dúvida geral</option><option value="sugestao">Sugestão</option><option value="problema">Problema no site</option>
+      <option value="privacidade">Privacidade e meus dados (LGPD)</option><option value="parceria">Parceria</option></select>
     <label for="msg">Mensagem ou sugestão</label>
     <textarea id="msg" rows="5" required maxlength="3000" placeholder="Digite sua mensagem..."></textarea>
     <input id="site" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
@@ -25,7 +28,7 @@ $('#form').onsubmit = async (e) => {
   $('#enviar').disabled = true;
   const { error } = await sb.from('contact_messages').insert({
     name: $('#nome').value.trim(), email: $('#email').value.trim(),
-    age: $('#idade').value ? Number($('#idade').value) : null, message: $('#msg').value.trim(),
+    age: $('#idade').value ? Number($('#idade').value) : null, message: $('#msg').value.trim(), subject: $('#assunto').value,
   });
   $('#enviar').disabled = false;
   if (error) return falha(error);

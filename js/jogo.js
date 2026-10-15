@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, toast, falha } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, toast, falha, denunciar } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -17,6 +17,8 @@ async function carregar() {
     sb.from('deals').select('*').eq('game_id', g.id).order('discount_pct', { ascending: false }),
     sb.from('communities').select('id,name,members_count').eq('game_id', g.id).limit(5),
   ]);
+  const { data: bib } = u ? await sb.from('user_games').select('*').eq('user_id', u.id).eq('game_id', g.id).maybeSingle() : { data: null };
+  const { count: desejam } = await sb.from('user_games').select('user_id', { count: 'exact', head: true }).eq('game_id', g.id).eq('wishlist', true);
   const minha = u && reviews.find((r) => r.user_id === u.id);
 
   main.innerHTML = `
@@ -46,6 +48,22 @@ async function carregar() {
       </aside>
     </div>
 
+    <h2>Minha biblioteca</h2>
+    <div class="cartao">
+      ${u ? `<div class="biblioteca">
+        <select id="b-status" aria-label="Status">
+          <option value="">— Não está na biblioteca —</option>
+          ${[['jogando', '🎮 Jogando'], ['zerado', '🏆 Zerado'], ['quero_jogar', '📌 Quero jogar'], ['abandonei', '💤 Abandonei']]
+            .map(([v, t]) => `<option value="${v}" ${bib?.status === v ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <input id="b-horas" type="number" min="0" step="0.5" placeholder="Horas" value="${bib?.hours ?? ''}" style="max-width:110px" aria-label="Horas jogadas">
+        <button class="btn sec desejo ${bib?.wishlist ? 'ativo' : ''}" id="b-desejo">${bib?.wishlist ? '💖 Na lista de desejos' : '🤍 Lista de desejos'}</button>
+      </div>
+      <p class="muted" style="font-size:.85rem;margin-top:8px">Na lista de desejos você recebe uma notificação quando o jogo entrar em promoção.
+        ${desejam ? `${desejam} pessoa(s) desejam este jogo.` : ''}</p>`
+      : `<p><a href="entrar.html?volta=${encodeURIComponent('jogo.html?slug=' + g.slug)}">Entre</a> para adicionar à sua biblioteca e receber alertas de promoção.</p>`}
+    </div>
+
     <h2>${minha ? 'Sua avaliação' : 'Avalie este jogo'}</h2>
     <div class="cartao" id="form-area">
       ${u ? `
@@ -63,9 +81,33 @@ async function carregar() {
     <h2>Avaliações da comunidade</h2>
     <div class="lista">${reviews.map((r) => `
       <article class="review"><header><img class="avatar" src="${avatar(r.profiles)}" alt="">
-        <a class="usuario" href="perfil.html?u=${encodeURIComponent(r.profiles?.username || '')}">${esc(r.profiles?.username)}</a> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span></header>
+        <a class="usuario" href="perfil.html?u=${encodeURIComponent(r.profiles?.username || '')}">${esc(r.profiles?.username)}</a> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span>
+        ${u && r.user_id !== u.id ? `<button class="bt-denunciar" data-den="${r.id}" title="Denunciar">🚩 Denunciar</button>` : ''}</header>
         ${r.body ? `<p class="quebra">${esc(r.body)}</p>` : ''}</article>`).join('') || '<p class="vazio">Seja o primeiro a avaliar!</p>'}
     </div>`;
+
+  main.querySelectorAll('[data-den]').forEach((b) => b.onclick = () => denunciar('review', b.dataset.den));
+
+  // Biblioteca: salva ao mudar qualquer campo
+  const salvarBib = async (mudanca) => {
+    const atual = { status: $('#b-status').value || null, hours: $('#b-horas').value === '' ? null : Number($('#b-horas').value),
+      wishlist: $('#b-desejo').classList.contains('ativo'), ...mudanca };
+    const vazio = !atual.status && !atual.wishlist && atual.hours == null;
+    const { error } = vazio
+      ? await sb.from('user_games').delete().eq('user_id', u.id).eq('game_id', g.id)
+      : await sb.from('user_games').upsert({ user_id: u.id, game_id: g.id, ...atual, updated_at: new Date().toISOString() });
+    if (error) return falha(error);
+    return true;
+  };
+  $('#b-status')?.addEventListener('change', async () => { if (await salvarBib()) toast('Biblioteca atualizada.'); });
+  $('#b-horas')?.addEventListener('change', async () => { if (await salvarBib()) toast('Horas salvas.'); });
+  $('#b-desejo')?.addEventListener('click', async (e) => {
+    const b = e.currentTarget, ativo = !b.classList.contains('ativo');
+    if (!(await salvarBib({ wishlist: ativo }))) return;
+    b.classList.toggle('ativo', ativo);
+    b.textContent = ativo ? '💖 Na lista de desejos' : '🤍 Lista de desejos';
+    toast(ativo ? 'Adicionado à lista de desejos. Avisaremos quando entrar em promoção!' : 'Removido da lista de desejos.');
+  });
 
   $('#form-review')?.addEventListener('submit', async (e) => {
     e.preventDefault();

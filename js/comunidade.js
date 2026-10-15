@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatar, data, toast, falha, urlSegura } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatar, data, toast, falha, urlSegura, denunciar } from './app.js';
 import { SalaVoz } from './voz.js';
 
 await montarLayout();
@@ -27,15 +27,32 @@ async function carregar() {
         ${!u ? `<a class="btn" href="entrar.html?volta=${encodeURIComponent('comunidade.html?id=' + id)}">Entrar para participar</a>`
           : membro ? '<button class="btn sec" id="sair">Sair da comunidade</button>' : '<button class="btn" id="participar">Participar</button>'}
         ${dono ? '<button class="btn sec" id="editar">Configurar</button>' : ''}
+        ${u && !dono ? '<button class="bt-denunciar" id="den-comunidade">🚩 Denunciar</button>' : ''}
       </div>
     </div>
 
-    <div class="abas"><button class="aba ativo" data-a="posts">Mural</button><button class="aba" data-a="call">Call 🔊</button><button class="aba" data-a="discord">Discord / PS5</button></div>
+    <div class="abas"><button class="aba ativo" data-a="posts">Mural</button><button class="aba" data-a="partidas">Partidas 📅</button><button class="aba" data-a="call">Call 🔊</button><button class="aba" data-a="discord">Discord / PS5</button></div>
 
     <section data-p="posts">
       ${membro ? `<form id="form-post" class="cartao" style="margin-bottom:14px"><textarea id="txt" rows="3" maxlength="2000" required placeholder="Compartilhe algo, marque uma partida..."></textarea>
         <div style="margin-top:8px"><button class="btn">Publicar (+5 XP)</button></div></form>` : '<p class="muted" style="margin-bottom:12px">Participe da comunidade para publicar.</p>'}
       <div class="lista" id="posts"></div>
+    </section>
+
+    <section data-p="partidas" class="hidden">
+      ${membro ? `<details class="cartao" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700">+ Agendar uma partida</summary>
+        <form id="form-evento" style="margin-top:10px">
+          <div class="form-linha">
+            <div><label for="ev-titulo">Título</label><input id="ev-titulo" required minlength="3" maxlength="80" placeholder="Ex.: Raid de sábado"></div>
+            <div><label for="ev-data">Data e hora</label><input id="ev-data" type="datetime-local" required></div>
+            <div><label for="ev-plat">Plataforma</label><select id="ev-plat"><option value="">Qualquer</option>
+              ${['PlayStation', 'Xbox', 'PC', 'Nintendo', 'Mobile', 'Crossplay'].map((x) => `<option>${x}</option>`).join('')}</select></div>
+            <div><label for="ev-vagas">Vagas</label><input id="ev-vagas" type="number" min="2" max="100" placeholder="Sem limite"></div>
+          </div>
+          <label for="ev-desc">Detalhes</label><textarea id="ev-desc" rows="2" maxlength="1000" placeholder="Modo de jogo, nível mínimo, se vai ter call..."></textarea>
+          <button class="btn" style="margin-top:10px">Agendar e avisar os membros</button>
+        </form></details>` : '<p class="muted" style="margin-bottom:12px">Participe da comunidade para agendar e entrar em partidas.</p>'}
+      <div class="lista" id="eventos"></div>
     </section>
 
     <section data-p="call" class="hidden">
@@ -82,7 +99,27 @@ async function carregar() {
     main.querySelectorAll('.aba').forEach((x) => x.classList.toggle('ativo', x === b));
     main.querySelectorAll('[data-p]').forEach((s) => s.classList.toggle('hidden', s.dataset.p !== b.dataset.a));
     if (b.dataset.a === 'discord') widgetDiscord(c.discord_guild_id);
+    history.replaceState(null, '', '#' + b.dataset.a);
   });
+  const abaInicial = main.querySelector(`.aba[data-a="${location.hash.slice(1)}"]`);
+  if (abaInicial) abaInicial.click();
+
+  // Partidas
+  carregarEventos(u, membro, dono, c.game_id);
+  $('#form-evento')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const quando = new Date($('#ev-data').value);
+    if (!(quando > new Date())) return toast('Escolha uma data no futuro.', true);
+    const { error } = await sb.from('events').insert({
+      community_id: id, creator_id: u.id, title: $('#ev-titulo').value.trim(), starts_at: quando.toISOString(), game_id: c.game_id,
+      platform: $('#ev-plat').value || null, slots: $('#ev-vagas').value ? Number($('#ev-vagas').value) : null, description: $('#ev-desc').value.trim() || null,
+    });
+    if (error) return falha(error);
+    toast('Partida agendada! Os membros foram avisados.');
+    e.target.reset(); e.target.closest('details').open = false;
+    carregarEventos(u, membro, dono, c.game_id);
+  });
+  $('#den-comunidade')?.addEventListener('click', () => denunciar('community', id));
 
   $('#participar')?.addEventListener('click', async () => {
     const { error } = await sb.from('community_members').insert({ community_id: id, user_id: u.id });
@@ -136,8 +173,10 @@ async function carregarPosts(u, dono) {
   $('#posts').innerHTML = (posts || []).map((x) => `
     <article class="post"><header><img class="avatar" src="${avatar(x.profiles)}" alt="">
       <a class="usuario" href="perfil.html?u=${encodeURIComponent(x.profiles?.username || '')}">${esc(x.profiles?.username)}</a><span class="muted">${data(x.created_at)}</span>
-      ${u && (x.user_id === u.id || dono) ? `<button class="btn sec pequeno" data-del="${x.id}" style="margin-left:auto">Apagar</button>` : ''}</header>
+      ${u && (x.user_id === u.id || dono) ? `<button class="btn sec pequeno" data-del="${x.id}" style="margin-left:auto">Apagar</button>`
+        : u ? `<button class="bt-denunciar" data-den="${x.id}">🚩 Denunciar</button>` : ''}</header>
       <p class="quebra">${esc(x.body)}</p></article>`).join('') || '<p class="vazio">Nenhum post ainda.</p>';
+  $('#posts').querySelectorAll('[data-den]').forEach((b) => b.onclick = () => denunciar('post', b.dataset.den));
   $('#posts').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
     if (!confirm('Apagar este post?')) return;
     const { error } = await sb.from('posts').delete().eq('id', b.dataset.del);
@@ -195,4 +234,57 @@ async function widgetDiscord(guildId) {
   } catch {
     box.innerHTML = '<p class="muted">Não foi possível carregar o widget. Verifique se o widget do servidor está habilitado no Discord.</p>';
   }
+}
+
+// ---------- Partidas agendadas ----------
+async function carregarEventos(u, membro, dono) {
+  const { data: evs } = await sb.from('events').select('*, event_attendees(user_id, profiles(username)), profiles!events_creator_id_fkey(username)')
+    .eq('community_id', id).gte('starts_at', new Date(Date.now() - 3 * 3600e3).toISOString()).order('starts_at').limit(30);
+  const fmt = (d, o) => new Date(d).toLocaleString('pt-BR', o);
+  $('#eventos').innerHTML = (evs || []).map((e) => {
+    const nomes = e.event_attendees.map((a) => a.profiles?.username).filter(Boolean);
+    const vou = u && e.event_attendees.some((a) => a.user_id === u.id);
+    const lotado = e.slots && nomes.length >= e.slots;
+    return `<div class="cartao evento">
+      <div class="data">${fmt(e.starts_at, { day: '2-digit' })}<small>${fmt(e.starts_at, { month: 'short' })}</small><small>${fmt(e.starts_at, { hour: '2-digit', minute: '2-digit' })}</small></div>
+      <div style="flex:1;min-width:200px">
+        <strong>${esc(e.title)}</strong> ${e.platform ? `<span class="tag">${esc(e.platform)}</span>` : ''}
+        <span class="tag">${nomes.length}${e.slots ? '/' + e.slots : ''} confirmados</span>
+        ${e.description ? `<p class="muted quebra" style="margin-top:4px">${esc(e.description)}</p>` : ''}
+        <p class="muted" style="font-size:.82rem;margin-top:4px">${nomes.length ? 'Vão: ' + nomes.map(esc).join(', ') : 'Ninguém confirmado ainda'} · criada por ${esc(e.profiles?.username || '—')}</p>
+      </div>
+      <div class="controles">
+        ${membro ? (vou ? `<button class="btn sec pequeno" data-sair="${e.id}">Não vou mais</button>` : `<button class="btn pequeno" data-ir="${e.id}" ${lotado ? 'disabled' : ''}>${lotado ? 'Lotado' : 'Eu vou!'}</button>`) : ''}
+        <button class="btn sec pequeno" data-ics="${e.id}" title="Adicionar à agenda do celular/computador">📅 Agenda</button>
+        ${u && (e.creator_id === u.id || dono) ? `<button class="btn perigo pequeno" data-cancelar="${e.id}">Cancelar</button>` : ''}
+      </div></div>`;
+  }).join('') || '<p class="vazio">Nenhuma partida agendada. Que tal marcar uma?</p>';
+
+  const recarregar = () => carregarEventos(u, membro, dono);
+  $('#eventos').querySelectorAll('[data-ir]').forEach((b) => b.onclick = async () => {
+    const { error } = await sb.from('event_attendees').insert({ event_id: Number(b.dataset.ir), user_id: u.id });
+    if (error) return falha(error);
+    toast('Presença confirmada! Você recebe um lembrete antes de começar.'); recarregar();
+  });
+  $('#eventos').querySelectorAll('[data-sair]').forEach((b) => b.onclick = async () => {
+    const { error } = await sb.from('event_attendees').delete().eq('event_id', b.dataset.sair).eq('user_id', u.id);
+    error ? falha(error) : recarregar();
+  });
+  $('#eventos').querySelectorAll('[data-cancelar]').forEach((b) => b.onclick = async () => {
+    if (!confirm('Cancelar esta partida?')) return;
+    const { error } = await sb.from('events').delete().eq('id', b.dataset.cancelar);
+    error ? falha(error) : recarregar();
+  });
+  $('#eventos').querySelectorAll('[data-ics]').forEach((b) => b.onclick = () => {
+    const e = evs.find((x) => x.id == b.dataset.ics);
+    const t = (d) => new Date(d).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const fim = new Date(new Date(e.starts_at).getTime() + 2 * 3600e3);
+    const limpa = (x) => String(x || '').replace(/[\\,;]/g, (m) => '\\' + m).replace(/\n/g, '\\n');
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Control Critic//PT-BR', 'BEGIN:VEVENT', `UID:evento-${e.id}@controlcritic`,
+      `DTSTAMP:${t(new Date())}`, `DTSTART:${t(e.starts_at)}`, `DTEND:${t(fim)}`, `SUMMARY:${limpa(e.title)}`,
+      `DESCRIPTION:${limpa((e.description || '') + '\n' + location.href.split('#')[0] + '#call')}`,
+      'BEGIN:VALARM', 'TRIGGER:-PT30M', 'ACTION:DISPLAY', 'DESCRIPTION:Partida em 30 minutos', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([ics], { type: 'text/calendar' })), download: 'partida.ics' });
+    a.click();
+  });
 }

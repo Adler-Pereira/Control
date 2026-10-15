@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -19,16 +19,33 @@ async function iniciar() {
   }
   const meu = u && p.id === u.id;
   document.title = `${p.username} | Control Critic`;
-  carregar(p, meu);
+  carregar(p, meu, u);
 }
 
-async function carregar(p, meu) {
+async function carregar(p, meu, u) {
   const n = nivel(p.xp);
   const [{ data: reviews }, { data: comms }, rec] = await Promise.all([
     sb.from('reviews').select('*, games(slug,title)').eq('user_id', p.id).eq('status', 'published').order('created_at', { ascending: false }),
     sb.from('community_members').select('communities(id,name)').eq('user_id', p.id),
     meu ? sb.rpc('recommend_games', { lim: 8 }) : Promise.resolve({ data: null }),
   ]);
+  const [{ data: bib }, { count: seguidores }, { count: seguindo }, { data: sigo }] = await Promise.all([
+    sb.from('user_games').select('*, games(id,slug,title,cover_url,avg_rating,reviews_count, deals(discount_pct,price_cents,store))').eq('user_id', p.id).order('updated_at', { ascending: false }).limit(500),
+    sb.from('follows').select('follower_id', { count: 'exact', head: true }).eq('followed_id', p.id),
+    sb.from('follows').select('followed_id', { count: 'exact', head: true }).eq('follower_id', p.id),
+    u && !meu ? sb.from('follows').select('followed_id').eq('follower_id', u.id).eq('followed_id', p.id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const GRUPOS = [['jogando', '🎮 Jogando'], ['quero_jogar', '📌 Quero jogar'], ['zerado', '🏆 Zerados'], ['abandonei', '💤 Abandonados'], [null, '📚 Na biblioteca']];
+  const lista = bib || [];
+  const desejos = lista.filter((x) => x.wishlist);
+  const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const itemBib = (x) => {
+    const d = (x.games.deals || []).filter((k) => k.discount_pct > 0).sort((a, b) => b.discount_pct - a.discount_pct)[0];
+    return `<a class="review" href="jogo.html?slug=${encodeURIComponent(x.games.slug)}" style="display:flex;gap:10px;align-items:center;color:var(--texto);text-decoration:none">
+      <img src="${urlSegura(x.games.cover_url) || 'img/Control.png'}" alt="" style="width:64px;height:38px;object-fit:cover;border-radius:6px">
+      <span style="flex:1"><strong>${esc(x.games.title)}</strong>${x.hours ? ` <span class="muted">· ${Number(x.hours).toLocaleString('pt-BR')} h</span>` : ''}</span>
+      ${d ? `<span class="tag amarela">-${d.discount_pct}% ${d.price_cents != null ? reais(d.price_cents) : ''}</span>` : ''}</a>`;
+  };
   const banner = urlSegura(p.banner_url);
   const contas = [
     p.psn_id && `<span title="PlayStation Network">🎮 PSN: ${esc(p.psn_id)}</span>`,
@@ -52,7 +69,11 @@ async function carregar(p, meu) {
           ${contas ? `<div class="contas-jogo">${contas}</div>` : ''}
           <div class="barra-xp" style="margin-top:10px;max-width:360px" title="${p.xp} XP"><div style="width:${n.pct}%"></div></div>
           <p class="muted" style="font-size:.85rem">${p.xp} XP · próximo nível em ${n.prox} XP</p>
+          <p style="margin-top:6px"><strong id="n-seguidores">${seguidores ?? 0}</strong> seguidores · <strong>${seguindo ?? 0}</strong> seguindo ·
+            <strong>${lista.filter((x) => x.status).length}</strong> jogos na biblioteca</p>
         </div>
+        ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>` : ''}
+          ${u ? '<button class="bt-denunciar" id="den-perfil">🚩 Denunciar perfil</button>' : ''}</div>` : ''}
         ${meu ? `<div class="controles"><button class="btn" id="editar">✏️ Editar perfil</button>
           <button class="btn sec" id="compartilhar">🔗 Copiar link</button><button class="btn sec" id="logout">Sair</button></div>` : ''}
       </div>
@@ -61,6 +82,18 @@ async function carregar(p, meu) {
     ${meu ? `<h2>Recomendados para você</h2>
       <p class="muted" style="margin-bottom:12px">Com base nas suas categorias favoritas e nos jogos que você avaliou bem.</p>
       <div class="grade">${(rec.data || []).map(cardJogo).join('') || '<p class="vazio">Escolha categorias favoritas em "Editar perfil" ou avalie jogos para receber recomendações.</p>'}</div>` : ''}
+
+    <h2>Biblioteca</h2>
+    ${meu ? `<div class="cartao" style="margin-bottom:12px"><div class="controles" style="align-items:center">
+      <span style="flex:1">Importe seus jogos e horas jogadas da <strong>Steam</strong> (seu perfil e a lista de jogos precisam estar públicos).</span>
+      <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button></div>
+      <p class="muted" style="font-size:.82rem;margin-top:6px">PlayStation e Xbox não oferecem importação oficial: adicione esses jogos pela página de cada jogo.</p></div>` : ''}
+    ${lista.length ? `<div class="chips" id="abas-bib">${GRUPOS.map(([k, t]) => {
+        const qtd = lista.filter((x) => x.status === k && (k || !x.wishlist || x.hours)).length;
+        return qtd ? `<button class="chip" data-g="${k ?? ''}">${t} (${qtd})</button>` : ''; }).join('')}</div>
+      <div class="lista" id="lista-bib"></div>` : `<p class="vazio">${meu ? 'Sua biblioteca está vazia. Abra a página de um jogo e marque "Jogando", "Zerado"...' : 'Biblioteca vazia.'}</p>`}
+
+    ${desejos.length ? `<h2>💖 Lista de desejos (${desejos.length})</h2><div class="lista">${desejos.map(itemBib).join('')}</div>` : ''}
 
     <div class="detalhe" style="margin-top:8px">
       <div><h2>Avaliações (${reviews.length})</h2><div class="lista">
@@ -71,9 +104,48 @@ async function carregar(p, meu) {
         ${(comms || []).map((m) => `<a class="cartao" href="comunidade.html?id=${m.communities.id}">${esc(m.communities.name)}</a>`).join('') || '<p class="vazio">Nenhuma comunidade ainda.</p>'}
       </div></div>
     </div>
-    ${meu ? '<dialog id="dlg-editar"></dialog>' : ''}`;
+    ${meu ? `<h2>Privacidade e conta</h2>
+      <div class="cartao controles" style="align-items:center">
+        <span style="flex:1" class="muted">Seus direitos pela LGPD. Veja a <a href="privacidade.html">Política de Privacidade</a>.</span>
+        <button class="btn sec" id="exportar">⬇️ Baixar meus dados</button>
+        <button class="btn perigo" id="excluir-conta">Excluir minha conta</button>
+      </div><dialog id="dlg-editar"></dialog>` : ''}`;
 
-  if (!meu) return;
+  // Abas da biblioteca
+  const mostrarGrupo = (k) => {
+    main.querySelectorAll('#abas-bib .chip').forEach((c) => c.classList.toggle('ativo', c.dataset.g === k));
+    const sel = lista.filter((x) => (x.status ?? '') === k && (k || !x.wishlist || x.hours));
+    $('#lista-bib').innerHTML = sel.map(itemBib).join('');
+  };
+  const primeira = main.querySelector('#abas-bib .chip');
+  if (primeira) { main.querySelectorAll('#abas-bib .chip').forEach((c) => c.onclick = () => mostrarGrupo(c.dataset.g)); mostrarGrupo(primeira.dataset.g); }
+
+  if (!meu) {
+    $('#den-perfil')?.addEventListener('click', () => denunciar('profile', p.id));
+    $('#seguir')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget, seguir = b.textContent.includes('Seguir') && !b.textContent.includes('✓');
+      const { error } = seguir
+        ? await sb.from('follows').insert({ follower_id: u.id, followed_id: p.id })
+        : await sb.from('follows').delete().eq('follower_id', u.id).eq('followed_id', p.id);
+      if (error) return falha(error);
+      b.textContent = seguir ? '✓ Seguindo' : '+ Seguir'; b.classList.toggle('sec', seguir);
+      const n = $('#n-seguidores'); n.textContent = Number(n.textContent) + (seguir ? 1 : -1);
+    });
+    return;
+  }
+
+  $('#importar-steam').onclick = () => importarSteam(p);
+  $('#exportar').onclick = () => exportarDados(p);
+  $('#excluir-conta').onclick = async () => {
+    const conf = prompt(`Isso apaga DEFINITIVAMENTE sua conta, perfil, avaliações, posts, biblioteca e imagens.\n\nPara confirmar, digite seu nome de usuário: ${p.username}`);
+    if (conf === null) return;
+    if (conf.trim() !== p.username) return toast('Nome de usuário não confere. Nada foi apagado.', true);
+    const { error } = await sb.rpc('delete_my_account');
+    if (error) return falha(error);
+    await sb.auth.signOut().catch(() => {});
+    alert('Sua conta foi excluída. Sentiremos sua falta!');
+    location.href = 'index.html';
+  };
   $('#logout').onclick = () => sb.auth.signOut();
   $('#compartilhar').onclick = async () => {
     const link = location.origin + location.pathname + '?u=' + encodeURIComponent(p.username);
@@ -204,4 +276,38 @@ async function enviar(uid, tipo, arq) {
   const { error } = await sb.storage.from('media').upload(caminho, arq, { contentType: arq.type });
   if (error) throw new Error(`Não foi possível enviar a imagem (${error.message}).`);
   return sb.storage.from('media').getPublicUrl(caminho).data.publicUrl;
+}
+
+// LGPD: baixa um arquivo JSON com todos os dados da pessoa
+async function exportarDados(p) {
+  const tabelas = [['avaliacoes', 'reviews', 'user_id'], ['posts', 'posts', 'user_id'], ['biblioteca', 'user_games', 'user_id'],
+    ['comunidades', 'community_members', 'user_id'], ['seguindo', 'follows', 'follower_id'], ['seguidores', 'follows', 'followed_id'],
+    ['partidas', 'event_attendees', 'user_id'], ['notificacoes', 'notifications', 'user_id']];
+  const out = { exportado_em: new Date().toISOString(), perfil: p };
+  const { data: { user } } = await sb.auth.getUser();
+  out.conta = { email: user?.email, criada_em: user?.created_at };
+  for (const [nome, t, col] of tabelas) out[nome] = (await sb.from(t).select('*').eq(col, p.id)).data || [];
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `control-critic-${p.username}.json` });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+// Importa jogos e horas da Steam (via função no servidor, que guarda a chave da Steam)
+async function importarSteam(p) {
+  const perfilSteam = prompt('Cole o link do seu perfil da Steam (ex.: https://steamcommunity.com/id/seunome):', p.steam_profile || '');
+  if (!perfilSteam) return;
+  const bt = $('#importar-steam'); bt.disabled = true; bt.textContent = 'Importando... (pode levar um minuto)';
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch('/.netlify/functions/importar-steam', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+      body: JSON.stringify({ perfil: perfilSteam.trim() }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.erro || 'Não foi possível importar.');
+    alert(`Importação concluída!\n\n${d.importados} jogo(s) adicionados ou atualizados na sua biblioteca` +
+      (d.novos_no_catalogo ? `\n${d.novos_no_catalogo} jogo(s) novos entraram no catálogo do site` : '') +
+      (d.ignorados ? `\n${d.ignorados} item(ns) ignorados (ferramentas, softwares etc.)` : ''));
+    location.reload();
+  } catch (e) { falha(e); bt.disabled = false; bt.textContent = '🖥️ Importar da Steam'; }
 }

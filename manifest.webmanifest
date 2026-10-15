@@ -1,0 +1,20 @@
+{
+  "name": "Control Critic",
+  "short_name": "Control Critic",
+  "description": "Avaliações, comunidades, calls, notícias e promoções de jogos.",
+  "lang": "pt-BR",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#121216",
+  "theme_color": "#0b0b0d",
+  "icons": [
+    { "src": "/img/app/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/img/app/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Jogos", "url": "/jogos.html" },
+    { "name": "Comunidades", "url": "/comunidades.html" },
+    { "name": "Notificações", "url": "/notificacoes.html" }
+  ]
+}

@@ -19,7 +19,13 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 | Discord / PS5 | Convite do servidor e widget mostrando quem está online e em call. Pelo console, entra-se na call pelo Discord vinculado |
 | Notícias | Escritas pela equipe + importadas automaticamente (PlayStation Blog, Xbox Wire, anúncios oficiais da Steam) |
 | Promoções | Preços e descontos da Steam (BR) atualizados automaticamente; outras lojas cadastradas no painel |
-| Fale Conosco | Mensagens salvas no banco e respondidas pelo painel |
+| Biblioteca | Jogando / Zerado / Quero jogar / Abandonei, horas jogadas e importação automática da biblioteca da Steam |
+| Lista de desejos | Notificação automática quando um jogo desejado entra em promoção ou fica mais barato |
+| Social | Seguir pessoas, perfil público, notificações em tempo real (sino) |
+| Partidas | Agendar partidas nas comunidades, confirmar presença com limite de vagas, lembrete 1h antes e exportar para a agenda (.ics) |
+| Segurança e LGPD | Denúncias com fila de moderação, Política de Privacidade, Termos de Uso, aceite no cadastro, baixar meus dados e excluir conta |
+| App instalável | PWA: instala no celular/computador e abre mesmo sem internet (última versão) |
+| Fale Conosco | Mensagens com assunto (inclusive pedidos de privacidade), respondidas pelo painel |
 | Painel de Admin | Visão geral com números, jogos, notícias, promoções, moderação de avaliações/posts/comunidades, mensagens, usuários (papéis e banimento) e configuração do robô |
 
 ## Arquitetura
@@ -83,7 +89,17 @@ O resultado aparece no painel de admin, na aba Automação.
 
 Os dados de jogos vêm do [IGDB](https://www.igdb.com) (Twitch), com crédito no rodapé do site. Para uso comercial, confira os termos de uso do IGDB.
 
-### 6. Discord em uma comunidade
+### 6. Importação da biblioteca da Steam
+1. Gere uma chave gratuita em **steamcommunity.com/dev/apikey** (domínio: o endereço do site no Netlify).
+2. No **Netlify**, crie a variável `STEAM_API_KEY` com essa chave e faça um novo deploy.
+3. Cada pessoa usa em **Perfil → Importar da Steam**. O perfil e os "Detalhes de jogos" precisam estar públicos na Steam.
+   PlayStation e Xbox não oferecem API oficial para isso.
+
+### 7. Lembretes de partida
+O `schema.sql` agenda os lembretes no próprio banco (extensão `pg_cron`, a cada 10 minutos). Se o Supabase não permitir
+ativar a extensão, o robô de sincronização envia os lembretes como reserva (com menos precisão).
+
+### 8. Discord em uma comunidade
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
 - opcionalmente o **ID do servidor**, depois de ativar *Configurações do servidor → Widget → Habilitar widget*.
@@ -98,6 +114,10 @@ Os módulos JS precisam de um servidor (abrir o arquivo direto não funciona):
 ```bash
 npx serve .        # ou: python3 -m http.server 8000
 ```
+
+## Textos legais
+`privacidade.html` e `termos.html` são **modelos** escritos para o projeto. Revisem com a equipe/orientador e,
+se o site crescer ou for monetizado, com um advogado.
 
 ## Limitações conhecidas
 - **Calls** são ponto a ponto, então funcionam bem com até ~6 pessoas. Em redes muito restritas pode ser preciso
