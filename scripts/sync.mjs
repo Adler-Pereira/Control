@@ -85,8 +85,10 @@ async function inserirNoticias(lista, publicar) {
 // ---------- execução ----------
 const cfg = Object.fromEntries((await api('settings?select=key,value')).map((s) => [s.key, s.value]));
 const publicar = cfg.auto_publish_news !== false;
-const jogos = await api('games?select=id,title,steam_appid&steam_appid=not.is.null');
-let novas = 0, precos = 0;
+// Rodízio: a cada execução consulta os jogos verificados há mais tempo (a Steam limita ~200 consultas/5 min)
+const POR_EXECUCAO = Number(process.env.STEAM_LOTE) || 200;
+const jogos = await api(`games?select=id,title,steam_appid,cover_url,description,featured,reviews_count,steam_checked_at&steam_appid=not.is.null&order=steam_checked_at.asc.nullsfirst&limit=${POR_EXECUCAO}`);
+let novas = 0, precos = 0, capas = 0;
 
 // 1) Feeds RSS oficiais
 for (const feed of cfg.feeds || []) {
@@ -98,8 +100,8 @@ for (const feed of cfg.feeds || []) {
 }
 
 for (const g of jogos) {
-  // 2) Anúncios oficiais na Steam (somente do canal oficial do jogo)
-  try {
+  // 2) Anúncios oficiais na Steam: só para jogos em destaque ou que a comunidade avaliou
+  if (g.featured || g.reviews_count > 0) try {
     const r = await (await baixar(`https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=${g.steam_appid}&count=${POR_JOGO_STEAM}&maxlength=600&feeds=steam_community_announcements&format=json`)).json();
     const itens = (r.appnews?.newsitems || []).map((i) => ({
       title: `${g.title}: ${texto(i.title)}`, link: i.url, summary: resumo(texto(i.contents)),
@@ -108,10 +110,17 @@ for (const g of jogos) {
     novas += await inserirNoticias(itens, publicar);
   } catch (e) { erros.push(`Notícias Steam ${g.title}: ${e.message}`); }
 
-  // 3) Preço e desconto na Steam Brasil
+  // 3) Preço e desconto na Steam Brasil (+ capa e descrição para jogos que ainda não têm)
   try {
-    const r = await (await baixar(`https://store.steampowered.com/api/appdetails?appids=${g.steam_appid}&cc=br&l=portuguese&filters=price_overview`)).json();
-    const po = r[g.steam_appid]?.data?.price_overview;
+    const r = await (await baixar(`https://store.steampowered.com/api/appdetails?appids=${g.steam_appid}&cc=br&l=brazilian`)).json();
+    const info = r[g.steam_appid]?.data;
+    const po = info?.price_overview;
+    const faltando = {};
+    if (!g.cover_url && /^https:\/\//.test(info?.header_image || '')) faltando.cover_url = info.header_image;
+    // Na 1ª verificação troca a descrição (em inglês, do IGDB) pela da Steam em português
+    if ((!g.description || !g.steam_checked_at) && info?.short_description) faltando.description = texto(info.short_description).slice(0, 1000);
+    if (Object.keys(faltando).length) capas++;
+    await api(`games?id=eq.${g.id}`, { method: 'PATCH', body: { ...faltando, steam_checked_at: new Date().toISOString() } });
     if (po) {
       await api('deals?on_conflict=game_id,store', {
         method: 'POST', prefer: 'resolution=merge-duplicates',
@@ -121,7 +130,7 @@ for (const g of jogos) {
       precos++;
     }
   } catch (e) { erros.push(`Preço Steam ${g.title}: ${e.message}`); }
-  await new Promise((r) => setTimeout(r, 1500)); // respeita o limite de requisições da Steam
+  await new Promise((r) => setTimeout(r, 1600)); // respeita o limite de requisições da Steam
 }
 
 // 4) Limpa promoções manuais vencidas
@@ -130,5 +139,5 @@ await api(`deals?auto=eq.false&ends_at=lt.${new Date().toISOString()}`, { method
 await api('settings?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates',
   body: [{ key: 'last_sync', value: { at: new Date().toISOString(), news: novas, deals: precos, errors: erros.slice(0, 20) } }] });
 
-console.log(`Concluído: ${novas} notícias novas, ${precos} preços atualizados, ${erros.length} erro(s).`);
+console.log(`Concluído: ${novas} notícias novas, ${precos} preços atualizados, ${capas} jogo(s) completados com capa/descrição, ${erros.length} erro(s).`);
 erros.forEach((e) => console.warn(gh ? `::warning::${e}` : ` - ${e}`));

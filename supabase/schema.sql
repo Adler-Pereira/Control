@@ -459,3 +459,28 @@ $$;
 do $$ begin
   alter publication supabase_realtime add table public.posts;
 exception when duplicate_object then null; end $$;
+
+-- =====================================================================
+-- PERFIL: banner e contas de jogo (rode de novo este arquivo para aplicar)
+-- =====================================================================
+alter table public.profiles add column if not exists banner_url text;
+alter table public.profiles add column if not exists psn_id text check (psn_id is null or char_length(psn_id) <= 30);
+alter table public.profiles add column if not exists xbox_gamertag text check (xbox_gamertag is null or char_length(xbox_gamertag) <= 30);
+alter table public.profiles add column if not exists discord_user text check (discord_user is null or char_length(discord_user) <= 40);
+alter table public.profiles add column if not exists steam_profile text check (steam_profile is null or steam_profile ~ '^https://steamcommunity\.com/(id|profiles)/[A-Za-z0-9_-]+/?$');
+
+-- =====================================================================
+-- CATÁLOGO COMPLETO (IGDB) — importação em massa e busca sob demanda
+-- =====================================================================
+alter table public.games add column if not exists igdb_id bigint unique;
+alter table public.games add column if not exists platforms text[] not null default '{}';
+alter table public.games add column if not exists igdb_rating numeric(5,2);
+alter table public.games add column if not exists igdb_rating_count integer not null default 0;
+alter table public.games add column if not exists steam_checked_at timestamptz;   -- última consulta de preço na Steam
+alter table public.games add column if not exists added_by uuid references public.profiles(id) on delete set null;
+
+create index if not exists games_popular_idx on public.games(igdb_rating_count desc);
+create index if not exists games_steam_check_idx on public.games(steam_checked_at nulls first) where steam_appid is not null;
+create index if not exists games_title_idx on public.games(lower(title));
+-- A busca sob demanda (Netlify, com a chave secreta) dá XP a quem adiciona um jogo
+grant execute on function public.add_xp(uuid,int) to service_role;

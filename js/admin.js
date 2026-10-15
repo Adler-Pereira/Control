@@ -4,12 +4,6 @@ await montarLayout();
 const main = $('#conteudo');
 let P;
 
-if (configurado && (await exigirLogin())) {
-  P = await perfil();
-  if (!P || P.role === 'user') main.innerHTML = '<p class="vazio">Acesso restrito à equipe.</p>';
-  else iniciar();
-}
-
 const ABAS = [
   ['geral', 'Visão geral'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
   ['reviews', 'Avaliações'], ['posts', 'Posts'], ['comunidades', 'Comunidades'], ['mensagens', 'Mensagens'],
@@ -298,4 +292,16 @@ async function auto() {
     const { error } = await sb.from('settings').upsert([{ key: 'auto_publish_news', value: $('#autopub').checked }, { key: 'feeds', value: feeds }]);
     error ? falha(error) : toast('Configurações salvas.');
   };
+}
+
+// ---------------- Início ----------------
+// Fica no fim do arquivo: as constantes acima (ABAS, VIEWS) precisam existir antes de montar o painel.
+if (configurado && (await exigirLogin())) {
+  P = await perfil();
+  if (!P || P.role === 'user') {
+    main.innerHTML = `<div class="cartao" style="max-width:560px;margin:24px auto"><h2 style="margin-top:0">Acesso restrito à equipe</h2>
+      <p class="muted">Sua conta (${esc(P?.username || '')}) ainda não é admin. Peça a um admin para mudar seu papel na aba Usuários,
+      ou, se for a primeira conta, rode no SQL Editor do Supabase:</p>
+      <pre style="background:var(--cartao-2);padding:10px;border-radius:8px;margin-top:10px;overflow-x:auto">update profiles set role = 'admin' where username = '${esc(P?.username || 'SEU_USUARIO')}';</pre></div>`;
+  } else iniciar();
 }

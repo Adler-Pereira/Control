@@ -24,13 +24,15 @@ async function carregar() {
       <div>
         <img src="${urlSegura(g.cover_url) || 'img/Control.png'}" alt="" style="border-radius:14px;width:100%">
         <h1 style="margin-top:16px">${esc(g.title)}</h1>
-        <p>${g.categories ? `<a class="tag" href="jogos.html?cat=${g.categories.id}">${esc(g.categories.name)}</a>` : ''} ${g.release_year ? `<span class="tag">${g.release_year}</span>` : ''}</p>
+        <p>${g.categories ? `<a class="tag" href="jogos.html?cat=${g.categories.id}">${esc(g.categories.name)}</a>` : ''} ${g.release_year ? `<span class="tag">${g.release_year}</span>` : ''}
+          ${(g.platforms || []).map((pl) => `<a class="tag" href="jogos.html?plat=${encodeURIComponent(pl)}">${esc(pl)}</a>`).join(' ')}</p>
         <p class="quebra" style="margin-top:12px">${esc(g.description || '')}</p>
       </div>
       <aside class="lista">
         <div class="cartao">
           <div class="nota-grande">${Number(g.avg_rating).toFixed(1)}</div>
-          ${estrelas(g.avg_rating)} <span class="muted">${g.reviews_count} avaliação(ões)</span>
+          ${estrelas(g.avg_rating)} <span class="muted">${g.reviews_count} avaliação(ões) no Control Critic</span>
+          ${g.igdb_rating ? `<p class="muted" style="margin-top:8px;font-size:.88rem">Nota da crítica e público (IGDB): <strong>${Math.round(g.igdb_rating)}/100</strong> · ${g.igdb_rating_count} votos</p>` : ''}
         </div>
         <div class="cartao"><h3>Onde comprar</h3><div class="lojas">
           ${LOJAS.filter(([k]) => g[k]).map(([k, ic, n]) => `<a href="${urlSegura(g[k])}" target="_blank" rel="noopener" title="${n}"><img src="img/icones/${ic}.png" alt="${n}"></a>`).join('') || '<span class="muted">Sem links cadastrados.</span>'}
@@ -61,7 +63,7 @@ async function carregar() {
     <h2>Avaliações da comunidade</h2>
     <div class="lista">${reviews.map((r) => `
       <article class="review"><header><img class="avatar" src="${avatar(r.profiles)}" alt="">
-        <strong>${esc(r.profiles?.username)}</strong> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span></header>
+        <a class="usuario" href="perfil.html?u=${encodeURIComponent(r.profiles?.username || '')}">${esc(r.profiles?.username)}</a> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span></header>
         ${r.body ? `<p class="quebra">${esc(r.body)}</p>` : ''}</article>`).join('') || '<p class="vazio">Seja o primeiro a avaliar!</p>'}
     </div>`;
 

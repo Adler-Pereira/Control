@@ -112,7 +112,8 @@ export async function montarLayout() {
       <a href="https://twitter.com/ControlCritic" target="_blank" rel="noopener"><img src="img/redes/tw.png" alt="Twitter"></a>
       <a href="contato.html"><img src="img/redes/gm.png" alt="Fale conosco"></a>
     </div>
-    <p>© ${new Date().getFullYear()} Control Critic. Todos os direitos reservados.</p>`;
+    <p>© ${new Date().getFullYear()} Control Critic. Todos os direitos reservados.</p>
+    <p style="font-size:.8rem;margin-top:6px">Dados de jogos: <a href="https://www.igdb.com" target="_blank" rel="noopener">IGDB.com</a> e Steam.</p>`;
   document.body.append(rodape);
 
   if (!configurado) {
