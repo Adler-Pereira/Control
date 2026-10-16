@@ -4,6 +4,8 @@
 // Funciona bem para grupos pequenos (até ~6 pessoas).
 import { sb, esc } from './app.js';
 import { ICE_SERVERS } from './config.js';
+import { prefsAudio, salvarPrefsAudio, restricoesMic, processarMic, melhorarOpus } from './audio-mic.js';
+export { prefsAudio } from './audio-mic.js';
 
 // Servidores STUN/TURN: pede credenciais temporárias de TURN ao servidor (se configurado).
 // Sem TURN, redes de celular/CGNAT muitas vezes não deixam os navegadores se conectarem.
@@ -25,16 +27,6 @@ async function servidoresIce() {
   return (iceCache = { lista: ICE_SERVERS, completa: ICE_SERVERS, turn: false, expira: Date.now() + 600e3 });
 }
 
-// Preferências de áudio (salvas no aparelho): microfone, supressão de ruído, cancelamento de eco, ganho automático
-export function prefsAudio() {
-  try { return { ruido: true, eco: true, ganho: true, ...JSON.parse(localStorage.getItem('cc_audio') || '{}') }; } catch { return { ruido: true, eco: true, ganho: true }; }
-}
-const restricoesMic = (o) => ({
-  deviceId: o.mic ? { ideal: o.mic } : undefined,
-  noiseSuppression: o.ruido, echoCancellation: o.eco, autoGainControl: o.ganho,
-  voiceIsolation: o.ruido, // isolamento de voz (Chrome/Safari recentes): corta teclado, ventilador e vozes ao fundo
-});
-
 const ESTADOS = { new: 'conectando…', connecting: 'conectando…', connected: '', disconnected: 'reconectando…', failed: 'sem conexão', closed: '' };
 
 export class SalaVoz {
@@ -55,7 +47,7 @@ export class SalaVoz {
   }
 
   async entrar() {
-    this.local = await navigator.mediaDevices.getUserMedia({ audio: restricoesMic(prefsAudio()), video: false });
+    await this.#abrirMic(prefsAudio());
     this.ice = await servidoresIce();
     this.#tile(this.eu, this.nome + ' (você)', this.local, true);
 
@@ -103,7 +95,9 @@ export class SalaVoz {
   async sair() {
     clearInterval(this.vigia);
     for (const id of [...this.peers.keys()]) this.#remover(id);
+    this.proc?.fechar(); this.proc = null;
     this.local?.getTracks().forEach((t) => t.stop());
+    this.#pararPtt();
     this.videoTrack?.stop();
     this.audioTela?.stop();
     if (this.canal) { await this.canal.untrack().catch(() => {}); await sb.removeChannel(this.canal); }
@@ -128,20 +122,60 @@ export class SalaVoz {
 
   alternarMudo() {
     this.mudo = !this.mudo;
-    this.local.getAudioTracks().forEach((t) => (t.enabled = !this.mudo));
+    this.#aplicarMic();
     this.#enviarEstado();
     this.aoMudar();
   }
 
-  // Troca microfone/filtros sem sair da call
+  // Microfone liberado = não está mudo e (sem "apertar para falar" ou com a tecla apertada)
+  #aplicarMic() {
+    const ligado = !this.mudo && (!this.prefs?.ptt || this.apertando);
+    this.local?.getAudioTracks().forEach((t) => (t.enabled = ligado));
+  }
+
+  // Abre o microfone com o processamento escolhido (IA de ruído, sensibilidade) e liga o "apertar para falar"
+  async #abrirMic(o) {
+    this.prefs = o;
+    const bruto = await navigator.mediaDevices.getUserMedia({ audio: restricoesMic(o), video: false });
+    const novo = await processarMic(bruto, o);
+    const velho = this.proc;
+    this.proc = novo;
+    if (!this.local) this.local = new MediaStream([novo.track]);
+    else {
+      for (const p of this.peers.values()) await p.micSender?.replaceTrack(novo.track);
+      const t = this.local.getAudioTracks()[0];
+      if (t) this.local.removeTrack(t);
+      this.local.addTrack(novo.track);
+    }
+    velho?.fechar();
+    this.#pararPtt();
+    if (o.ptt) {
+      this.apertando = false;
+      const alvo = (e) => e.code === o.tecla && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+      this.pttDown = (e) => { if (alvo(e) && !e.repeat) { this.apertando = true; this.#aplicarMic(); this.aoMudar(); } };
+      this.pttUp = (e) => { if (e.code === o.tecla) { this.apertando = false; this.#aplicarMic(); this.aoMudar(); } };
+      this.pttBlur = () => { this.apertando = false; this.#aplicarMic(); };
+      addEventListener('keydown', this.pttDown); addEventListener('keyup', this.pttUp); addEventListener('blur', this.pttBlur);
+    }
+    this.#aplicarMic();
+  }
+  #pararPtt() {
+    if (!this.pttDown) return;
+    removeEventListener('keydown', this.pttDown); removeEventListener('keyup', this.pttUp); removeEventListener('blur', this.pttBlur);
+    this.pttDown = this.pttUp = this.pttBlur = null;
+  }
+
+  // Nível do microfone (dB) para o medidor das configurações
+  nivelMic() { return this.proc?.medir() ?? -100; }
+  get falandoPtt() { return !!this.prefs?.ptt && !!this.apertando; }
+
+  // Troca microfone/filtros sem sair da call (sensibilidade muda na hora, sem reabrir o microfone)
   async configurarAudio(o) {
-    try { localStorage.setItem('cc_audio', JSON.stringify(o)); } catch { /* ignora */ }
+    salvarPrefsAudio(o);
     if (!this.local) return;
-    const t = (await navigator.mediaDevices.getUserMedia({ audio: restricoesMic(o) })).getAudioTracks()[0];
-    t.enabled = !this.mudo;
-    for (const p of this.peers.values()) await p.micSender?.replaceTrack(t);
-    const velho = this.local.getAudioTracks()[0];
-    this.local.removeTrack(velho); velho.stop(); this.local.addTrack(t);
+    const so = this.prefs && ['ruidoIA', 'eco', 'ganho', 'mic', 'ptt', 'tecla', 'autoSens'].every((k) => this.prefs[k] === o[k]);
+    if (so && this.proc?.processado) { this.prefs = o; await this.proc.definirSensibilidade(o.autoSens ? null : o.sensibilidade); return; }
+    await this.#abrirMic(o);
   }
 
   async alternarCamera() {
@@ -170,6 +204,16 @@ export class SalaVoz {
     this.qualidade = { altura, fps, movimento };
     await this.#usarVideo(track, 'tela');
     return { comSom: !!this.audioTela };
+  }
+
+  // Áudio com mais qualidade que o padrão do navegador (32 kbps): voz 64 kbps, som da tela 128 kbps, prioridade alta na rede
+  async #qualidadeAudio(sender, bps) {
+    try {
+      const prm = sender.getParameters();
+      prm.encodings = prm.encodings?.length ? prm.encodings : [{}];
+      Object.assign(prm.encodings[0], { maxBitrate: bps, priority: 'high', networkPriority: 'high' });
+      await sender.setParameters(prm);
+    } catch { /* aplicado depois da negociação, se o navegador exigir */ }
   }
 
   // Ajusta a taxa de envio: tela com mais bits (nitidez) e preferência por fluidez (jogo) ou resolução (texto)
@@ -255,8 +299,10 @@ export class SalaVoz {
     this.peers.set(id, p);
 
     p.micSender = pc.addTrack(this.local.getAudioTracks()[0], this.local);
+    this.#qualidadeAudio(p.micSender, 64000);
     p.videoSender = pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
     p.audioTelaSender = pc.addTransceiver('audio', { direction: 'sendrecv' }).sender;   // som da tela compartilhada
+    this.#qualidadeAudio(p.audioTelaSender, 128000);
     if (this.videoTrack) { p.videoSender.replaceTrack(this.videoTrack); this.#configurarEnvio(p.videoSender); }
     if (this.audioTela) p.audioTelaSender.replaceTrack(this.audioTela);
 
@@ -298,6 +344,7 @@ export class SalaVoz {
       } catch (e) { console.error(e); } finally { p.makingOffer = false; }
     };
     pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') { this.#qualidadeAudio(p.micSender, 64000); this.#qualidadeAudio(p.audioTelaSender, 128000); }
       this.#atualizarNome(p);
       if (pc.connectionState === 'failed') {
         pc.restartIce();
@@ -327,7 +374,7 @@ export class SalaVoz {
         const colisao = desc.type === 'offer' && (p.makingOffer || pc.signalingState !== 'stable');
         p.ignoreOffer = !p.polite && colisao;
         if (p.ignoreOffer) return;
-        await pc.setRemoteDescription(desc);
+        await pc.setRemoteDescription({ type: desc.type, sdp: melhorarOpus(desc.sdp) });
         // candidatos que chegaram antes da descrição
         for (const c of p.pendentes.splice(0)) await pc.addIceCandidate(c).catch(() => {});
         if (desc.type === 'offer') {
