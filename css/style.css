@@ -422,3 +422,29 @@ dialog.visor::backdrop { background: rgba(0,0,0,.85); }
 .sala.destaque .participante.foco { grid-column: span var(--span, 12); max-height: none; }
 @media (max-width: 700px) { .sala.destaque .participante { grid-column: span 6; } .sala.destaque .participante.foco { grid-column: 1 / -1; } }
 .janela-call { padding: 12px; max-width: none; }
+
+/* ---------- Call: grade livre (tamanho e ordem ajustáveis) ---------- */
+.sala.livre { grid-template-columns: repeat(12, 1fr); }
+.sala.livre .participante { grid-column: span var(--tam, 6); cursor: grab; }
+.participante.arrastando { opacity: .4; }
+.participante.alvo { outline: 3px dashed var(--amarelo); outline-offset: 2px; }
+.ajuste-tile { position: absolute; top: 6px; left: 6px; z-index: 3; display: flex; gap: 3px; opacity: 0; transition: opacity .15s; }
+.participante:hover .ajuste-tile, .participante:focus-within .ajuste-tile { opacity: 1; }
+.ajuste-tile button { background: rgba(0,0,0,.7); color: #fff; border: 0; border-radius: 6px; padding: 3px 7px; cursor: pointer; font-size: .8rem; line-height: 1.2; }
+.ajuste-tile button:hover { background: var(--amarelo); color: #000; }
+@media (max-width: 700px) {
+  .sala.livre .participante { grid-column: span 12; }
+  .ajuste-tile { opacity: 1; }
+  .ajuste-tile [data-t="menor"], .ajuste-tile [data-t="maior"] { display: none; }
+}
+
+/* ---------- Menu "Mais" ---------- */
+.nav-mais { position: relative; }
+.nav-mais summary { list-style: none; cursor: pointer; color: var(--texto); padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: .95rem; }
+.nav-mais summary::-webkit-details-marker { display: none; }
+.nav-mais summary:hover, .nav-mais summary.ativo, .nav-mais[open] summary { background: var(--amarelo); color: var(--preto); }
+.nav-sub { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 190px; background: var(--cartao); border: 1px solid var(--borda); border-radius: 10px; padding: 6px; box-shadow: var(--sombra); display: flex; flex-direction: column; }
+.nav-sub a { white-space: nowrap; }
+:root[data-tema="claro"] .nav-mais summary:not(.ativo) { color: #f2f2f5; }
+:root[data-tema="claro"] .nav-mais[open] summary { color: var(--preto); }
+@media (max-width: 860px) { .nav-sub { position: static; box-shadow: none; border: 0; padding: 0 0 0 12px; background: transparent; } }
