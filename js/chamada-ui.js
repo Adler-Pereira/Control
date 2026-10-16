@@ -1,6 +1,7 @@
 // Interface da call (usada nas comunidades e na call entre amigos)
 import { $, esc, falha, toast } from './app.js';
-import { SalaVoz, prefsAudio } from './voz.js';
+import { SalaVoz } from './voz.js';
+import { prefsAudio, salvarPrefsAudio, processarMic, restricoesMic, definirSaida } from './audio-mic.js';
 
 export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call', janela = false }) {
   box.innerHTML = `
@@ -15,13 +16,31 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
       ${janela ? '' : '<button class="btn sec" data-v="popout" title="Abre a call numa janela separada: você continua navegando pelo site sem cair">🗗 Abrir em janela</button>'}
       <button class="btn perigo hidden" data-v="sair">Sair da call</button>
     </div>
-    <div class="opcoes-tela cartao hidden" data-v="audio">
-      <strong>Áudio</strong>
-      <label>Microfone <select data-v="a-mic"><option value="">Padrão do sistema</option></select></label>
-      ${[['ruido', '🎧 Supressão de ruído e isolamento de voz (remove teclado, ventilador e sons de fundo)'], ['eco', '🔁 Cancelamento de eco (use se estiver sem fone)'], ['ganho', '📶 Ajuste automático de volume do microfone']]
-        .map(([k, t]) => `<label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" data-a="${k}" style="width:auto"> ${t}</label>`).join('')}
-      <p class="muted" style="font-size:.82rem;margin-top:6px">💡 Para não duplicar vozes: não fique na call do site e na do Discord ao mesmo tempo, e ao compartilhar a tela com som prefira uma <strong>aba</strong> ou a <strong>janela do jogo</strong> (a tela inteira captura também o som do Discord).</p>
-      <div class="controles" style="margin-top:8px"><button class="btn pequeno" data-v="a-ok">Aplicar</button><button class="btn sec pequeno" data-v="a-fechar">Fechar</button></div>
+    <div class="opcoes-tela cartao hidden painel-audio" data-v="audio">
+      <strong>⚙️ Áudio</strong>
+      <div class="form-linha" style="margin-top:8px">
+        <label>🎤 Microfone <select data-v="a-mic"><option value="">Padrão do sistema</option></select></label>
+        <label>🎧 Saída (fone/caixa) <select data-v="a-saida"><option value="">Padrão do sistema</option></select></label>
+      </div>
+      <label class="op-check"><input type="checkbox" data-a="ruidoIA"> <span><strong>Supressão de ruído por IA</strong> (recomendado): remove teclado, ventilador, barulho de rua e vozes ao fundo</span></label>
+      <div class="sens">
+        <div class="controles" style="justify-content:space-between;align-items:center"><strong>Sensibilidade de entrada</strong>
+          <label class="op-check" style="margin:0"><input type="checkbox" data-a="autoSens"> Automática</label></div>
+        <div class="medidor" data-v="medidor" title="Seu volume agora. Abaixo da linha amarela o microfone fica mudo."><span class="nivel"></span><span class="limite"></span></div>
+        <input type="range" min="-80" max="-20" step="1" data-v="a-sens" aria-label="Sensibilidade de entrada">
+        <p class="muted" style="font-size:.8rem">Fale normalmente: a barra deve passar da linha amarela. Arraste para a direita se o microfone pega barulho quando você está calado.</p>
+      </div>
+      <div class="controles" style="align-items:center;gap:14px">
+        <label class="op-check"><input type="radio" name="modo-mic" value="voz"> Detecção de voz</label>
+        <label class="op-check"><input type="radio" name="modo-mic" value="ptt"> Apertar para falar</label>
+        <button type="button" class="btn sec pequeno" data-v="a-tecla">Tecla: V</button>
+      </div>
+      <p class="muted" style="font-size:.78rem" data-v="a-tecla-aviso">"Apertar para falar" funciona com esta aba (ou a janela da call) em foco. Para usar enquanto joga, abra a call em janela (🗗) e deixe-a por cima.</p>
+      <label class="op-check"><input type="checkbox" data-a="eco"> Cancelamento de eco (deixe ligado se estiver sem fone)</label>
+      <label class="op-check"><input type="checkbox" data-a="ganho"> Ajuste automático de volume do microfone</label>
+      <p class="muted" style="font-size:.8rem;margin-top:6px">💡 Não fique na call do site e na do Discord ao mesmo tempo. Ao compartilhar a tela com som, prefira uma <strong>aba</strong> ou a <strong>janela do jogo</strong>.</p>
+      <div class="controles" style="margin-top:8px"><button type="button" class="btn sec pequeno" data-v="a-ouvir">🎧 Ouvir meu microfone</button>
+        <button class="btn pequeno" data-v="a-ok">Aplicar</button><button class="btn sec pequeno" data-v="a-fechar">Fechar</button></div>
     </div>
     <div class="opcoes-tela cartao hidden" data-v="opcoes">
       <strong>Compartilhar tela</strong>
@@ -55,7 +74,7 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     ['mudo', 'cam', 'tela', 'sair', 'layout'].forEach((k) => el(k).classList.toggle('hidden', !dentro));
     el('chat').classList.toggle('hidden', !dentro);
     if (!dentro) { el('info').textContent = ''; el('aviso').classList.add('hidden'); el('som').classList.add('hidden'); el('opcoes').classList.add('hidden'); return; }
-    el('mudo').textContent = sala.mudo ? '🔇 Ativar microfone' : '🎤 Silenciar';
+    el('mudo').textContent = sala.mudo ? '🔇 Ativar microfone' : sala.prefs?.ptt ? (sala.falandoPtt ? '🎙️ Falando...' : `🎤 Segure ${(sala.prefs.tecla || 'KeyV').replace(/^Key|^Digit/, '')} para falar`) : '🎤 Silenciar';
     el('cam').classList.toggle('ligado', sala.modoVideo === 'camera');
     el('tela').classList.toggle('ligado', sala.modoVideo === 'tela');
     el('tela').textContent = sala.modoVideo === 'tela' ? '🖥️ Parar compartilhamento' : '🖥️ Compartilhar tela';
@@ -196,6 +215,7 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     const v = t.querySelector('.volume-tile'), bt = v.querySelector('[data-vol="mudo"]');
     const aplicar = () => {
       t.querySelectorAll('audio').forEach((a) => {
+        if (a.dataset.saida !== String(prefs.saida)) { a.dataset.saida = String(prefs.saida); definirSaida(a, prefs.saida); }
         a.muted = cfg.mudo;
         a.volume = (a.classList.contains('som-tela') ? cfg.tela : cfg.voz) / 100;
       });
@@ -222,22 +242,89 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
   }
   box.querySelector('[data-l="auto"]').onclick = () => { ajustes.clear(); aplicarLayout(); };
 
-  // Configurações de áudio
+  // Configurações de áudio (parecidas com as do Discord)
   const prefs = prefsAudio();
-  box.querySelectorAll('[data-a]').forEach((c) => (c.checked = prefs[c.dataset.a] !== false));
-  el('cfg-audio').onclick = async () => {
-    el('audio').classList.toggle('hidden');
-    try {
-      const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId);
-      el('a-mic').innerHTML = '<option value="">Padrão do sistema</option>' + mics.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === prefs.mic ? 'selected' : ''}>${esc(d.label || 'Microfone ' + (i + 1))}</option>`).join('');
-    } catch { /* sem permissão ainda */ }
+  const painel = el('audio');
+  let teste = null, timerMedidor = null, tecla = prefs.tecla;
+  const nomeTecla = (c) => c.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'Num ');
+  const preencher = () => {
+    box.querySelectorAll('[data-a]').forEach((c) => (c.checked = !!prefs[c.dataset.a]));
+    box.querySelectorAll('[name="modo-mic"]').forEach((r) => (r.checked = r.value === (prefs.ptt ? 'ptt' : 'voz')));
+    el('a-sens').value = prefs.sensibilidade;
+    el('a-tecla').textContent = 'Tecla: ' + nomeTecla(tecla);
+    atualizarSens();
   };
-  el('a-fechar').onclick = () => el('audio').classList.add('hidden');
-  el('a-ok').onclick = async () => {
-    const o = { mic: el('a-mic').value || null };
+  const atualizarSens = () => {
+    const auto = box.querySelector('[data-a="autoSens"]').checked;
+    el('a-sens').disabled = auto;
+    el('medidor').querySelector('.limite').style.left = auto ? '-10px' : `${((Number(el('a-sens').value) + 80) / 60) * 100}%`;
+  };
+  const coletar = () => {
+    const o = { ...prefs, mic: el('a-mic').value || null, saida: el('a-saida').value || null, sensibilidade: Number(el('a-sens').value), tecla,
+      ptt: box.querySelector('[name="modo-mic"][value="ptt"]').checked };
     box.querySelectorAll('[data-a]').forEach((c) => (o[c.dataset.a] = c.checked));
+    return o;
+  };
+  // Medidor: usa a call (se estiver nela) ou um microfone de teste
+  const medir = () => sala?.local ? sala.nivelMic() : teste?.proc.medir() ?? -100;
+  const ligarMedidor = () => {
+    clearInterval(timerMedidor);
+    timerMedidor = setInterval(() => {
+      if (painel.classList.contains('hidden')) return clearInterval(timerMedidor);
+      const db = medir(), pct = Math.max(0, Math.min(100, ((db + 80) / 60) * 100));
+      const barra = el('medidor').querySelector('.nivel');
+      barra.style.width = pct + '%';
+      barra.classList.toggle('aberto', box.querySelector('[data-a="autoSens"]').checked || db >= Number(el('a-sens').value));
+    }, 60);
+  };
+  const pararTeste = () => { if (!teste) return; teste.audio?.remove(); teste.proc.fechar(); teste = null; el('a-ouvir').textContent = '🎧 Ouvir meu microfone'; };
+  el('cfg-audio').onclick = async () => {
+    painel.classList.toggle('hidden');
+    if (painel.classList.contains('hidden')) return pararTeste();
+    preencher();
+    try {
+      const aparelhos = await navigator.mediaDevices.enumerateDevices();
+      const opcoes = (tipo, atual, rotulo) => '<option value="">Padrão do sistema</option>' + aparelhos.filter((d) => d.kind === tipo && d.deviceId && d.deviceId !== 'default')
+        .map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === atual ? 'selected' : ''}>${esc(d.label || rotulo + ' ' + (i + 1))}</option>`).join('');
+      el('a-mic').innerHTML = opcoes('audioinput', prefs.mic, 'Microfone');
+      el('a-saida').innerHTML = opcoes('audiooutput', prefs.saida, 'Saída');
+      if (!HTMLMediaElement.prototype.setSinkId) { el('a-saida').disabled = true; el('a-saida').title = 'Este navegador não deixa escolher a saída: use a do sistema.'; }
+    } catch { /* sem permissão ainda */ }
+    ligarMedidor();
+  };
+  box.querySelector('[data-a="autoSens"]').addEventListener('change', atualizarSens);
+  el('a-sens').oninput = () => { atualizarSens(); if (sala?.local) sala.configurarAudio(coletar()); else teste?.proc.definirSensibilidade(Number(el('a-sens').value)); };
+  el('a-tecla').onclick = () => {
+    el('a-tecla').textContent = 'Aperte uma tecla...';
+    const pegar = (e) => { e.preventDefault(); tecla = e.code; el('a-tecla').textContent = 'Tecla: ' + nomeTecla(tecla); removeEventListener('keydown', pegar, true); };
+    addEventListener('keydown', pegar, true);
+  };
+  // Ouvir o próprio microfone (com o processamento escolhido) para comparar; use fone para não dar eco
+  el('a-ouvir').onclick = async () => {
+    if (teste) return pararTeste();
+    try {
+      const o = coletar();
+      const bruto = await navigator.mediaDevices.getUserMedia({ audio: restricoesMic(o) });
+      const proc = await processarMic(bruto, o);
+      const audio = Object.assign(document.createElement('audio'), { autoplay: true, srcObject: new MediaStream([proc.track]) });
+      await definirSaida(audio, o.saida);
+      painel.append(audio);
+      teste = { proc, audio };
+      el('a-ouvir').textContent = '⏹️ Parar de ouvir';
+      toast('Use fone de ouvido para não dar microfonia.');
+      ligarMedidor();
+    } catch (e) { falha(e.name === 'NotAllowedError' ? { message: 'Permita o acesso ao microfone.' } : e); }
+  };
+  el('a-fechar').onclick = () => { painel.classList.add('hidden'); pararTeste(); };
+  el('a-ok').onclick = async () => {
+    const o = coletar();
     Object.assign(prefs, o);
-    try { if (sala) await sala.configurarAudio(o); else localStorage.setItem('cc_audio', JSON.stringify(o)); toast('Áudio atualizado.'); el('audio').classList.add('hidden'); } catch (e) { falha(e); }
+    pararTeste();
+    try {
+      if (sala?.local) await sala.configurarAudio(o); else salvarPrefsAudio(o);
+      box.querySelectorAll('.sala audio').forEach((a) => definirSaida(a, o.saida));
+      toast('Áudio atualizado.'); painel.classList.add('hidden'); atualizar();
+    } catch (e) { falha(e); }
   };
 
   // Abrir em janela separada (continua na call enquanto navega pelo site)
