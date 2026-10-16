@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       modo:
-        description: 'continuo = próximos da lista + lançamentos (o mesmo do automático) | populares = do início | recentes = só lançamentos'
+        description: 'continuo = próximos da lista + lançamentos (o mesmo do automático) | populares = do início | recentes = só lançamentos | recategorizar = refaz as categorias'
         type: choice
-        options: [continuo, populares, recentes]
+        options: [continuo, populares, recentes, recategorizar]
         default: continuo
       quantidade:
         description: 'Quantos jogos da lista de populares ler nesta execução (máx. 20000)'

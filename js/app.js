@@ -227,8 +227,17 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('.car-seta');
   if (!b) return;
   const t = b.parentElement.querySelector('.car-trilho');
-  t.scrollBy({ left: (b.classList.contains('esq') ? -1 : 1) * t.clientWidth * 0.85, behavior: 'smooth' });
+  t.scrollBy({ left: (b.classList.contains('esq') ? -1 : 1) * t.clientWidth, behavior: 'smooth' });
 });
+// Esconde a seta do lado em que não há mais itens
+document.addEventListener('scroll', (e) => { if (e.target.classList?.contains('car-trilho')) setasCarrossel(e.target); }, true);
+function setasCarrossel(t) {
+  const c = t.parentElement;
+  c.querySelector('.car-seta.esq').disabled = t.scrollLeft < 8;
+  c.querySelector('.car-seta.dir').disabled = t.scrollLeft + t.clientWidth >= t.scrollWidth - 8;
+}
+new MutationObserver(() => document.querySelectorAll('.car-trilho:not([data-ok])').forEach((t) => { t.dataset.ok = 1; requestAnimationFrame(() => setasCarrossel(t)); }))
+  .observe(document.documentElement, { childList: true, subtree: true });
 
 // Imagem do IGDB a partir do código (t_screenshot_big, t_1080p, t_thumb...)
 export const imgIgdb = (id, tam = 't_screenshot_big') => /^[a-z0-9]{4,40}$/.test(id || '') ? `https://images.igdb.com/igdb/image/upload/${tam}/${id}.jpg` : '';

@@ -47,7 +47,7 @@ if (configurado) {
   const [dest, promos, news, lanc] = await Promise.all([
     sb.from('games').select(COLUNAS_CARD).eq('featured', true).order('avg_rating', { ascending: false }).limit(12),
     sb.from('deals').select('*, games(slug,title,cover_url)').gt('discount_pct', 0).order('discount_pct', { ascending: false }).limit(12),
-    sb.from('news').select('id,title,summary,source,created_at').eq('published', true).order('created_at', { ascending: false }).limit(10),
+    sb.from('news').select('id,title,summary,source,cover_url,created_at').eq('published', true).order('created_at', { ascending: false }).limit(10),
     sb.from('games').select(COLUNAS_CARD).gte('release_year', ano - 1).order('release_year', { ascending: false }).order('igdb_rating_count', { ascending: false, nullsFirst: false }).limit(12),
   ]);
   $('#destaques').innerHTML = carrossel((dest.data || []).map(cardJogo).join(''), 'Nenhum destaque ainda.');
@@ -57,9 +57,13 @@ if (configurado) {
       <img ${srcCapa(d.games.cover_url, 480)} alt="" loading="lazy">
       <div class="info"><span class="titulo" title="${esc(d.games.title)}">${esc(d.games.title)}</span>
       <span><span class="tag amarela">-${d.discount_pct}%</span> <span class="tag">${esc(d.store)}</span></span></div></a>`).join(''), 'Sem promoções no momento.');
-  $('#noticias').innerHTML = carrossel((news.data || []).map((n) => `
-    <a class="noticia-card" href="novidades.html#n${n.id}"><span class="muted" style="font-size:.8rem">${data(n.created_at)}${n.source ? ' · ' + esc(n.source) : ''}</span>
-    <strong>${esc(n.title)}</strong>${n.summary ? `<span class="muted" style="font-size:.88rem">${esc(n.summary.slice(0, 140))}${n.summary.length > 140 ? '…' : ''}</span>` : ''}</a>`).join(''), 'Nenhuma notícia ainda.');
+  // Resumo sem a frase automática dos blogs ("The post ... appeared first on ...")
+  const limpar = (t) => String(t || '').replace(/\s*The post .*? appeared first on .*$/i, '').trim();
+  $('#noticias').innerHTML = carrossel((news.data || []).map((n) => { const r = limpar(n.summary); return `
+    <a class="noticia-card" href="novidades.html#n${n.id}">
+      <img class="noticia-img" src="${urlSegura(n.cover_url) || 'img/ControlHeader.png'}" alt="" loading="lazy" ${n.cover_url ? '' : 'style="object-fit:contain;padding:18px"'}>
+      <span class="noticia-corpo"><span class="muted" style="font-size:.78rem">${data(n.created_at)}${n.source ? ' · ' + esc(n.source) : ''}</span>
+      <strong>${esc(n.title)}</strong>${r ? `<span class="muted noticia-resumo">${esc(r)}</span>` : ''}</span></a>`; }).join(''), 'Nenhuma notícia ainda.').replace('class="car-trilho"', 'class="car-trilho medio"');
 
   const u = await usuario();
   if (u) {
@@ -89,9 +93,10 @@ async function carregarDesafio() {
     <p class="muted" style="margin:6px 0">${aberto ? `Termina em ${dias} dia(s)` : 'Encerrado'} · Prêmio: ${ch.cosmetics ? `<strong>${esc(ch.cosmetics.name)}</strong> + ` : ''}${ch.reward_xp} XP</p>
     ${ch.description ? `<p class="quebra">${esc(ch.description)}</p>` : ''}
     ${venc?.length ? `<p style="margin-top:8px">🥇 Vencedor(es): ${venc.map((v) => `<a href="perfil.html?u=${encodeURIComponent(v.username)}">${esc(v.username)}</a>`).join(', ')}</p>` : ''}
-    ${(ps || []).length ? `<p style="margin:10px 0 6px"><strong>Mais curtidos até agora:</strong></p>${carrossel(ps.map((x) => `<a class="noticia-card" href="index.html?post=${x.id}" style="min-height:0">
-      ${x.image_url ? `<img src="${urlSegura(x.image_url)}" alt="" loading="lazy" style="aspect-ratio:5/3;object-fit:cover;border-radius:8px">` : `<span class="quebra">${esc(x.body.slice(0, 120))}</span>`}
-      <span class="muted" style="font-size:.85rem">${esc(x.profiles?.username)} · ❤️ ${x.likes_count}</span></a>`).join(''))}` : ''}
+    ${(ps || []).length ? `<p style="margin:10px 0 6px"><strong>Mais curtidos até agora:</strong></p>${carrossel(ps.map((x) => `<a class="noticia-card" href="index.html?post=${x.id}">
+      ${x.image_url ? `<img class="noticia-img" src="${urlSegura(x.image_url)}" alt="" loading="lazy">` : ''}
+      <span class="noticia-corpo">${x.image_url ? '' : `<span class="quebra noticia-resumo">${esc(x.body.slice(0, 160))}</span>`}
+      <span class="muted" style="font-size:.85rem">${esc(x.profiles?.username)} · ❤️ ${x.likes_count}</span></span></a>`).join(''))}` : ''}
     ${aberto ? (compositor ? '<button class="btn" id="participar-desafio" style="margin-top:8px">Participar</button>' : '<p class="muted"><a href="entrar.html">Entre</a> para participar.</p>') : ''}
   </div>`;
   $('#participar-desafio')?.addEventListener('click', () => { compositor.definirDesafio(ch); $('#compositor').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#cp-txt').focus(); });

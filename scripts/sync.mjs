@@ -66,7 +66,8 @@ function lerRss(xml) {
     return {
       title: texto(tag(it, 'title')),
       link: decodificar(tag(it, 'link')),
-      summary: resumo(texto(tag(it, 'description'))),
+      // Tira a frase automática dos blogs WordPress ("The post X appeared first on Y.")
+      summary: resumo(texto(tag(it, 'description')).replace(/\s*The post .*? appeared first on .*$/i, '').trim()) || null,
       date: tag(it, 'pubDate'),
       image: img && /^https:\/\//.test(img) ? decodificar(img) : null,
     };
