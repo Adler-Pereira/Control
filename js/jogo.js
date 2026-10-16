@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador, carrossel, imgIgdb, srcCapa } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador, carrossel, imgIgdb, srcCapa, urlCdn } from './app.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor, verImagem } from './posts.js';
 
 await montarLayout();
@@ -62,8 +62,8 @@ async function carregar() {
       const vids = (g.videos || []).filter((v) => /^[A-Za-z0-9_-]{6,20}$/.test(v)).slice(0, 3);
       const fotos = (g.screenshots || []).map((x) => imgIgdb(x)).filter(Boolean).slice(0, 8);
       if (!vids.length && !fotos.length) return '';
-      return `<h2>Trailers e imagens</h2>${carrossel(vids.map((v) => `<div class="trailer" data-video="${v}"><img src="https://i.ytimg.com/vi/${v}/hqdefault.jpg" alt="Trailer" loading="lazy"><span>▶</span></div>`).join('')
-        + fotos.map((f) => `<img class="midia" src="${f}" data-grande="${f.replace('t_screenshot_big', 't_1080p')}" alt="Imagem de ${esc(g.title)}" loading="lazy">`).join(''))}`.replace('class="car-trilho"', 'class="car-trilho largo"');
+      return `<h2>Trailers e imagens</h2>${carrossel(vids.map((v) => `<div class="trailer" data-video="${v}"><img ${srcCapa(`https://i.ytimg.com/vi/${v}/hqdefault.jpg`, 900)} alt="Trailer" loading="lazy"><span>▶</span></div>`).join('')
+        + fotos.map((f) => `<img class="midia" ${srcCapa(f, 900)} data-grande="${esc(urlCdn(f.replace('t_screenshot_big', 't_1080p'), 1920))}" alt="Imagem de ${esc(g.title)}" loading="lazy">`).join(''))}`.replace('class="car-trilho"', 'class="car-trilho largo"');
     })()}
 
     ${precos?.menor ? `<div class="cartao" style="margin-top:14px"><h3>📉 Histórico de preço</h3>

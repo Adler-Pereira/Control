@@ -65,18 +65,19 @@ export function nivel(xp) {
 // Isso evita bloqueios do navegador a sites externos e deixa a página mais leve. Se falhar, tenta o
 // endereço original e, por fim, a imagem padrão (ver o tratador de erro logo abaixo).
 const CDN_OK = !/^(localhost|127\.|\[)/.test(location.hostname); // em teste local não existe o CDN
-const EXTERNA = /^https:\/\/(images\.igdb\.com|[a-z0-9.-]*steamstatic\.com|[a-z0-9-]+\.supabase\.co)\//;
+const EXTERNA = /^https:\/\/(images\.igdb\.com|i\.ytimg\.com|[a-z0-9.-]*steamstatic\.com|[a-z0-9-]+\.supabase\.co)\//;
+export const urlCdn = (url, largura = 480) => CDN_OK && EXTERNA.test(url || '') ? `/.netlify/images?url=${encodeURIComponent(url)}&w=${largura}&fm=webp&q=75` : url;
 export function srcCapa(url, largura = 480) {
   const u = urlSegura(url);
   if (!u) return 'src="img/Control.png"';
   if (!CDN_OK || !EXTERNA.test(url)) return `src="${u}"`;
-  return `src="/.netlify/images?url=${encodeURIComponent(url)}&amp;w=${largura}&amp;fm=webp&amp;q=75" data-orig="${u}"`;
+  return `src="${esc(urlCdn(url, largura))}" data-orig="${u}"`;
 }
 document.addEventListener('error', (e) => {
   const img = e.target;
   if (img?.tagName !== 'IMG') return;
   if (img.dataset.orig) { const o = img.dataset.orig; delete img.dataset.orig; img.src = o; return; }
-  if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(img.src) && !img.src.endsWith('img/Control.png') && img.closest('.jogo-card, .vitrine-jogos, .atividade, .lista, .grade, .detalhe')) img.src = 'img/Control.png';
+  if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(img.src) && !img.src.endsWith('img/Control.png') && img.closest('.jogo-card, .vitrine-jogos, .atividade, .lista, .grade, .detalhe, .carrossel')) img.src = 'img/Control.png';
 }, true);
 
 export const avatar = (p) => urlSegura(p?.avatar_url) || 'img/perfilpadrao.png';
