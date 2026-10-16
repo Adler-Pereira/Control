@@ -1,3 +1,4 @@
+import { urlSegura } from './app.js';
 import { sb, $, esc, montarLayout, configurado, usuario, falha, toast } from './app.js';
 
 await montarLayout();
@@ -11,7 +12,10 @@ main.insertAdjacentHTML('beforeend', `
     <h2 style="margin-top:0">Nova comunidade</h2>
     <label for="nome">Nome</label><input id="nome" required minlength="3" maxlength="60">
     <label for="desc">Descrição</label><textarea id="desc" rows="3" maxlength="500"></textarea>
-    <label for="jogo">Jogo (opcional)</label><select id="jogo"><option value="">Nenhum</option></select>
+    <label for="busca-jogo">Jogo (opcional)</label>
+    <div class="busca-jogo"><input id="busca-jogo" type="search" placeholder="Digite o nome do jogo..." autocomplete="off">
+      <input type="hidden" id="jogo"><div class="sugestoes hidden" id="sugestoes"></div></div>
+    <p class="muted" id="jogo-escolhido" style="font-size:.85rem;margin-top:4px"></p>
     <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="privada" style="width:auto"> 🔒 Privada (só entra quem você aprovar ou tiver o link de convite)</label>
     <label for="discord">Convite do Discord (opcional)</label><input id="discord" placeholder="https://discord.gg/...">
     <div class="controles" style="margin-top:16px"><button class="btn" value="ok">Criar (+20 XP)</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div>
@@ -20,8 +24,30 @@ main.insertAdjacentHTML('beforeend', `
 if (configurado) {
   carregar();
   let t; $('#q').oninput = () => { clearTimeout(t); t = setTimeout(carregar, 300); };
-  const { data: jogos } = await sb.from('games').select('id,title').order('title');
-  $('#jogo').innerHTML += (jogos || []).map((j) => `<option value="${j.id}">${esc(j.title)}</option>`).join('');
+  // Busca de jogo com sugestões (o catálogo tem milhares de jogos)
+  let tBusca;
+  const escolher = (id, titulo) => {
+    $('#jogo').value = id || '';
+    $('#busca-jogo').value = titulo || '';
+    $('#jogo-escolhido').innerHTML = id ? `✓ ${esc(titulo)} <a href="#" id="limpar-jogo">remover</a>` : '';
+    $('#limpar-jogo')?.addEventListener('click', (e) => { e.preventDefault(); escolher(null, ''); });
+    $('#sugestoes').classList.add('hidden');
+  };
+  $('#busca-jogo').oninput = () => {
+    $('#jogo').value = ''; $('#jogo-escolhido').textContent = '';
+    clearTimeout(tBusca);
+    tBusca = setTimeout(async () => {
+      const termo = $('#busca-jogo').value.trim().replace(/[%,()]/g, '');
+      if (termo.length < 2) return $('#sugestoes').classList.add('hidden');
+      const { data } = await sb.from('games').select('id,title,release_year,cover_url').ilike('title', `%${termo}%`)
+        .order('igdb_rating_count', { ascending: false, nullsFirst: false }).limit(8);
+      $('#sugestoes').innerHTML = (data || []).map((j) => `<button type="button" data-id="${j.id}" data-t="${esc(j.title)}">
+        ${urlSegura(j.cover_url) ? `<img src="${urlSegura(j.cover_url)}" alt="">` : ''}<span>${esc(j.title)}${j.release_year ? ` <span class="muted">(${j.release_year})</span>` : ''}</span></button>`).join('')
+        || '<p class="muted" style="padding:8px">Nenhum jogo encontrado.</p>';
+      $('#sugestoes').classList.remove('hidden');
+      $('#sugestoes').querySelectorAll('[data-id]').forEach((b) => b.onclick = () => escolher(b.dataset.id, b.dataset.t));
+    }, 300);
+  };
 
   $('#nova').onclick = async () => { if (!(await usuario())) return (location.href = 'entrar.html?volta=comunidades.html'); $('#dlg').showModal(); };
   $('#dlg').addEventListener('close', async () => {

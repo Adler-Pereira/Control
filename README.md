@@ -114,8 +114,8 @@ Sem a chave, quem usa o Chrome atualizado vê a tradução feita pelo próprio n
 ### 9. Gamificação
 Funciona sozinha depois de rodar o `schema.sql`. Os 100 primeiros membros ganham a moldura **Fundador**, e quem já tinha conta
 recebe as recompensas retroativas. A premiação do top 10 do mês roda no dia 1 pelo `pg_cron` (ou pelo robô, como reserva).
-Para criar novos itens, adicione linhas na tabela `cosmetics` e o estilo correspondente em `css/style.css`
-(`.m-<id>` para molduras, `.bn-<id>` para banners).
+Para criar novos itens use **Admin → Itens**: molduras (cores, giro, brilho, emoji ou imagem PNG), banners
+(cores ou imagem) e selos (emoji), com desbloqueio manual, por nível ou por dias seguidos.
 
 ### 10. Servidor TURN para as calls (recomendado)
 Sem TURN, a call funciona quando os navegadores conseguem se conectar direto, mas falha em muitas redes de celular e de provedores

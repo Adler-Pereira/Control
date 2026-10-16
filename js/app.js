@@ -136,6 +136,7 @@ export async function montarLayout() {
   }
 
   mostrarAvisoGlobal();
+  carregarEstilosItens();
   const conta = $('.conta', topo);
   const p = await perfil();
   // Conta suspensa: avisa a própria pessoa (ela continua navegando, mas não publica)
@@ -285,4 +286,39 @@ async function mostrarAvisoGlobal() {
   el.innerHTML = `<span>${esc(a.texto)} ${link ? `<a href="${esc(link)}">Saiba mais →</a>` : ''}</span><button aria-label="Fechar aviso">✕</button>`;
   el.querySelector('button').onclick = () => { el.remove(); try { localStorage.setItem('cc_aviso_fechado', String(a.versao)); } catch { /* ignora */ } };
   document.querySelector('.topo')?.after(el);
+}
+
+// ---------- Itens criados no painel (molduras e banners personalizados) ----------
+// Gera o CSS de cada item a partir do banco. Só valores validados entram no CSS.
+const COR = /^#[0-9a-fA-F]{6}$/, ID = /^[a-z0-9_]+$/, IMG = /^https:\/\/[A-Za-z0-9.-]+\.supabase\.co\/storage\/v1\/object\/public\/media\/[A-Za-z0-9/_.-]+$/;
+export function cssDoItem(c) {
+  const st = c.style || {};
+  if (!ID.test(c.id)) return '';
+  const cores = (st.cores || []).filter((x) => COR.test(x));
+  const img = IMG.test(st.imagem || '') ? st.imagem : null;
+  const emoji = st.emoji ? `content: "${String(st.emoji).slice(0, 4).replace(/["\\\n]/g, '')}";` : '';
+  const vel = Math.min(Math.max(Number(st.velocidade) || 4, 1), 20);
+  if (c.kind === 'frame') {
+    const anel = img ? `url("${img}") center/100% 100% no-repeat` : cores.length > 1 ? `conic-gradient(${[...cores, cores[0]].join(',')})` : cores[0] || '#ffd33c';
+    return `.m-${c.id}{--anel:${anel};${st.animado && !img ? `--anim:girar ${vel}s linear infinite;` : ''}}`
+      + (img ? `.m-${c.id}.com{padding:7px}` : '') + (st.brilho ? `.m-${c.id}.com{box-shadow:0 0 14px 2px ${cores[0] || '#ffd33c'}88}` : '')
+      + (emoji ? `.m-${c.id}::after{${emoji}}` : '');
+  }
+  if (c.kind === 'banner') {
+    const fundo = img ? `url("${img}") center/cover no-repeat` : cores.length > 1 ? `linear-gradient(135deg,${cores.join(',')})` : cores[0] || '#1b1b21';
+    return `.bn-${c.id}{background:${fundo} !important}`;
+  }
+  return '';
+}
+async function carregarEstilosItens() {
+  let itens = null;
+  try { const c = JSON.parse(sessionStorage.getItem('cc_itens') || 'null'); if (c && Date.now() - c.em < 600e3) itens = c.itens; } catch { /* ignora */ }
+  if (!itens) {
+    const { data } = await sb.from('cosmetics').select('id,kind,style').eq('custom', true);
+    itens = data || [];
+    try { sessionStorage.setItem('cc_itens', JSON.stringify({ em: Date.now(), itens })); } catch { /* ignora */ }
+  }
+  let el = document.getElementById('estilos-itens');
+  if (!el) { el = document.createElement('style'); el.id = 'estilos-itens'; document.head.append(el); }
+  el.textContent = itens.map(cssDoItem).join('\n');
 }

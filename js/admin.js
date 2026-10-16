@@ -1,4 +1,4 @@
-import { avatarHtml } from './app.js';
+import { avatarHtml, cssDoItem } from './app.js';
 import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, data, toast, falha, urlSegura } from './app.js';
 
 await montarLayout();
@@ -8,7 +8,7 @@ let P;
 const ABAS = [
   ['geral', 'Visão geral'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
   ['reviews', 'Avaliações'], ['posts', 'Posts'], ['comunidades', 'Comunidades'], ['mensagens', 'Mensagens'],
-  ['usuarios', 'Usuários'], ['cargos', 'Cargos', true], ['registro', 'Registro'], ['site', 'Site', true], ['auto', 'Automação', true],
+  ['usuarios', 'Usuários'], ['cargos', 'Cargos', true], ['itens', 'Itens', true], ['registro', 'Registro'], ['site', 'Site', true], ['auto', 'Automação', true],
 ];
 
 function iniciar() {
@@ -24,7 +24,7 @@ function iniciar() {
 }
 
 const painel = () => $('#painel');
-const VIEWS = { geral, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, cargos, registro, site, auto };
+const VIEWS = { geral, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, registro, site, auto };
 function abrir(k) { painel().innerHTML = '<p class="muted">Carregando...</p>'; VIEWS[k]().catch(falha); }
 
 // Formulário genérico em <dialog>. campos: [nome, rótulo, tipo, opções]
@@ -452,6 +452,137 @@ async function cargos() {
     },
     excluir: async (id) => { if (!confirm('Excluir este cargo? Ele some do perfil de quem tem.')) return; const { error } = await sb.from('site_titles').delete().eq('id', id); if (error) throw error; cargos(); },
   });
+}
+
+// ---------------- Itens: molduras, banners e selos (somente admin) ----------------
+const TIPO_ITEM = { frame: 'Moldura', banner: 'Banner', badge: 'Selo' };
+const RARIDADES = [['comum', 'Comum'], ['rara', 'Rara'], ['epica', 'Épica'], ['lendaria', 'Lendária'], ['especial', 'Especial']];
+
+function aplicarEstilosPrevia(lista) {
+  let el = document.getElementById('estilos-previa');
+  if (!el) { el = document.createElement('style'); el.id = 'estilos-previa'; document.head.append(el); }
+  el.textContent = lista.map(cssDoItem).join('\n');
+}
+const previaItem = (c) => c.kind === 'frame' ? avatarHtml({ ...P, equipped_frame: c.id }, 'grande')
+  : c.kind === 'banner' ? `<div class="amostra-banner bn-${esc(c.id)}" style="width:180px"></div>` : `<span style="font-size:2rem">${esc(c.icon || '🏅')}</span>`;
+const comoGanha = (c) => [c.unlock_level ? `nível ${c.unlock_level}` : '', c.unlock_streak ? `${c.unlock_streak} dias seguidos` : ''].filter(Boolean).join(' ou ') || (c.custom ? 'dado pela equipe' : 'regra do site');
+
+async function itens() {
+  const [{ data: cs, error }, { data: posse }] = await Promise.all([
+    sb.from('cosmetics').select('*').order('kind').order('sort'), sb.from('user_cosmetics').select('cosmetic_id')]);
+  if (error) throw error;
+  const qtd = (id) => (posse || []).filter((x) => x.cosmetic_id === id).length;
+  aplicarEstilosPrevia(cs.filter((c) => c.custom));
+  painel().innerHTML = `<p class="muted">Crie molduras, banners e selos. Eles podem ser dados manualmente (ficha do usuário) ou liberados
+      automaticamente por nível ou por dias seguidos de login. Itens originais do site podem ter nome e descrição editados, mas não ser excluídos.</p>
+    <div class="controles" style="margin:12px 0"><button class="btn" data-acao="novo" data-id="frame">+ Nova moldura</button>
+      <button class="btn" data-acao="novo" data-id="banner">+ Novo banner</button><button class="btn" data-acao="novo" data-id="badge">+ Novo selo</button></div>
+    ${tabela(['Prévia', 'Item', 'Como ganha', 'Pessoas', ''], cs.map((c) => `<tr>
+      <td>${previaItem(c)}</td>
+      <td><strong>${esc(c.name)}</strong><br><span class="muted">${TIPO_ITEM[c.kind]} · <span class="r-${c.rarity}">${esc(c.rarity)}</span>${c.custom ? ' · criado no painel' : ''}</span><br><span class="muted" style="font-size:.82rem">${esc(c.description)}</span></td>
+      <td>${esc(comoGanha(c))}</td><td>${qtd(c.id)}</td>
+      <td class="controles"><button class="btn sec pequeno" data-acao="editar" data-id="${esc(c.id)}">Editar</button>
+        ${c.custom ? `<button class="btn perigo pequeno" data-acao="excluir" data-id="${esc(c.id)}">Excluir</button>` : ''}</td></tr>`))}`;
+  acoes({
+    novo: (tipo) => editorItem({ kind: tipo, custom: true, rarity: 'comum', style: tipo === 'badge' ? null : { cores: ['#ffd33c', '#ff6d00'], animado: tipo === 'frame' } }),
+    editar: (id) => editorItem(cs.find((c) => c.id === id)),
+    excluir: async (id) => {
+      if (!confirm(`Excluir este item? Ele some de ${qtd(id)} pessoa(s) que o possuem.`)) return;
+      const { error: e } = await sb.from('cosmetics').delete().eq('id', id); if (e) throw e;
+      try { sessionStorage.removeItem('cc_itens'); } catch { /* ignora */ }
+      toast('Item excluído.'); itens();
+    },
+  });
+}
+
+function editorItem(c) {
+  const novo = !c.id, st = c.style || {}, dlg = $('#dlg');
+  const cores = st.cores?.length ? st.cores : ['#ffd33c', '#ff6d00'];
+  dlg.innerHTML = `<form method="dialog" id="form-item">
+    <h2 style="margin-top:0">${novo ? 'Nova' : 'Editar'} ${TIPO_ITEM[c.kind].toLowerCase()}</h2>
+    <div class="controles" style="align-items:center;gap:16px"><div id="it-previa" style="min-width:120px;display:flex;justify-content:center"></div>
+      <span class="muted" style="font-size:.85rem">Pré-visualização</span></div>
+    <div class="form-linha">
+      <div><label for="it-nome">Nome</label><input id="it-nome" required maxlength="40" value="${esc(c.name || '')}"></div>
+      <div><label for="it-rar">Raridade</label><select id="it-rar">${RARIDADES.map(([v, t]) => `<option value="${v}" ${c.rarity === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    </div>
+    <label for="it-desc">Descrição (como desbloquear, aparece para quem ainda não tem)</label>
+    <input id="it-desc" required maxlength="120" value="${esc(c.description || '')}" placeholder="Ex.: Participe do torneio de outubro">
+    ${c.kind === 'badge' ? `<label for="it-icone">Emoji do selo</label><input id="it-icone" maxlength="4" value="${esc(c.icon || '🏅')}" style="max-width:100px">`
+    : c.custom ? `
+      <label>Cores (de 1 a 6)</label>
+      <div class="controles" id="it-cores">${cores.map((x) => `<input type="color" value="${esc(x)}" style="width:54px;height:40px;padding:2px">`).join('')}
+        <button type="button" class="btn sec pequeno" id="it-mais">+ cor</button><button type="button" class="btn sec pequeno" id="it-menos">− cor</button></div>
+      ${c.kind === 'frame' ? `<div class="form-linha">
+        <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="it-anim" style="width:auto" ${st.animado ? 'checked' : ''}> Girar (animado)</label>
+        <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="it-brilho" style="width:auto" ${st.brilho ? 'checked' : ''}> Brilho</label>
+        <div><label for="it-vel">Velocidade (segundos por volta)</label><input id="it-vel" type="number" min="1" max="20" value="${st.velocidade || 4}"></div>
+        <div><label for="it-emoji">Emoji no canto (opcional)</label><input id="it-emoji" maxlength="4" value="${esc(st.emoji || '')}" placeholder="🔥"></div></div>` : ''}
+      <label for="it-img">Ou envie uma imagem (PNG com fundo transparente para moldura; JPG/PNG para banner)</label>
+      <input id="it-img" type="file" accept="image/png,image/webp,image/jpeg,image/gif">
+      ${st.imagem ? '<label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="it-sem-img" style="width:auto"> Remover imagem e usar as cores</label>' : ''}`
+    : '<p class="muted">A aparência dos itens originais vem do código do site.</p>'}
+    <h3 style="margin-top:14px">Desbloqueio automático (opcional)</h3>
+    <div class="form-linha">
+      <div><label for="it-nivel">Ao chegar no nível</label><input id="it-nivel" type="number" min="1" max="500" value="${c.unlock_level ?? ''}" placeholder="—"></div>
+      <div><label for="it-seq">Com dias seguidos de login</label><input id="it-seq" type="number" min="1" max="3650" value="${c.unlock_streak ?? ''}" placeholder="—"></div>
+    </div>
+    <p class="muted" style="font-size:.82rem">Deixe em branco para só dar manualmente (ficha do usuário). Quem já cumpre a regra recebe na hora.</p>
+    <div class="controles" style="margin-top:16px"><button class="btn" value="ok">Salvar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div>
+  </form>`;
+  dlg.showModal();
+
+  let arquivo = null, urlTemp = null;
+  const id = c.id || `${c.kind === 'frame' ? 'f' : c.kind === 'banner' ? 'b' : 's'}_c${Date.now().toString(36)}`;
+  const coletar = () => {
+    const out = { cores: [...dlg.querySelectorAll('#it-cores input[type=color]')].map((i) => i.value) };
+    if ($('#it-anim')) { out.animado = $('#it-anim').checked; out.brilho = $('#it-brilho').checked; out.velocidade = Number($('#it-vel').value) || 4; out.emoji = $('#it-emoji').value.trim() || null; }
+    out.imagem = $('#it-sem-img')?.checked ? null : st.imagem || null;
+    return out;
+  };
+  const atualizar = () => {
+    const estilo = c.custom && c.kind !== 'badge' ? coletar() : st;
+    const previa = { ...c, id: 'previa_item', style: estilo, icon: $('#it-icone')?.value };
+    // imagem ainda não enviada: mostra pela URL local
+    let css = cssDoItem({ ...previa, style: { ...estilo, imagem: null } });
+    if (urlTemp) css += c.kind === 'frame' ? `.m-previa_item{--anel:url("${urlTemp}") center/100% 100% no-repeat;--anim:none}.m-previa_item.com{padding:7px}` : `.bn-previa_item{background:url("${urlTemp}") center/cover !important}`;
+    else if (estilo.imagem) css = cssDoItem(previa);
+    let el = document.getElementById('estilos-editor');
+    if (!el) { el = document.createElement('style'); el.id = 'estilos-editor'; document.head.append(el); }
+    el.textContent = c.custom ? css : '';
+    $('#it-previa').innerHTML = previaItem(c.custom ? previa : { ...c, icon: $('#it-icone')?.value || c.icon });
+  };
+  dlg.querySelector('form').addEventListener('input', atualizar);
+  $('#it-mais')?.addEventListener('click', () => { const k = dlg.querySelectorAll('#it-cores input').length; if (k < 6) { $('#it-mais').insertAdjacentHTML('beforebegin', '<input type="color" value="#ffffff" style="width:54px;height:40px;padding:2px">'); atualizar(); } });
+  $('#it-menos')?.addEventListener('click', () => { const l = dlg.querySelectorAll('#it-cores input'); if (l.length > 1) { l[l.length - 1].remove(); atualizar(); } });
+  $('#it-img')?.addEventListener('change', (e) => {
+    arquivo = e.target.files[0] || null;
+    if (arquivo && arquivo.size > 2 * 1024 * 1024) { arquivo = null; e.target.value = ''; return toast('Imagem de até 2 MB.', true); }
+    urlTemp = arquivo ? URL.createObjectURL(arquivo) : null; atualizar();
+  });
+  atualizar();
+
+  dlg.addEventListener('close', async () => {
+    if (dlg.returnValue !== 'ok') return;
+    try {
+      const linha = {
+        name: $('#it-nome').value.trim(), description: $('#it-desc').value.trim(), rarity: $('#it-rar').value,
+        unlock_level: $('#it-nivel').value ? Number($('#it-nivel').value) : null, unlock_streak: $('#it-seq').value ? Number($('#it-seq').value) : null,
+      };
+      if (c.kind === 'badge') linha.icon = $('#it-icone').value.trim() || '🏅';
+      else if (c.custom) {
+        linha.style = coletar();
+        if (arquivo) linha.style.imagem = await upload(arquivo, 'itens');
+      }
+      const { error } = novo
+        ? await sb.from('cosmetics').insert({ ...linha, id, kind: c.kind, custom: true, sort: 1000 })
+        : await sb.from('cosmetics').update(linha).eq('id', c.id);
+      if (error) throw error;
+      try { sessionStorage.removeItem('cc_itens'); } catch { /* ignora */ }
+      toast(novo ? 'Item criado! Dê para alguém na ficha do usuário ou espere a regra liberar.' : 'Item atualizado.');
+      itens();
+    } catch (e) { falha(e); }
+  }, { once: true });
 }
 
 // ---------------- Registro de ações da equipe ----------------

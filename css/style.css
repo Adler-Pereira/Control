@@ -290,3 +290,8 @@ a.usuario { color: var(--texto); font-weight: 700; }
 .aviso-info { background: var(--amarelo); color: var(--preto); }
 .aviso-alerta { background: var(--perigo); color: #fff; }
 .aviso-evento { background: #6a1b9a; color: #fff; }
+.busca-jogo { position: relative; }
+.sugestoes { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; background: var(--cartao-2); border: 1px solid var(--borda); border-radius: 10px; margin-top: 4px; max-height: 300px; overflow-y: auto; box-shadow: var(--sombra); }
+.sugestoes button { display: flex; gap: 10px; align-items: center; width: 100%; background: none; border: 0; color: var(--texto); padding: 8px 10px; cursor: pointer; text-align: left; font: inherit; }
+.sugestoes button:hover { background: var(--borda); }
+.sugestoes img { width: 54px; height: 32px; object-fit: cover; border-radius: 4px; }
