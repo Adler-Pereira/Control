@@ -1,3 +1,4 @@
+import { SUPABASE_ANON_KEY } from './config.js';
 import { avatarHtml, cssDoItem, cssMolduraImagem } from './app.js';
 import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, data, toast, falha, urlSegura } from './app.js';
 
@@ -216,12 +217,22 @@ async function noticias() {
   const campos = [['title', 'Título'], ['summary', 'Resumo (aparece na página inicial)'], ['body', 'Texto', 'textarea'],
     ['game_id', 'Jogo relacionado (opcional)', 'jogo'], ['cover_url', 'URL da imagem'], ['imagem', 'Enviar imagem', 'file'],
     ['published', 'Publicada', 'checkbox']];
-  painel().innerHTML = `<div class="controles" style="margin-bottom:12px"><button class="btn" data-acao="novo">+ Escrever notícia</button></div>
+  const { data: igUltimo } = await sb.from('settings').select('value').eq('key', 'instagram_ultimo').maybeSingle();
+  const ultimo = igUltimo?.value;
+  const igStatus = (n) => n.instagram_at ? `<a class="tag" href="${urlSegura(n.instagram_url || 'https://www.instagram.com/control.critic/')}" target="_blank" rel="noopener">📸 no Instagram</a>`
+    : n.instagram_status === 'urgente' ? '<span class="tag amarela">📸 publicando…</span>' : n.instagram_status === 'erro' ? '<span class="tag" style="background:#e5484d;color:#fff">📸 falhou</span>' : '';
+  painel().innerHTML = `<div class="cartao" style="margin-bottom:12px"><strong>📸 Instagram</strong>
+      <p class="muted" style="font-size:.88rem;margin-top:4px">Todo dia às 18h50 o robô publica o <strong>resumo do dia</strong> (ou a notícia do dia; sem notícia, a promoção do dia).
+        Para algo urgente, use <strong>📸 Postar agora</strong> na notícia: sai em 1 a 2 minutos com a etiqueta "URGENTE".</p>
+      ${ultimo ? `<p style="font-size:.88rem;margin-top:6px">Último post: ${esc({ resumo: 'resumo do dia', noticia: 'notícia do dia', promocao: 'promoção do dia', urgente: 'notícia urgente' }[ultimo.tipo] || ultimo.tipo)} em ${new Date(ultimo.em).toLocaleString('pt-BR')}
+        ${ultimo.url ? ` · <a href="${urlSegura(ultimo.url)}" target="_blank" rel="noopener">ver post</a>` : ''}</p>` : '<p class="muted" style="font-size:.85rem;margin-top:6px">Ainda nenhum post (configure o robô: scripts/instagram/LEIA-ME.md).</p>'}</div>
+    <div class="controles" style="margin-bottom:12px"><button class="btn" data-acao="novo">+ Escrever notícia</button></div>
     ${tabela(['Título', 'Fonte', 'Data', 'Status', ''], ns.map((n) => `<tr>
       <td>${n.source_url ? `<a href="${urlSegura(n.source_url)}" target="_blank" rel="noopener">${corta(n.title)}</a>` : corta(n.title)}</td>
       <td>${esc(n.source || 'Equipe')}</td><td>${data(n.created_at)}</td>
-      <td>${n.published ? '<span class="tag amarela">publicada</span>' : '<span class="tag">pendente</span>'}</td>
+      <td>${n.published ? '<span class="tag amarela">publicada</span>' : '<span class="tag">pendente</span>'} ${igStatus(n)}</td>
       <td class="controles"><button class="btn sec pequeno" data-acao="alternar" data-id="${n.id}">${n.published ? 'Despublicar' : 'Publicar'}</button>
+      ${n.published && !n.instagram_at && n.instagram_status !== 'urgente' ? `<button class="btn sec pequeno" data-acao="instagram" data-id="${n.id}" title="Publica agora no Instagram como notícia urgente">📸 Postar agora</button>` : ''}
       <button class="btn sec pequeno" data-acao="editar" data-id="${n.id}">Editar</button>
       <button class="btn perigo pequeno" data-acao="excluir" data-id="${n.id}">Excluir</button></td></tr>`))}`;
   const salvar = async (v, id) => {
@@ -236,6 +247,15 @@ async function noticias() {
     novo: () => salvar({ published: true }),
     editar: (id) => { const n = ns.find((x) => x.id == id); salvar({ ...n, __jogo_titulo: n.games?.title }, id); },
     alternar: async (id) => { const n = ns.find((x) => x.id == id); const { error } = await sb.from('news').update({ published: !n.published }).eq('id', id); if (error) throw error; noticias(); },
+    instagram: async (id) => {
+      const n = ns.find((x) => x.id == id);
+      if (!confirm(`Publicar agora no Instagram como URGENTE?\n\n"${n.title}"\n\nO post sai em 1 a 2 minutos e não pode ser desfeito por aqui (só apagando no próprio Instagram).`)) return;
+      const { data: { session } } = await sb.auth.getSession();
+      const r = await fetch('/.netlify/functions/instagram-agora', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}`, apikey: SUPABASE_ANON_KEY }, body: JSON.stringify({ noticia: Number(id) }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.erro || 'Não foi possível publicar.');
+      toast(d.aviso || '📸 Enviado! O post aparece no Instagram em 1 a 2 minutos.'); noticias();
+    },
     excluir: async (id) => { if (!confirm('Excluir notícia?')) return; const { error } = await sb.from('news').delete().eq('id', id); if (error) throw error; noticias(); },
   });
 }

@@ -2455,3 +2455,23 @@ language sql stable security definer set search_path = public as $$
                            'robo_discord', (select value->>'client_id' from settings where key = 'robo_discord'));
 $$;
 grant execute on function public.public_settings() to anon, authenticated;
+
+-- =====================================================================
+-- INSTAGRAM: o robô publica o resumo do dia e as notícias urgentes
+-- =====================================================================
+alter table public.news add column if not exists instagram_status text;   -- 'urgente' = publicar agora
+alter table public.news add column if not exists instagram_at timestamptz; -- quando foi publicada no Instagram
+alter table public.news add column if not exists instagram_url text;
+do $$ begin
+  alter table public.news add constraint news_instagram_status_chk check (instagram_status is null or instagram_status in ('urgente','erro'));
+exception when duplicate_object then null; end $$;
+
+-- Segredos usados só pelos robôs (token do Instagram, que é renovado sozinho).
+-- RLS ligado e SEM políticas: ninguém do site lê; só a chave secreta (service role) acessa.
+create table if not exists public.app_secrets (
+  key        text primary key,
+  value      jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.app_secrets enable row level security;
+revoke all on public.app_secrets from anon, authenticated;
