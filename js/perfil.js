@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -28,7 +28,7 @@ async function carregar(p, meu, u) {
   const [{ data: reviews }, { data: comms }, rec] = await Promise.all([
     sb.from('reviews').select('*, games(slug,title)').eq('user_id', p.id).eq('status', 'published').order('created_at', { ascending: false }),
     sb.from('community_members').select('communities(id,name)').eq('user_id', p.id),
-    meu ? sb.rpc('recommend_games', { lim: 8 }) : Promise.resolve({ data: null }),
+    meu ? sb.rpc('recommend_games', { lim: 8 }).select(COLUNAS_CARD) : Promise.resolve({ data: null }),
   ]);
   const [{ data: selos }, { data: bib }, { count: seguidores }, { count: seguindo }, { data: sigo }] = await Promise.all([
     sb.from('user_cosmetics').select('cosmetic_id, cosmetics(name,icon,kind,rarity,sort)').eq('user_id', p.id),
@@ -42,6 +42,7 @@ async function carregar(p, meu, u) {
     u && !meu ? sb.from('friendships').select('*').eq('user_a', u.id < p.id ? u.id : p.id).eq('user_b', u.id < p.id ? p.id : u.id).maybeSingle() : Promise.resolve({ data: null }),
     (p.titles || []).length ? sb.from('site_titles').select('*').order('sort') : Promise.resolve({ data: [] }),
   ]);
+  const { data: listas } = await sb.from('user_lists').select('id,title,is_public,list_items(count)').eq('user_id', p.id).order('updated_at', { ascending: false }).limit(30);
   const GRUPOS = [['jogando', '🎮 Jogando'], ['quero_jogar', '📌 Quero jogar'], ['zerado', '🏆 Zerados'], ['abandonei', '💤 Abandonados'], [null, '📚 Na biblioteca']];
   const lista = bib || [];
   const desejos = lista.filter((x) => x.wishlist);
@@ -59,6 +60,7 @@ async function carregar(p, meu, u) {
     p.xbox_gamertag && `<span title="Xbox">🟩 Xbox: ${esc(p.xbox_gamertag)}</span>`,
     p.discord_user && `<span title="Discord">💬 Discord: ${esc(p.discord_user)}</span>`,
     p.steam_profile && `<a href="${urlSegura(p.steam_profile)}" target="_blank" rel="noopener">🖥️ Steam</a>`,
+    p.twitch_user && `<a href="https://twitch.tv/${encodeURIComponent(p.twitch_user)}" target="_blank" rel="noopener" id="link-twitch">📺 Twitch</a>`,
   ].filter(Boolean).join('');
 
   main.innerHTML = `
@@ -107,6 +109,14 @@ async function carregar(p, meu, u) {
         return qtd ? `<button class="chip" data-g="${k ?? ''}">${t} (${qtd})</button>` : ''; }).join('')}</div>
       <div class="lista" id="lista-bib"></div>` : `<p class="vazio">${meu ? 'Sua biblioteca está vazia. Abra a página de um jogo e marque "Jogando", "Zerado"...' : 'Biblioteca vazia.'}</p>`}
 
+    <h2>📋 Listas</h2>
+    <div class="grade" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
+      ${(listas || []).map((l) => `<a class="cartao" href="lista.html?id=${l.id}" style="color:var(--texto);text-decoration:none">
+        <strong>${l.is_public ? '' : '🔒 '}${esc(l.title)}</strong><br><span class="muted">${l.list_items?.[0]?.count ?? 0} jogo(s)</span></a>`).join('')}
+      ${meu ? '<button class="cartao" id="nova-lista" style="cursor:pointer;color:var(--amarelo);font:inherit;font-weight:700">+ Nova lista</button>' : ''}
+      ${!(listas || []).length && !meu ? '<p class="muted">Nenhuma lista pública.</p>' : ''}
+    </div>
+
     ${desejos.length ? `<h2>💖 Lista de desejos (${desejos.length})</h2><div class="lista">${desejos.map(itemBib).join('')}</div>` : ''}
 
     <div class="detalhe" style="margin-top:8px">
@@ -121,12 +131,20 @@ async function carregar(p, meu, u) {
         ${(comms || []).map((m) => `<a class="cartao" href="comunidade.html?id=${m.communities.id}">${esc(m.communities.name)}</a>`).join('') || '<p class="vazio">Nenhuma comunidade ainda.</p>'}
       </div></div>
     </div>
-    ${meu ? `<h2>Privacidade e conta</h2>
+    ${meu ? `<h2>Notificações no celular</h2>
+      <div class="cartao controles" style="align-items:center">
+        <span style="flex:1" class="muted" id="push-status">Receba no celular avisos de chamadas, mensagens, partidas e promoções da sua lista de desejos — mesmo com o site fechado.</span>
+        <button class="btn" id="push-bt" disabled>Verificando…</button>
+      </div>
+      <h2>Privacidade e conta</h2>
       <div class="cartao controles" style="align-items:center">
         <span style="flex:1" class="muted">Seus direitos pela LGPD. Veja a <a href="privacidade.html">Política de Privacidade</a>.</span>
         <button class="btn sec" id="exportar">⬇️ Baixar meus dados</button>
         <button class="btn perigo" id="excluir-conta">Excluir minha conta</button>
       </div><dialog id="dlg-editar"></dialog>` : ''}`;
+
+  // Twitch: mostra 🔴 AO VIVO
+  if (p.twitch_user) aoVivo([p.twitch_user]).then((m) => { const s = m.get(p.twitch_user.toLowerCase()); if (s) $('.nome-bloco h1')?.insertAdjacentHTML('afterend', seloAoVivo(s, p.twitch_user)); });
 
   // Abas da biblioteca
   const mostrarGrupo = (k) => {
@@ -160,6 +178,30 @@ async function carregar(p, meu, u) {
   }
 
   $('#importar-steam').onclick = () => importarSteam(p);
+  // Notificações no celular
+  const atualizarPush = async () => {
+    const st = await estadoPush(), bt = $('#push-bt');
+    bt.disabled = st === 'sem-suporte' || st === 'bloqueado';
+    bt.textContent = { ativo: '🔕 Desativar neste aparelho', inativo: '🔔 Ativar neste aparelho', bloqueado: 'Bloqueado no navegador', 'sem-suporte': 'Não suportado aqui' }[st];
+    bt.className = st === 'ativo' ? 'btn sec' : 'btn';
+    if (st === 'sem-suporte') $('#push-status').textContent = 'Este navegador não suporta notificações. No iPhone (iOS 16.4+), instale o app pela tela de início e ative por ele.';
+    if (st === 'bloqueado') $('#push-status').textContent = 'As notificações estão bloqueadas para este site. Libere no cadeado da barra de endereço e recarregue.';
+  };
+  $('#push-bt').onclick = async () => {
+    try {
+      if ((await estadoPush()) === 'ativo') { await desativarPush(); toast('Notificações desativadas neste aparelho.'); }
+      else { await ativarPush(p.id); toast('🔔 Pronto! Você vai receber os avisos neste aparelho.'); }
+    } catch (e) { falha(e); }
+    atualizarPush();
+  };
+  atualizarPush();
+  $('#nova-lista')?.addEventListener('click', async () => {
+    const titulo = prompt('Nome da lista (ex.: "Melhores jogos de terror", "Para jogar com amigos"):');
+    if (!titulo?.trim()) return;
+    const { data: l, error } = await sb.from('user_lists').insert({ user_id: p.id, title: titulo.trim().slice(0, 80) }).select().single();
+    if (error) return falha(error);
+    location.href = 'lista.html?id=' + l.id;
+  });
   $('#exportar').onclick = () => exportarDados(p);
   $('#excluir-conta').onclick = async () => {
     const conf = prompt(`Isso apaga DEFINITIVAMENTE sua conta, perfil, avaliações, posts, biblioteca e imagens.\n\nPara confirmar, digite seu nome de usuário: ${p.username}`);
@@ -227,6 +269,7 @@ async function abrirEditor(p) {
         <div><label for="psn">PSN ID</label><input id="psn" maxlength="30" value="${esc(p.psn_id || '')}"></div>
         <div><label for="xbox">Gamertag Xbox</label><input id="xbox" maxlength="30" value="${esc(p.xbox_gamertag || '')}"></div>
         <div><label for="discord">Usuário do Discord</label><input id="discord" maxlength="40" value="${esc(p.discord_user || '')}"></div>
+        <div><label for="twitch">Usuário da Twitch</label><input id="twitch" maxlength="25" pattern="[A-Za-z0-9_]{3,25}" value="${esc(p.twitch_user || '')}" placeholder="aparece 🔴 AO VIVO quando estiver transmitindo"></div>
         <div><label for="steam">Link do perfil Steam</label><input id="steam" type="url" placeholder="https://steamcommunity.com/id/..." value="${esc(p.steam_profile || '')}"></div>
       </div>
     </div>
@@ -278,7 +321,7 @@ async function abrirEditor(p) {
       const dados = {
         username: $('#username').value.trim(), bio: $('#bio').value.trim() || null,
         psn_id: $('#psn').value.trim() || null, xbox_gamertag: $('#xbox').value.trim() || null,
-        discord_user: $('#discord').value.trim() || null, steam_profile: steam || null,
+        discord_user: $('#discord').value.trim() || null, steam_profile: steam || null, twitch_user: $('#twitch').value.trim() || null,
         fav_categories: [...dlg.querySelectorAll('#favs .chip.ativo')].map((b) => Number(b.dataset.id)),
       };
       for (const [tipo, coluna] of [['foto', 'avatar_url'], ['banner', 'banner_url']]) {

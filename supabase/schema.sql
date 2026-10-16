@@ -1675,3 +1675,305 @@ begin
 end $$;
 drop trigger if exists cosmetics_bd on public.cosmetics;
 create trigger cosmetics_bd before delete on public.cosmetics for each row execute function public.cosmetic_before_delete();
+
+-- =====================================================================
+-- SOCIAL V2: críticas úteis e comentários, listas, histórico de preço,
+-- mensagens diretas, "procurando grupo", trailers, Twitch e push
+-- =====================================================================
+
+-- ---------- Críticas: "útil" e comentários ----------
+alter table public.reviews add column if not exists helpful_count integer not null default 0;
+alter table public.reviews add column if not exists comments_count integer not null default 0;
+
+create table if not exists public.review_votes (
+  review_id  bigint not null references public.reviews(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (review_id, user_id)
+);
+alter table public.review_votes enable row level security;
+drop policy if exists rv_read on public.review_votes;
+create policy rv_read on public.review_votes for select using (true);
+drop policy if exists rv_ins on public.review_votes;
+create policy rv_ins on public.review_votes for insert with check (
+  user_id = auth.uid() and is_active_user()
+  and not exists (select 1 from reviews r where r.id = review_id and r.user_id = auth.uid()));   -- não vota na própria
+drop policy if exists rv_del on public.review_votes;
+create policy rv_del on public.review_votes for delete using (user_id = auth.uid());
+
+create table if not exists public.review_comments (
+  id          bigserial primary key,
+  review_id   bigint not null references public.reviews(id) on delete cascade,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  body        text not null check (char_length(body) between 1 and 1000),
+  status      text not null default 'published' check (status in ('published','hidden')),
+  created_at  timestamptz not null default now()
+);
+create index if not exists rc_review_idx on public.review_comments(review_id, created_at);
+alter table public.review_comments enable row level security;
+drop policy if exists rc_read on public.review_comments;
+create policy rc_read on public.review_comments for select using (status = 'published' or user_id = auth.uid() or is_staff());
+drop policy if exists rc_ins on public.review_comments;
+create policy rc_ins on public.review_comments for insert with check (user_id = auth.uid() and is_active_user() and status = 'published');
+drop policy if exists rc_del on public.review_comments;
+create policy rc_del on public.review_comments for delete using (user_id = auth.uid() or is_staff());
+drop policy if exists rc_staff on public.review_comments;
+create policy rc_staff on public.review_comments for update using (is_staff()) with check (is_staff());
+
+insert into public.cosmetics (id, kind, name, description, rarity, icon, sort) values
+  ('s_util10', 'badge', 'Crítica Útil', 'Receba 10 votos de "útil" nas suas avaliações', 'rara', '👍', 150),
+  ('s_util100', 'badge', 'Crítico Confiável', 'Receba 100 votos de "útil" nas suas avaliações', 'lendaria', '🎖️', 160)
+on conflict (id) do nothing;
+
+create or replace function public.review_votes_changed() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare rid bigint := coalesce(new.review_id, old.review_id); autor uuid; total int;
+begin
+  update reviews set helpful_count = (select count(*) from review_votes where review_id = rid) where id = rid
+    returning user_id into autor;
+  if tg_op = 'INSERT' then
+    perform add_xp(autor, 2, 'crítica útil');
+    select coalesce(sum(helpful_count), 0) into total from reviews where user_id = autor;
+    if total >= 10 then perform grant_cosmetic(autor, 's_util10'); end if;
+    if total >= 100 then perform grant_cosmetic(autor, 's_util100'); end if;
+  end if;
+  return null;
+end $$;
+drop trigger if exists review_votes_trg on public.review_votes;
+create trigger review_votes_trg after insert or delete on public.review_votes for each row execute function public.review_votes_changed();
+
+create or replace function public.review_comments_changed() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare rid bigint := coalesce(new.review_id, old.review_id); r reviews; quem text; g games;
+begin
+  update reviews set comments_count = (select count(*) from review_comments where review_id = rid and status = 'published') where id = rid returning * into r;
+  if tg_op = 'INSERT' and r.user_id <> new.user_id then
+    select username into quem from profiles where id = new.user_id;
+    select * into g from games where id = r.game_id;
+    insert into notifications (user_id, type, title, body, link)
+    values (r.user_id, 'comment', quem || ' comentou sua avaliação de ' || g.title, left(new.body, 140), 'jogo.html?slug=' || g.slug || '#r' || rid);
+  end if;
+  return null;
+end $$;
+drop trigger if exists review_comments_trg on public.review_comments;
+create trigger review_comments_trg after insert or delete or update of status on public.review_comments for each row execute function public.review_comments_changed();
+
+-- ---------- Listas pessoais ----------
+create table if not exists public.user_lists (
+  id          bigserial primary key,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  title       text not null check (char_length(title) between 2 and 80),
+  description text check (char_length(description) <= 500),
+  is_public   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create table if not exists public.list_items (
+  list_id    bigint not null references public.user_lists(id) on delete cascade,
+  game_id    integer not null references public.games(id) on delete cascade,
+  position   integer not null default 0,
+  note       text check (char_length(note) <= 200),
+  primary key (list_id, game_id)
+);
+alter table public.user_lists enable row level security;
+alter table public.list_items enable row level security;
+drop policy if exists ul_read on public.user_lists;
+create policy ul_read on public.user_lists for select using (is_public or user_id = auth.uid() or is_staff());
+drop policy if exists ul_write on public.user_lists;
+create policy ul_write on public.user_lists for all using (user_id = auth.uid()) with check (user_id = auth.uid() and is_active_user());
+drop policy if exists li_read on public.list_items;
+create policy li_read on public.list_items for select using (exists (select 1 from user_lists l where l.id = list_id and (l.is_public or l.user_id = auth.uid() or is_staff())));
+drop policy if exists li_write on public.list_items;
+create policy li_write on public.list_items for all using (exists (select 1 from user_lists l where l.id = list_id and l.user_id = auth.uid()))
+  with check (exists (select 1 from user_lists l where l.id = list_id and l.user_id = auth.uid()));
+
+-- ---------- Histórico de preço (gravado automaticamente quando o preço muda) ----------
+create table if not exists public.price_history (
+  id           bigserial primary key,
+  game_id      integer not null references public.games(id) on delete cascade,
+  store        text not null,
+  price_cents  integer,
+  discount_pct integer not null default 0,
+  recorded_at  timestamptz not null default now()
+);
+create index if not exists ph_game_idx on public.price_history(game_id, recorded_at desc);
+alter table public.price_history enable row level security;
+drop policy if exists ph_read on public.price_history;
+create policy ph_read on public.price_history for select using (true);
+
+create or replace function public.deals_history() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' or new.price_cents is distinct from old.price_cents or new.discount_pct is distinct from old.discount_pct then
+    insert into price_history (game_id, store, price_cents, discount_pct) values (new.game_id, new.store, new.price_cents, new.discount_pct);
+  end if;
+  return null;
+end $$;
+drop trigger if exists deals_history_trg on public.deals;
+create trigger deals_history_trg after insert or update on public.deals for each row execute function public.deals_history();
+
+create or replace function public.price_summary(gid int) returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object(
+    'menor', (select json_build_object('preco', price_cents, 'loja', store, 'quando', recorded_at) from price_history
+              where game_id = gid and price_cents is not null order by price_cents, recorded_at desc limit 1),
+    'desde', (select min(recorded_at) from price_history where game_id = gid),
+    'pontos', (select coalesce(json_agg(json_build_object('quando', recorded_at, 'preco', price_cents, 'loja', store) order by recorded_at), '[]')
+               from (select * from price_history where game_id = gid and price_cents is not null order by recorded_at desc limit 60) x));
+$$;
+
+-- ---------- Mensagens diretas entre amigos ----------
+create table if not exists public.direct_messages (
+  id          bigserial primary key,
+  sender_id   uuid not null references public.profiles(id) on delete cascade,
+  receiver_id uuid not null references public.profiles(id) on delete cascade,
+  body        text not null check (char_length(body) between 1 and 2000),
+  read        boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index if not exists dm_par_idx on public.direct_messages(least(sender_id, receiver_id), greatest(sender_id, receiver_id), created_at desc);
+alter table public.direct_messages enable row level security;
+drop policy if exists dm_read on public.direct_messages;
+create policy dm_read on public.direct_messages for select using (auth.uid() in (sender_id, receiver_id));
+drop policy if exists dm_send on public.direct_messages;
+create policy dm_send on public.direct_messages for insert with check (
+  sender_id = auth.uid() and is_active_user() and read = false
+  and exists (select 1 from friendships f where f.user_a = least(sender_id, receiver_id) and f.user_b = greatest(sender_id, receiver_id) and f.status = 'aceita'));
+drop policy if exists dm_mark on public.direct_messages;
+create policy dm_mark on public.direct_messages for update using (receiver_id = auth.uid()) with check (receiver_id = auth.uid());
+drop policy if exists dm_del on public.direct_messages;
+create policy dm_del on public.direct_messages for delete using (sender_id = auth.uid());
+do $$ begin alter publication supabase_realtime add table public.direct_messages; exception when duplicate_object then null; end $$;
+
+-- Aviso de mensagem nova (no máximo um aviso não lido por conversa)
+create or replace function public.dm_notify() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare quem text;
+begin
+  select username into quem from profiles where id = new.sender_id;
+  if not exists (select 1 from notifications where user_id = new.receiver_id and type = 'dm' and not read and link = 'amigos.html?chat=' || quem) then
+    insert into notifications (user_id, type, title, body, link)
+    values (new.receiver_id, 'dm', 'Mensagem de ' || quem, left(new.body, 140), 'amigos.html?chat=' || quem);
+  end if;
+  return null;
+end $$;
+drop trigger if exists dm_notify_trg on public.direct_messages;
+create trigger dm_notify_trg after insert on public.direct_messages for each row execute function public.dm_notify();
+
+-- ---------- "Procurando grupo agora" ----------
+create table if not exists public.lfg_posts (
+  id          bigserial primary key,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  game_id     integer references public.games(id) on delete set null,
+  platform    text check (platform in ('PlayStation','Xbox','PC','Nintendo','Mobile','Crossplay')),
+  slots       integer check (slots is null or slots between 1 and 20),
+  note        text check (char_length(note) <= 200),
+  expires_at  timestamptz not null default now() + interval '1 hour',
+  created_at  timestamptz not null default now()
+);
+create index if not exists lfg_ativos_idx on public.lfg_posts(expires_at desc);
+create table if not exists public.lfg_interest (
+  lfg_id      bigint not null references public.lfg_posts(id) on delete cascade,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (lfg_id, user_id)
+);
+alter table public.lfg_posts enable row level security;
+alter table public.lfg_interest enable row level security;
+drop policy if exists lfg_read on public.lfg_posts;
+create policy lfg_read on public.lfg_posts for select using (true);
+drop policy if exists lfg_ins on public.lfg_posts;
+create policy lfg_ins on public.lfg_posts for insert with check (
+  user_id = auth.uid() and is_active_user() and expires_at <= now() + interval '6 hours'
+  and (select count(*) from lfg_posts where user_id = auth.uid() and expires_at > now()) < 3);
+drop policy if exists lfg_upd on public.lfg_posts;
+create policy lfg_upd on public.lfg_posts for update using (user_id = auth.uid()) with check (user_id = auth.uid() and expires_at <= now() + interval '6 hours');
+drop policy if exists lfg_del on public.lfg_posts;
+create policy lfg_del on public.lfg_posts for delete using (user_id = auth.uid() or is_staff());
+drop policy if exists lfgi_read on public.lfg_interest;
+create policy lfgi_read on public.lfg_interest for select using (true);
+drop policy if exists lfgi_ins on public.lfg_interest;
+create policy lfgi_ins on public.lfg_interest for insert with check (user_id = auth.uid() and is_active_user());
+drop policy if exists lfgi_del on public.lfg_interest;
+create policy lfgi_del on public.lfg_interest for delete using (user_id = auth.uid());
+
+create or replace function public.lfg_notify() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare quem text; jogo text;
+begin
+  select username into quem from profiles where id = new.user_id;
+  select title into jogo from games where id = new.game_id;
+  insert into notifications (user_id, type, title, body, link)
+  select case when f.user_a = new.user_id then f.user_b else f.user_a end, 'lfg',
+         '🎮 ' || quem || ' quer jogar ' || coalesce(jogo, 'agora'), coalesce(new.platform || ' · ', '') || coalesce(new.note, ''), 'index.html#grupo'
+  from friendships f where new.user_id in (f.user_a, f.user_b) and f.status = 'aceita';
+  return null;
+end $$;
+drop trigger if exists lfg_notify_trg on public.lfg_posts;
+create trigger lfg_notify_trg after insert on public.lfg_posts for each row execute function public.lfg_notify();
+
+create or replace function public.lfg_interest_notify() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare dono uuid; quem text;
+begin
+  select user_id into dono from lfg_posts where id = new.lfg_id;
+  select username into quem from profiles where id = new.user_id;
+  if dono <> new.user_id then
+    insert into notifications (user_id, type, title, body, link)
+    values (dono, 'lfg', quem || ' quer jogar com você!', 'Chame para uma call ou adicione como amigo.', 'perfil.html?u=' || quem);
+  end if;
+  return null;
+end $$;
+drop trigger if exists lfg_interest_trg on public.lfg_interest;
+create trigger lfg_interest_trg after insert on public.lfg_interest for each row execute function public.lfg_interest_notify();
+
+-- ---------- Trailers (IGDB) e Twitch ----------
+alter table public.games add column if not exists videos text[] not null default '{}';     -- IDs de vídeos do YouTube
+alter table public.profiles add column if not exists twitch_user text check (twitch_user is null or twitch_user ~ '^[A-Za-z0-9_]{3,25}$');
+
+-- ---------- Notificações no celular (Web Push) ----------
+create table if not exists public.push_subscriptions (
+  endpoint    text primary key check (endpoint ~ '^https://'),
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  p256dh      text not null,
+  auth        text not null,
+  created_at  timestamptz not null default now()
+);
+alter table public.push_subscriptions enable row level security;
+drop policy if exists push_own on public.push_subscriptions;
+create policy push_own on public.push_subscriptions for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Cada notificação nova é enviada ao celular pela função do Netlify (via pg_net, se disponível).
+-- Configure no SQL Editor (uma vez):
+--   insert into settings (key, value) values ('push', '{"url":"https://SEU-SITE.netlify.app/.netlify/functions/push","segredo":"MESMO_PUSH_SECRET_DO_NETLIFY"}')
+--   on conflict (key) do update set value = excluded.value;
+do $$ begin create extension if not exists pg_net; exception when others then raise notice 'pg_net indisponível: push no celular desativado.'; end $$;
+
+create or replace function public.push_on_notification() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare cfg jsonb;
+begin
+  select value into cfg from settings where key = 'push';
+  if cfg is null or cfg->>'url' is null or not exists (select 1 from push_subscriptions where user_id = new.user_id) then return null; end if;
+  perform net.http_post(
+    url := cfg->>'url',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-push-secret', cfg->>'segredo'),
+    body := jsonb_build_object('user_id', new.user_id, 'title', new.title, 'body', new.body, 'link', new.link, 'type', new.type));
+  return null;
+exception when others then return null;   -- push nunca pode atrapalhar a notificação no site
+end $$;
+drop trigger if exists push_trg on public.notifications;
+create trigger push_trg after insert on public.notifications for each row execute function public.push_on_notification();
+
+-- Exportação LGPD e limpeza: "procurando grupo" vencido some depois de 1 dia
+create or replace function public.cleanup_lfg() returns void language sql security definer set search_path = public as $$
+  delete from lfg_posts where expires_at < now() - interval '1 day';
+$$;
+do $$ begin
+  perform cron.unschedule('limpar-lfg') where exists (select 1 from cron.job where jobname = 'limpar-lfg');
+  perform cron.schedule('limpar-lfg', '7 * * * *', 'select public.cleanup_lfg()');
+exception when others then null; end $$;
+
+-- Denúncias também de comentários
+alter table public.reports drop constraint if exists reports_target_type_check;
+alter table public.reports add constraint reports_target_type_check check (target_type in ('review','post','profile','community','event','comment'));

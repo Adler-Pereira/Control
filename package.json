@@ -1,1 +1,8 @@
-{ "name": "control-critic", "private": true, "type": "module" }
+{
+  "name": "control-critic",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "web-push": "3.6.7"
+  }
+}

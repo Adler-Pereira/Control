@@ -13,9 +13,36 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci
       - name: Sintaxe do JavaScript
-        run: for f in js/*.js scripts/*.mjs lib/*.mjs netlify/functions/*.mjs; do node --check "$f" || exit 1; done
+        run: for f in js/*.js scripts/*.mjs lib/*.mjs netlify/functions/*.mjs sw.js; do node --check "$f" || exit 1; done
+      - name: Testes das funções
+        run: node --test tests/*.test.mjs
       - name: Validação do HTML
         run: npx --yes html-validate@8.24.1 "*.html"
       - name: Links e imagens locais
         run: node scripts/checar-links.mjs
+
+  banco:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: teste
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: teste
+    steps:
+      - uses: actions/checkout@v4
+      - name: Simula o Supabase
+        run: psql -v ON_ERROR_STOP=1 -q -f tests/supabase-stub.sql
+      - name: schema.sql roda do zero
+        run: psql -v ON_ERROR_STOP=1 -q -f supabase/schema.sql
+      - name: schema.sql roda de novo sem erro (atualização de projeto existente)
+        run: psql -v ON_ERROR_STOP=1 -q -f supabase/schema.sql
+      - name: seed.sql
+        run: psql -v ON_ERROR_STOP=1 -q -f supabase/seed.sql && psql -v ON_ERROR_STOP=1 -q -f supabase/seed.sql
