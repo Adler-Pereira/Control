@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel, enviarImagem } from './app.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 await montarLayout();
@@ -412,13 +412,8 @@ async function abrirEditor(p) {
   };
 }
 
-async function enviar(uid, tipo, arq) {
-  const ext = (arq.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const caminho = `avatars/${uid}/${tipo}-${Date.now()}.${ext}`;
-  const { error } = await sb.storage.from('media').upload(caminho, arq, { contentType: arq.type });
-  if (error) throw new Error(`Não foi possível enviar a imagem (${error.message}).`);
-  return sb.storage.from('media').getPublicUrl(caminho).data.publicUrl;
-}
+// Foto até 512px e banner até 1600px, comprimidos no aparelho antes do envio
+const enviar = (uid, tipo, arq) => enviarImagem(uid, tipo, arq, LIMITE_MB, tipo === 'foto' ? 512 : 1600);
 
 // LGPD: baixa um arquivo JSON com todos os dados da pessoa
 async function exportarDados(p) {

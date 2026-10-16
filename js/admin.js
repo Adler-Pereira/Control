@@ -6,9 +6,9 @@ const main = $('#conteudo');
 let P;
 
 const ABAS = [
-  ['geral', 'Visão geral'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
+  ['geral', 'Visão geral'], ['problemas', 'Problemas 🐞'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
   ['reviews', 'Avaliações'], ['posts', 'Posts'], ['comunidades', 'Comunidades'], ['mensagens', 'Mensagens'],
-  ['usuarios', 'Usuários'], ['cargos', 'Cargos', true], ['itens', 'Itens', true], ['registro', 'Registro'], ['site', 'Site', true], ['auto', 'Automação', true],
+  ['usuarios', 'Usuários'], ['cargos', 'Cargos', true], ['itens', 'Itens', true], ['desafios', 'Desafios', true], ['registro', 'Registro'], ['site', 'Site', true], ['auto', 'Automação', true],
 ];
 
 function iniciar() {
@@ -24,7 +24,7 @@ function iniciar() {
 }
 
 const painel = () => $('#painel');
-const VIEWS = { geral, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, registro, site, auto };
+const VIEWS = { geral, problemas, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, desafios, registro, site, auto };
 function abrir(k) { painel().innerHTML = '<p class="muted">Carregando...</p>'; VIEWS[k]().catch(falha); }
 
 // Campo de busca de jogo com sugestões (o catálogo tem milhares de jogos)
@@ -113,7 +113,46 @@ async function geral() {
       <div class="cartao">${tabela(['Dia', 'Novos usuários'], s.signups.filter((d) => d.n > 0).reverse().map((d) => `<tr><td>${new Date(d.dia + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td><td>${d.n}</td></tr>`))}
       <p class="muted" style="font-size:.85rem;margin-top:6px">Total no período: ${s.signups.reduce((a, d) => a + d.n, 0)}. Dias sem cadastro não aparecem.</p></div>` : ''}
     <h2>Top jogos</h2>
-    ${tabela(['Jogo', 'Nota', 'Avaliações'], s.top_games.map((g) => `<tr><td>${esc(g.title)}</td><td>${Number(g.avg_rating).toFixed(2)}</td><td>${g.reviews_count}</td></tr>`))}`;
+    ${tabela(['Jogo', 'Nota', 'Avaliações'], s.top_games.map((g) => `<tr><td>${esc(g.title)}</td><td>${Number(g.avg_rating).toFixed(2)}</td><td>${g.reviews_count}</td></tr>`))}
+    <div id="uso"></div>`;
+  if (P.role === 'admin') usoDoBanco();
+}
+
+// Uso do plano gratuito do Supabase (500 MB de banco e 1 GB de arquivos)
+async function usoDoBanco() {
+  const { data: u, error } = await sb.rpc('admin_usage');
+  if (error || !u) return;
+  const mb = (b) => (b / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' MB';
+  const barra = (v, lim) => { const pct = Math.min(100, Math.round((v / lim) * 100)); return `<div class="barra-xp" style="max-width:420px;margin:6px 0"><div style="width:${pct}%;${pct > 80 ? 'background:#ff5c5c' : ''}"></div></div><span class="muted">${mb(v)} de ${mb(lim)} (${pct}%)</span>`; };
+  $('#uso').innerHTML = `<h2>Uso do Supabase (plano gratuito)</h2>
+    <div class="cartao"><strong>Banco de dados</strong>${barra(u.banco_bytes, 500 * 1048576)}
+      <p style="margin-top:12px"><strong>Arquivos (imagens)</strong> · ${u.arquivos} arquivo(s)</p>${barra(u.arquivos_bytes, 1024 * 1048576)}
+      <p class="muted" style="font-size:.85rem;margin-top:8px">Acima de 80% fica vermelho. Tráfego e conexões em tempo real não aparecem aqui: veja em Supabase → Usage.</p></div>
+    <h3 style="margin-top:14px">Maiores tabelas</h3>
+    ${tabela(['Tabela', 'Tamanho', 'Linhas (aprox.)'], (u.tabelas || []).map((t) => `<tr><td>${esc(t.nome)}</td><td>${mb(t.bytes)}</td><td>${Number(t.linhas).toLocaleString('pt-BR')}</td></tr>`))}`;
+}
+
+// ---------------- Problemas: relatos das pessoas e erros automáticos ----------------
+async function problemas() {
+  const f = painel().dataset.fb || 'bug';
+  let q = sb.from('app_feedback').select('*, profiles(username)').order('created_at', { ascending: false }).limit(200);
+  q = f === 'resolvido' ? q.eq('status', 'resolvido') : q.eq('status', 'aberto').eq('kind', f);
+  const { data: fs, error } = await q;
+  if (error) throw /app_feedback/.test(error.message) ? new Error('Banco desatualizado: rode de novo o supabase/schema.sql.') : error;
+  const ROT = { bug: '🐞 Problemas relatados', sugestao: '💡 Sugestões', erro: '⚠️ Erros automáticos', resolvido: '✓ Resolvidos' };
+  painel().innerHTML = `<div class="chips">${Object.entries(ROT).map(([k, t]) => `<button class="chip ${k === f ? 'ativo' : ''}" data-fb="${k}">${t}</button>`).join('')}</div>
+    <p class="muted" style="margin:10px 0">${f === 'erro' ? 'Erros de JavaScript que aconteceram no navegador das pessoas (registrados sozinhos, sem a pessoa precisar avisar). Repetidos na mesma hora contam uma vez.' : 'Enviados pelo botão "🐞 Reportar problema" no rodapé do site.'}</p>
+    ${tabela(['Quando', 'Quem', 'Mensagem', 'Página / aparelho', ''], fs.map((x) => `<tr>
+      <td>${new Date(x.created_at).toLocaleString('pt-BR')}</td><td>${esc(x.profiles?.username || 'visitante')}</td>
+      <td class="quebra" style="max-width:420px">${esc(x.message)}${x.details ? `<br><span class="muted" style="font-size:.78rem">${esc(JSON.stringify(x.details).slice(0, 300))}</span>` : ''}</td>
+      <td><a href="${esc(x.page || '#')}" target="_blank">${esc(x.page || '—')}</a><br><span class="muted" style="font-size:.75rem">${esc((x.agent || '').replace(/Mozilla\/5.0 /, '').slice(0, 90))}</span></td>
+      <td class="controles">${x.status === 'aberto' ? `<button class="btn sec pequeno" data-acao="resolver" data-id="${x.id}">✓ Resolvido</button>` : ''}
+        <button class="btn perigo pequeno" data-acao="apagar" data-id="${x.id}">Apagar</button></td></tr>`))}`;
+  painel().querySelectorAll('[data-fb]').forEach((b) => b.onclick = () => { painel().dataset.fb = b.dataset.fb; problemas(); });
+  acoes({
+    resolver: async (id) => { const { error: e } = await sb.from('app_feedback').update({ status: 'resolvido' }).eq('id', id); if (e) throw e; problemas(); },
+    apagar: async (id) => { const { error: e } = await sb.from('app_feedback').delete().eq('id', id); if (e) throw e; problemas(); },
+  });
 }
 
 // ---------------- Jogos ----------------
@@ -638,6 +677,72 @@ function editorItem(c) {
       itens();
     } catch (e) { falha(e); }
   }, { once: true });
+}
+
+// ---------------- Desafios: cria, acompanha os mais curtidos e premia ----------------
+async function desafios() {
+  const [{ data: chs, error }, { data: itensRec }] = await Promise.all([
+    sb.from('challenges').select('*, cosmetics(name)').order('starts_at', { ascending: false }).limit(50),
+    sb.from('cosmetics').select('id,name,kind').neq('kind', 'badge').order('name'),
+  ]);
+  if (error) throw /challenges/.test(error.message) ? new Error('Banco desatualizado: rode de novo o supabase/schema.sql.') : error;
+  const agora = new Date();
+  const estado = (c) => new Date(c.starts_at) > agora ? 'agendado' : new Date(c.ends_at) > agora ? '🟢 aberto' : 'encerrado';
+  painel().innerHTML = `<p class="muted">Desafios aparecem no topo do feed da página inicial. As pessoas participam com um post (foto, print, texto).
+    Ao final, veja os mais curtidos e premie quem você escolher: o item e o XP caem na conta na hora, com aviso.</p>
+    <div class="controles" style="margin:12px 0"><button class="btn" data-acao="novo">+ Novo desafio</button></div>
+    ${tabela(['Desafio', 'Período', 'Prêmio', 'Situação', ''], (chs || []).map((c) => `<tr>
+      <td><strong>${esc(c.title)}</strong><br><span class="muted" style="font-size:.82rem">${esc((c.description || '').slice(0, 100))}</span></td>
+      <td>${data(c.starts_at)} → ${data(c.ends_at)}</td><td>${c.cosmetics ? esc(c.cosmetics.name) + ' + ' : ''}${c.reward_xp} XP</td>
+      <td>${estado(c)}${c.winners?.length ? `<br><span class="muted">${c.winners.length} premiado(s)</span>` : ''}</td>
+      <td class="controles"><button class="btn sec pequeno" data-acao="ver" data-id="${c.id}">Participações</button>
+        <button class="btn sec pequeno" data-acao="editar" data-id="${c.id}">Editar</button><button class="btn perigo pequeno" data-acao="excluir" data-id="${c.id}">Excluir</button></td></tr>`))}
+    <div id="participacoes"></div>`;
+  const local = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
+  const editor = (c = {}) => {
+    const dlg = $('#dlg');
+    dlg.innerHTML = `<form method="dialog"><h2 style="margin-top:0">${c.id ? 'Editar' : 'Novo'} desafio</h2>
+      <label for="d-t">Título</label><input id="d-t" required minlength="3" maxlength="80" value="${esc(c.title || '')}" placeholder="Ex.: Melhor print de paisagem da semana">
+      <label for="d-d">Regras / descrição</label><textarea id="d-d" rows="3" maxlength="1000" placeholder="O que vale, como participar, critério (ex.: mais curtidos + escolha da equipe)">${esc(c.description || '')}</textarea>
+      <div class="form-linha">
+        <div><label for="d-i">Começa</label><input id="d-i" type="datetime-local" required value="${local(c.starts_at || Date.now())}"></div>
+        <div><label for="d-f">Termina</label><input id="d-f" type="datetime-local" required value="${local(c.ends_at || Date.now() + 7 * 864e5)}"></div>
+        <div><label for="d-r">Item de prêmio</label><select id="d-r"><option value="">Nenhum</option>${(itensRec || []).map((i) => `<option value="${esc(i.id)}" ${i.id === c.reward_cosmetic ? 'selected' : ''}>${i.kind === 'frame' ? 'Moldura' : 'Banner'}: ${esc(i.name)}</option>`).join('')}</select></div>
+        <div><label for="d-x">XP de prêmio</label><input id="d-x" type="number" min="0" max="5000" value="${c.reward_xp ?? 200}"></div>
+      </div>
+      <p class="muted" style="font-size:.82rem">Dica: crie antes uma moldura exclusiva em Itens (sem desbloqueio automático) para ser o prêmio.</p>
+      <div class="controles" style="margin-top:14px"><button class="btn" value="ok">Salvar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div></form>`;
+    dlg.showModal();
+    dlg.addEventListener('close', async () => {
+      if (dlg.returnValue !== 'ok') return;
+      const linha = { title: $('#d-t').value.trim(), description: $('#d-d').value.trim() || null, starts_at: new Date($('#d-i').value).toISOString(),
+        ends_at: new Date($('#d-f').value).toISOString(), reward_cosmetic: $('#d-r').value || null, reward_xp: Number($('#d-x').value) || 0 };
+      const { error: e } = c.id ? await sb.from('challenges').update(linha).eq('id', c.id) : await sb.from('challenges').insert({ ...linha, created_by: P.id });
+      if (e) return falha(/check/.test(e.message) ? { message: 'O fim precisa ser depois do começo.' } : e);
+      toast('Desafio salvo.'); desafios();
+    }, { once: true });
+  };
+  acoes({
+    novo: () => editor(),
+    editar: (id) => editor(chs.find((c) => c.id == id)),
+    excluir: async (id) => { if (!confirm('Excluir o desafio? Os posts continuam, só perdem a marcação.')) return; const { error: e } = await sb.from('challenges').delete().eq('id', id); if (e) throw e; desafios(); },
+    ver: async (id) => {
+      const c = chs.find((x) => x.id == id);
+      const { data: ps } = await sb.from('posts').select('id,body,image_url,likes_count,user_id,profiles!posts_user_id_fkey(username)').eq('challenge_id', id).order('likes_count', { ascending: false }).limit(100);
+      $('#participacoes').innerHTML = `<h2>Participações: ${esc(c.title)} (${ps?.length || 0})</h2>
+        ${tabela(['', 'Quem', 'Post', 'Curtidas'], (ps || []).map((x) => `<tr><td><input type="checkbox" value="${x.user_id}" style="width:auto" ${c.winners.includes(x.user_id) ? 'checked disabled' : ''}></td>
+          <td>${esc(x.profiles?.username)}</td><td>${x.image_url ? `<img src="${urlSegura(x.image_url)}" alt="" style="height:60px;border-radius:6px"> ` : ''}<a href="index.html?post=${x.id}" target="_blank">${esc(x.body.slice(0, 80))}</a></td><td>❤️ ${x.likes_count}</td></tr>`))}
+        <button class="btn" id="premiar" style="margin-top:10px">🏆 Premiar selecionados</button>`;
+      $('#premiar').onclick = async () => {
+        const ids = [...new Set([...$('#participacoes').querySelectorAll('input:checked:not(:disabled)')].map((i) => i.value))];
+        if (!ids.length) return toast('Marque quem vai ganhar.', true);
+        if (!confirm(`Premiar ${ids.length} pessoa(s)? Elas recebem o item e o XP agora.`)) return;
+        const { error: e } = await sb.rpc('award_challenge', { chid: Number(id), vencedores: ids });
+        if (e) return falha(e);
+        toast('Premiado! 🏆'); desafios();
+      };
+    },
+  });
 }
 
 // ---------------- Registro de ações da equipe ----------------

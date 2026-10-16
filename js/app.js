@@ -125,6 +125,7 @@ export async function montarLayout() {
     <p style="font-size:.8rem;margin-top:6px">Dados de jogos: <a href="https://www.igdb.com" target="_blank" rel="noopener">IGDB.com</a> e Steam.</p>
     <p style="font-size:.85rem;margin-top:8px"><a href="privacidade.html">Privacidade</a> · <a href="termos.html">Termos de uso</a> ·
       <a href="contato.html">Contato</a> <button class="btn sec pequeno hidden" id="instalar" style="margin-left:8px">📲 Instalar app</button>
+      <button class="btn sec pequeno" id="reportar" style="margin-left:8px">🐞 Reportar problema</button>
       <button class="btn sec pequeno" id="tema" style="margin-left:8px" aria-label="Alternar tema claro/escuro">${document.documentElement.dataset.tema === 'claro' ? '🌙 Tema escuro' : '☀️ Tema claro'}</button></p>`;
   document.body.append(rodape);
   $('#tema', rodape).onclick = (e) => {
@@ -133,6 +134,7 @@ export async function montarLayout() {
     e.currentTarget.textContent = claro ? '🌙 Tema escuro' : '☀️ Tema claro';
     try { localStorage.setItem('cc_tema', claro ? 'claro' : ''); } catch { /* ignora */ }
   };
+  $('#reportar', rodape).onclick = () => reportarProblema();
   // Atalho para leitores de tela / teclado
   document.body.insertAdjacentHTML('afterbegin', '<a class="pular" href="#conteudo">Pular para o conteúdo</a>');
 
@@ -214,8 +216,24 @@ document.addEventListener('click', (e) => {
 export const imgIgdb = (id, tam = 't_screenshot_big') => /^[a-z0-9]{4,40}$/.test(id || '') ? `https://images.igdb.com/igdb/image/upload/${tam}/${id}.jpg` : '';
 
 // Envia uma imagem para o Storage (pasta da própria pessoa) e devolve a URL pública
-export async function enviarImagem(uid, prefixo, arq, limiteMb = 3) {
+// Fotos são reduzidas e convertidas para WebP no próprio aparelho antes do envio (economiza 70–90% do armazenamento).
+// GIFs ficam como estão (para não perder a animação).
+export async function comprimirImagem(arq, maxLado = 1600, qualidade = 0.85) {
+  if (!/^image\/(png|jpeg|webp)$/.test(arq.type)) return arq;
+  try {
+    const bmp = await createImageBitmap(arq);
+    const k = Math.min(1, maxLado / Math.max(bmp.width, bmp.height));
+    const cv = Object.assign(document.createElement('canvas'), { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    const blob = await new Promise((ok) => cv.toBlob(ok, 'image/webp', qualidade));
+    if (!blob || blob.type !== 'image/webp' || blob.size >= arq.size) return arq;
+    return new File([blob], arq.name.replace(/\.\w+$/, '') + '.webp', { type: 'image/webp' });
+  } catch { return arq; }
+}
+
+export async function enviarImagem(uid, prefixo, arq, limiteMb = 3, maxLado = 1600) {
   if (!arq.type.startsWith('image/')) throw new Error('Escolha um arquivo de imagem.');
+  arq = await comprimirImagem(arq, maxLado);
   if (arq.size > limiteMb * 1024 * 1024) throw new Error(`A imagem deve ter no máximo ${limiteMb} MB.`);
   const ext = (arq.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
   const caminho = `avatars/${uid}/${prefixo}-${Date.now()}.${ext}`;
@@ -276,6 +294,41 @@ export async function denunciar(tipo, id) {
     toast('Denúncia enviada. Obrigado por ajudar a manter a comunidade segura.');
   }, { once: true });
 }
+
+// ---------- Reportar problema / sugestão (vai para o painel do admin) ----------
+export async function reportarProblema() {
+  if (!sb) return;
+  let dlg = $('#dlg-reportar');
+  if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'dlg-reportar'; document.body.append(dlg); }
+  dlg.innerHTML = `<form method="dialog"><h2 style="margin-top:0">🐞 Reportar problema ou sugerir</h2>
+    <p class="muted">Conte o que aconteceu ou o que poderia ser melhor. A página atual e o seu navegador vão junto para ajudar a equipe.</p>
+    <label for="rp-tipo">Tipo</label><select id="rp-tipo"><option value="bug">Algo não funciona</option><option value="sugestao">Sugestão</option></select>
+    <label for="rp-msg">Mensagem</label><textarea id="rp-msg" rows="4" maxlength="2000" required placeholder="Ex.: Ao clicar em Publicar no celular, nada acontece."></textarea>
+    <div class="controles" style="margin-top:14px"><button class="btn" value="ok">Enviar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div></form>`;
+  dlg.showModal();
+  dlg.addEventListener('close', async () => {
+    if (dlg.returnValue !== 'ok') return;
+    const u = await usuario();
+    const { error } = await sb.from('app_feedback').insert({ user_id: u?.id ?? null, kind: $('#rp-tipo').value, message: $('#rp-msg').value.trim(),
+      page: (location.pathname + location.search).slice(0, 300), agent: navigator.userAgent.slice(0, 300), details: { tela: `${innerWidth}x${innerHeight}` } });
+    error ? falha(error) : toast('Obrigado! A equipe vai analisar. 💛');
+  }, { once: true });
+}
+
+// Erros do site no navegador das pessoas são registrados automaticamente (aparecem no admin → Problemas)
+let errosEnviados = 0;
+async function registrarErro(msg, extra) {
+  if (!sb || errosEnviados >= 5 || !msg) return;
+  const m = String(msg).slice(0, 500);
+  if (/ResizeObserver|Script error|extension|chrome-extension|AbortError|NetworkError|Failed to fetch|Load failed/i.test(m + (extra?.arquivo || ''))) return;
+  errosEnviados++;
+  try {
+    const u = await usuario();
+    await sb.from('app_feedback').insert({ user_id: u?.id ?? null, kind: 'erro', message: m, page: (location.pathname + location.search).slice(0, 300), agent: navigator.userAgent.slice(0, 300), details: extra || null });
+  } catch { /* nunca quebra a página por causa do registro */ }
+}
+addEventListener('error', (e) => registrarErro(e.message, { arquivo: String(e.filename || '').split('/').pop(), linha: e.lineno, coluna: e.colno }));
+addEventListener('unhandledrejection', (e) => registrarErro(e.reason?.message || String(e.reason), { tipo: 'promise', pilha: String(e.reason?.stack || '').slice(0, 800) }));
 
 // ---------- Tradução ----------
 // Usa o tradutor embutido do navegador (Chrome 138+), que roda no próprio aparelho e é gratuito.
