@@ -1,5 +1,9 @@
 # TURN caseiro (grátis, usando o seu computador)
 
+> **Tem CGNAT (passo 0)?** Então este método não funciona. Use a pasta **`turn-proprio`**:
+> - `GUIA-ORACLE.md`: servidor grátis na nuvem, recomendado;
+> - `GUIA-IPV6-CASA.md`: o seu PC, pelo IPv6.
+
 Quando o computador está ligado, ele retransmite o áudio/vídeo de quem não consegue conexão direta na call.
 Com ele desligado, a call continua funcionando para quem consegue se conectar direto (e usa a Cloudflare, se estiver configurada).
 

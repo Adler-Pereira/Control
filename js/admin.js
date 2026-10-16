@@ -774,6 +774,33 @@ async function site() {
       </div>
       <button class="btn" style="margin-top:12px">Salvar aviso</button>
     </form>`;
+  // Teste dos servidores TURN: pede credenciais ao site e tenta uma retransmissão com cada endereço
+  painel().insertAdjacentHTML('beforeend', `<div class="cartao" style="margin-top:14px">
+    <h3>📡 Servidores de retransmissão (TURN)</h3>
+    <p class="muted">Testa, a partir da sua internet, se cada TURN responde. Os próprios (Oracle, IPv6 de casa) são usados primeiro; a Cloudflare só entra se eles falharem.
+      Endereços IPv6 só passam no teste se a sua internet atual também tiver IPv6.</p>
+    <button class="btn" id="testar-turn" style="margin-top:10px">Testar agora</button><div id="res-turn" style="margin-top:10px"></div></div>`);
+  $('#testar-turn').onclick = async () => {
+    const box = $('#res-turn'); box.innerHTML = '<p class="muted">Testando (até 8 s por servidor)...</p>';
+    let d;
+    try { const r = await fetch('/.netlify/functions/turn'); d = await r.json(); if (!r.ok) throw new Error(d.erro || r.status); }
+    catch (e) { box.innerHTML = `<p class="aviso erro">A função de TURN falhou: ${esc(e.message)}. Confira as variáveis no Netlify.</p>`; return; }
+    const testes = [];
+    for (const [grupo, lista] of [['Próprio', d.primarios || []], ['Cloudflare (reserva)', d.reserva || (d.primarios ? [] : d.iceServers)]])
+      for (const sv of lista) for (const url of [].concat(sv.urls).filter((u) => /^turns?:/.test(u))) testes.push({ grupo, url, sv });
+    if (!testes.length) { box.innerHTML = '<p class="muted">Nenhum TURN configurado.</p>'; return; }
+    const testar = ({ url, sv }) => new Promise((ok) => {
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: url, username: sv.username, credential: sv.credential }], iceTransportPolicy: 'relay' });
+      const fim = (res) => { clearTimeout(t); pc.close(); ok(res); };
+      const t = setTimeout(() => fim(null), 8000);
+      pc.onicecandidate = (e) => { if (e.candidate?.type === 'relay' || / relay /.test(e.candidate?.candidate || '')) fim(e.candidate.address || 'ok'); };
+      pc.createDataChannel('t'); pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => fim(null));
+    });
+    const res = await Promise.all(testes.map(testar));
+    box.innerHTML = tabela(['Servidor', 'Endereço', 'Resultado'], testes.map((x, i) => `<tr><td>${esc(x.grupo)}</td><td><code>${esc(x.url)}</code></td>
+      <td>${res[i] ? '✅ respondendo' : '❌ sem resposta'}</td></tr>`));
+  };
+
   // Robô oficial do Discord (ponte de voz): só o ID público do aplicativo, para o botão de convite das comunidades
   const { data: robo } = await sb.from('settings').select('value').eq('key', 'robo_discord').maybeSingle();
   painel().insertAdjacentHTML('beforeend', `<form class="cartao" id="form-robo" style="margin-top:14px">

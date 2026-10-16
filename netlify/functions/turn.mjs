@@ -1,10 +1,12 @@
 // Credenciais temporárias de TURN para as calls (retransmissão quando a conexão direta é bloqueada).
 //   GET /.netlify/functions/turn  ->  { iceServers: [...] }
 // Aceita duas fontes (pode usar uma, outra ou as duas):
-//  1) TURN próprio (coturn no seu computador/servidor), gratuito:
-//       TURN_URL     ex.: turn:meu-endereco.duckdns.org:3478
-//       TURN_SECRET  o mesmo "static-auth-secret" do turnserver.conf
+//  1) TURN próprio (coturn na Oracle, no seu PC via IPv6 etc.), gratuito. Vários separados por vírgula:
+//       TURN_URL     ex.: turn:129.146.10.20:3478,turn:[2804:1eec:abcd::10]:3478
+//       TURN_SECRET  o mesmo "static-auth-secret" em todos os servidores
 //  2) TURN da Cloudflare: CLOUDFLARE_TURN_KEY_ID e CLOUDFLARE_TURN_API_TOKEN
+// Resposta: iceServers (todos) + primarios (os próprios) + reserva (Cloudflare). A call tenta primeiro só os
+// próprios e acrescenta a reserva se não conectar em alguns segundos (economiza a cota da Cloudflare).
 import { createHmac } from 'node:crypto';
 
 const env = (k) => (process.env[k] || '').trim();
@@ -37,10 +39,10 @@ async function turnCloudflare() {
 export default async (req) => {
   const origem = req.headers.get('origin') || req.headers.get('referer') || '';
   if (origem && new URL(origem).host !== new URL(req.url).host) return json(403, { erro: 'Origem não permitida.' });
-  const lista = [];
   const proprio = turnProprio();
-  if (proprio) lista.push(proprio);
-  try { lista.push(...(await turnCloudflare())); } catch (e) { console.error(e); }
-  if (!lista.length) return json(503, { erro: 'TURN não configurado.' });
-  return json(200, { iceServers: lista });
+  const primarios = proprio ? [proprio] : [];
+  let reserva = [];
+  try { reserva = await turnCloudflare(); } catch (e) { console.error(e); }
+  if (!primarios.length && !reserva.length) return json(503, { erro: 'TURN não configurado.' });
+  return json(200, { iceServers: [...primarios, ...reserva], primarios, reserva });
 };
