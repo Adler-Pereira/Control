@@ -1,5 +1,5 @@
 // Posts com imagem, curtidas e comentários (usado na página inicial, nas comunidades e no perfil)
-import { sb, $, esc, avatarHtml, toast, falha, urlSegura, denunciar, enviarImagem, esqueletoLista } from './app.js';
+import { sb, $, esc, avatarHtml, toast, falha, urlSegura, denunciar, enviarImagem, esqueletoLista, imagemAceitavel } from './app.js';
 
 export const COLUNAS_POST = '*, profiles!posts_user_id_fkey(username,avatar_url,equipped_frame), games(slug,title), communities(id,name)';
 // Com desafio (só depois do schema novo): usado onde os desafios aparecem
@@ -131,7 +131,8 @@ export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPub
   $('#cp-img', form).onchange = (e) => {
     const a = e.target.files[0];
     if (!a) return;
-    if (a.size > 3 * 1024 * 1024) { e.target.value = ''; return toast('A imagem deve ter no máximo 3 MB.', true); }
+    const problema = imagemAceitavel(a, 3);
+    if (problema) { e.target.value = ''; return toast(problema, true); }
     arquivo = a; previa.querySelector('img').src = URL.createObjectURL(a); previa.classList.remove('hidden');
   };
   $('#cp-tirar', form).onclick = () => { arquivo = null; $('#cp-img', form).value = ''; previa.classList.add('hidden'); };

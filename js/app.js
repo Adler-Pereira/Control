@@ -251,6 +251,16 @@ export const imgIgdb = (id, tam = 't_screenshot_big') => /^[a-z0-9]{4,40}$/.test
 // Envia uma imagem para o Storage (pasta da própria pessoa) e devolve a URL pública
 // Fotos são reduzidas e convertidas para WebP no próprio aparelho antes do envio (economiza 70–90% do armazenamento).
 // GIFs ficam como estão (para não perder a animação).
+// Antes de comprimir: fotos (JPG/PNG/WebP) de até 25 MB são aceitas, porque viram poucos KB no envio.
+// GIF não é comprimido (perderia a animação), então vale o limite normal.
+export function imagemAceitavel(arq, limiteMb = 3) {
+  if (!arq?.type?.startsWith('image/')) return 'Escolha um arquivo de imagem (JPG, PNG, WebP ou GIF).';
+  if (/heic|heif/i.test(arq.type)) return 'Fotos HEIC do iPhone não são aceitas: no iPhone, use "Mais compatível" em Ajustes → Câmera → Formatos, ou envie um print.';
+  const max = /^image\/(png|jpeg|webp)$/.test(arq.type) ? 25 : limiteMb;
+  if (arq.size > max * 1024 * 1024) return `A imagem deve ter no máximo ${max} MB.`;
+  return null;
+}
+
 export async function comprimirImagem(arq, maxLado = 1600, qualidade = 0.85) {
   if (!/^image\/(png|jpeg|webp)$/.test(arq.type)) return arq;
   try {
@@ -258,14 +268,18 @@ export async function comprimirImagem(arq, maxLado = 1600, qualidade = 0.85) {
     const k = Math.min(1, maxLado / Math.max(bmp.width, bmp.height));
     const cv = Object.assign(document.createElement('canvas'), { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
     cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
-    const blob = await new Promise((ok) => cv.toBlob(ok, 'image/webp', qualidade));
-    if (!blob || blob.type !== 'image/webp' || blob.size >= arq.size) return arq;
-    return new File([blob], arq.name.replace(/\.\w+$/, '') + '.webp', { type: 'image/webp' });
+    // WebP quando o navegador gera; senão JPEG (ex.: Safari antigo no iPhone)
+    for (const tipo of ['image/webp', 'image/jpeg']) {
+      const blob = await new Promise((ok) => cv.toBlob(ok, tipo, qualidade));
+      if (blob?.type === tipo && blob.size < arq.size) return new File([blob], arq.name.replace(/\.\w+$/, '') + (tipo === 'image/webp' ? '.webp' : '.jpg'), { type: tipo });
+    }
+    return arq;
   } catch { return arq; }
 }
 
 export async function enviarImagem(uid, prefixo, arq, limiteMb = 3, maxLado = 1600) {
-  if (!arq.type.startsWith('image/')) throw new Error('Escolha um arquivo de imagem.');
+  const problema = imagemAceitavel(arq, limiteMb);
+  if (problema) throw new Error(problema);
   arq = await comprimirImagem(arq, maxLado);
   if (arq.size > limiteMb * 1024 * 1024) throw new Error(`A imagem deve ter no máximo ${limiteMb} MB.`);
   const ext = (arq.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
