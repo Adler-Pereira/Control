@@ -49,6 +49,11 @@
   status = 404
   force = true
 [[redirects]]
+  from = "/ponte-discord/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
   from = "/tests/*"
   to = "/404.html"
   status = 404

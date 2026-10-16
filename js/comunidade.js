@@ -83,7 +83,7 @@ async function carregar() {
     <section data-p="call" class="hidden">
       ${membro ? '<div id="call-box"></div>' : '<p class="muted">Participe da comunidade para entrar na call.</p>'}
       ${c.discord_guild_id && /^\d{17,20}$/.test(c.discord_guild_id) ? `<details class="cartao" style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">💬 Sala de voz do Discord da comunidade (para quem está no PS5/Xbox)</summary>
-        <p class="muted" style="margin:8px 0">Veja quem está nos canais de voz do Discord e entre com um clique. As duas calls são salas separadas: combinem de usar uma só.</p>
+        <p class="muted" style="margin:8px 0">Veja quem está nos canais de voz do Discord e entre com um clique. Se a <strong>ponte</strong> estiver ligada, o Discord aparece aqui na call como “🎮 Discord” e todo mundo se ouve.</p>
         <iframe src="https://discord.com/widget?id=${c.discord_guild_id}&theme=dark" width="100%" height="420" style="border:0;border-radius:10px;max-width:420px" loading="lazy" title="Discord"
           sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe></details>` : ''}
     </section>
@@ -94,8 +94,7 @@ async function carregar() {
           <h3>Jogando no PS5 ou Xbox?</h3>
           <p class="muted">Consoles não abrem chamadas pelo navegador, mas têm Discord integrado. Vincule sua conta do Discord ao console
           (PS5: Configurações → Usuários e contas → Vincular a outros serviços → Discord) e entre na call do <strong>servidor do Discord</strong> da comunidade.</p>
-          <p class="muted" style="margin-top:8px">⚠️ A <strong>call do site</strong> e a <strong>call do Discord</strong> são salas separadas: quem está numa não escuta quem está na outra.
-          Combinem todos de usar a mesma: se alguém estiver no console, usem o Discord.</p>
+          <p class="muted" style="margin-top:8px">🔗 Com a <strong>ponte de voz</strong> ligada (o robô do Control Critic aparece no canal de voz do Discord), quem está no Discord e quem está na call do site <strong>se ouvem</strong>: o Discord aparece na call do site como “🎮 Discord”. A ponte leva só a voz; tela e câmera continuam só no site. Sem a ponte, são salas separadas: combinem de usar a mesma.</p>
         </div>
         ${c.discord_invite ? `<a class="btn discord" href="${urlSegura(c.discord_invite)}" target="_blank" rel="noopener">Entrar no servidor do Discord</a>`
           : '<span class="muted">Esta comunidade ainda não tem servidor do Discord vinculado.</span>'}
