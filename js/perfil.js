@@ -1,5 +1,6 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel } from './app.js';
+import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -32,7 +33,7 @@ async function carregar(p, meu, u) {
   ]);
   const [{ data: selos }, { data: bib }, { count: seguidores }, { count: seguindo }, { data: sigo }] = await Promise.all([
     sb.from('user_cosmetics').select('cosmetic_id, cosmetics(name,icon,kind,rarity,sort)').eq('user_id', p.id),
-    sb.from('user_games').select('*, games(id,slug,title,cover_url,avg_rating,reviews_count, deals(discount_pct,price_cents,store))').eq('user_id', p.id).order('updated_at', { ascending: false }).limit(500),
+    sb.from('user_games').select('*, games(id,slug,title,cover_url,avg_rating,reviews_count, deals(discount_pct,price_cents,store))').eq('user_id', p.id).order('updated_at', { ascending: false }).limit(2000),
     sb.from('follows').select('follower_id', { count: 'exact', head: true }).eq('followed_id', p.id),
     sb.from('follows').select('followed_id', { count: 'exact', head: true }).eq('follower_id', p.id),
     u && !meu ? sb.from('follows').select('followed_id').eq('follower_id', u.id).eq('followed_id', p.id).maybeSingle() : Promise.resolve({ data: null }),
@@ -45,6 +46,9 @@ async function carregar(p, meu, u) {
   const { data: listas } = await sb.from('user_lists').select('id,title,is_public,list_items(count)').eq('user_id', p.id).order('updated_at', { ascending: false }).limit(30);
   const GRUPOS = [['jogando', '🎮 Jogando'], ['quero_jogar', '📌 Quero jogar'], ['zerado', '🏆 Zerados'], ['abandonei', '💤 Abandonados'], [null, '📚 Na biblioteca']];
   const lista = bib || [];
+  // Últimos jogados (Steam) ou atualizados por último
+  const recentes = lista.filter((x) => x.status || x.hours).slice().sort((a, b) => new Date(b.last_played || b.updated_at) - new Date(a.last_played || a.updated_at)).slice(0, 4);
+  const vitrine = (p.showcase_games || []).map((gid) => lista.find((x) => x.game_id === gid)?.games).filter(Boolean);
   const desejos = lista.filter((x) => x.wishlist);
   const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const itemBib = (x) => {
@@ -63,12 +67,16 @@ async function carregar(p, meu, u) {
     p.twitch_user && `<a href="https://twitch.tv/${encodeURIComponent(p.twitch_user)}" target="_blank" rel="noopener" id="link-twitch">📺 Twitch</a>`,
   ].filter(Boolean).join('');
 
+  // Banner da loja de conquistas vira o fundo da página; a imagem enviada pela pessoa fica no topo do perfil
+  document.querySelector('.perfil-fundo')?.remove();
+  if (banner && /^[a-z0-9_]+$/.test(p.equipped_banner || '')) document.body.insertAdjacentHTML('afterbegin', `<div class="perfil-fundo bn-${p.equipped_banner}"></div>`);
+
   main.innerHTML = `
     ${meu && param('senha') ? `<div class="cartao" style="margin-bottom:16px"><h3>Definir nova senha</h3>
       <form id="form-senha" class="controles"><input id="nova-senha" type="password" minlength="8" required placeholder="Nova senha" style="max-width:280px"><button class="btn">Salvar senha</button></form></div>` : ''}
 
     <section class="perfil-capa">
-      <div class="perfil-banner ${/^[a-z0-9_]+$/.test(p.equipped_banner || '') ? 'bn-' + p.equipped_banner : ''}" ${banner && !p.equipped_banner ? `style="background-image:url('${banner}')"` : ''}></div>
+      <div class="perfil-banner ${!banner && /^[a-z0-9_]+$/.test(p.equipped_banner || '') ? 'bn-' + p.equipped_banner : ''}" ${banner ? `style="background-image:url('${banner}')"` : ''}></div>
       <div class="perfil-info">
         ${avatarHtml(p, 'grande', 'Foto de ' + p.username)}
         <div class="nome-bloco">
@@ -77,6 +85,7 @@ async function carregar(p, meu, u) {
             ${p.role === 'admin' ? '<span class="tag">🛡️ Administrador</span>' : p.role === 'moderator' ? '<span class="tag">🛡️ Moderador</span>' : ''}
             ${(titulos || []).filter((t) => (p.titles || []).includes(t.id)).map((t) => `<span class="tag" style="background:${esc(t.color)};color:#000">${esc(t.icon || '')} ${esc(t.name)}</span>`).join(' ')}</p>
           ${p.bio ? `<p class="quebra" style="margin-top:6px">${esc(p.bio)}</p>` : meu ? '<p class="muted" style="margin-top:6px">Adicione uma bio contando o que você joga.</p>' : ''}
+          <span id="steam-agora"></span>
           ${contas ? `<div class="contas-jogo">${contas}</div>` : ''}
           ${(() => { const s = (selos || []).filter((x) => x.cosmetics?.kind === 'badge').sort((a, b) => a.cosmetics.sort - b.cosmetics.sort);
             return s.length || p.streak_current ? `<div class="vitrine">${p.streak_current ? `<span title="Dias seguidos">🔥 ${p.streak_current} dias</span>` : ''}
@@ -104,10 +113,22 @@ async function carregar(p, meu, u) {
       <span style="flex:1">Importe seus jogos e horas jogadas da <strong>Steam</strong> (seu perfil e a lista de jogos precisam estar públicos).</span>
       <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button></div>
       <p class="muted" style="font-size:.82rem;margin-top:6px">PlayStation e Xbox não oferecem importação oficial: adicione esses jogos pela página de cada jogo.</p></div>` : ''}
-    ${lista.length ? `<div class="chips" id="abas-bib">${GRUPOS.map(([k, t]) => {
-        const qtd = lista.filter((x) => x.status === k && (k || !x.wishlist || x.hours)).length;
-        return qtd ? `<button class="chip" data-g="${k ?? ''}">${t} (${qtd})</button>` : ''; }).join('')}</div>
-      <div class="lista" id="lista-bib"></div>` : `<p class="vazio">${meu ? 'Sua biblioteca está vazia. Abra a página de um jogo e marque "Jogando", "Zerado"...' : 'Biblioteca vazia.'}</p>`}
+    ${vitrine.length || meu ? `<h2>🏆 Vitrine</h2>${vitrine.length ? `<div class="vitrine-jogos">${vitrine.map((g) => `<a href="jogo.html?slug=${encodeURIComponent(g.slug)}"><img src="${urlSegura(g.cover_url) || 'img/Control.png'}" alt="" loading="lazy"><span>${esc(g.title)}</span></a>`).join('')}</div>`
+      : '<p class="muted">Escolha até 6 jogos favoritos para exibir aqui em "✏️ Editar perfil".</p>'}` : ''}
+    ${lista.length ? `<h3 style="margin-top:14px">🕹️ Jogados recentemente</h3>
+      <div class="lista">${recentes.map(itemBib).join('') || '<p class="muted">Nada jogado recentemente.</p>'}</div>
+      <button class="btn sec" id="ver-bib" style="margin-top:10px">📚 Ver biblioteca completa (${lista.length})</button>
+      <dialog id="dlg-bib" style="width:min(760px,96vw)"><div class="controles" style="justify-content:space-between;align-items:center"><h2 style="margin:0">Biblioteca de ${esc(p.username)}</h2><button class="btn sec pequeno" id="fechar-bib">✕ Fechar</button></div>
+        <input type="search" id="busca-bib" placeholder="Buscar na biblioteca..." style="margin:10px 0">
+        <div class="chips" id="abas-bib">${GRUPOS.map(([k, t]) => {
+          const qtd = lista.filter((x) => x.status === k && (k || !x.wishlist || x.hours)).length;
+          return qtd ? `<button class="chip" data-g="${k ?? ''}">${t} (${qtd})</button>` : ''; }).join('')}</div>
+        <div class="lista" id="lista-bib" style="margin-top:10px"></div></dialog>`
+      : `<p class="vazio">${meu ? 'Sua biblioteca está vazia. Importe da Steam ou abra a página de um jogo e marque "Jogando", "Zerado"...' : 'Biblioteca vazia.'}</p>`}
+
+    <h2>📸 Posts</h2>
+    ${meu ? compositorHtml() : ''}
+    <div class="lista" id="posts-perfil" style="margin-top:12px"></div>
 
     <h2>📋 Listas</h2>
     <div class="grade" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
@@ -146,14 +167,34 @@ async function carregar(p, meu, u) {
   // Twitch: mostra 🔴 AO VIVO
   if (p.twitch_user) aoVivo([p.twitch_user]).then((m) => { const s = m.get(p.twitch_user.toLowerCase()); if (s) $('.nome-bloco h1')?.insertAdjacentHTML('afterend', seloAoVivo(s, p.twitch_user)); });
 
-  // Abas da biblioteca
+  // Biblioteca completa (janela com abas e busca)
+  let grupoAtual = null;
   const mostrarGrupo = (k) => {
+    grupoAtual = k;
     main.querySelectorAll('#abas-bib .chip').forEach((c) => c.classList.toggle('ativo', c.dataset.g === k));
-    const sel = lista.filter((x) => (x.status ?? '') === k && (k || !x.wishlist || x.hours));
-    $('#lista-bib').innerHTML = sel.map(itemBib).join('');
+    const termo = ($('#busca-bib')?.value || '').trim().toLowerCase();
+    const sel = lista.filter((x) => termo ? x.games.title.toLowerCase().includes(termo) : (x.status ?? '') === k && (k || !x.wishlist || x.hours));
+    $('#lista-bib').innerHTML = sel.slice(0, 300).map(itemBib).join('') || '<p class="muted">Nada encontrado.</p>';
   };
-  const primeira = main.querySelector('#abas-bib .chip');
-  if (primeira) { main.querySelectorAll('#abas-bib .chip').forEach((c) => c.onclick = () => mostrarGrupo(c.dataset.g)); mostrarGrupo(primeira.dataset.g); }
+  $('#ver-bib')?.addEventListener('click', () => { $('#dlg-bib').showModal(); const c = main.querySelector('#abas-bib .chip'); if (c && grupoAtual === null) mostrarGrupo(c.dataset.g); });
+  $('#fechar-bib')?.addEventListener('click', () => $('#dlg-bib').close());
+  main.querySelectorAll('#abas-bib .chip').forEach((c) => c.onclick = () => { $('#busca-bib').value = ''; mostrarGrupo(c.dataset.g); });
+  $('#busca-bib')?.addEventListener('input', () => mostrarGrupo(grupoAtual));
+
+  // Jogando agora na Steam
+  if (p.steam_id) steamAgora([p.steam_id]).then((r) => {
+    const s = r[p.steam_id];
+    if (s?.jogo) $('#steam-agora').innerHTML = `<span class="jogando-agora" title="Status da Steam">Jogando agora: <strong>${esc(s.jogo)}</strong></span>`;
+  });
+
+  // Posts da pessoa
+  const carregarPostsPerfil = async () => {
+    const { data: ps } = await sb.from('posts').select(COLUNAS_POST).eq('user_id', p.id).eq('status', 'published').order('created_at', { ascending: false }).limit(30);
+    $('#posts-perfil').innerHTML = (ps || []).map((x) => postHtml(x, { u })).join('') || '<p class="muted">Nenhum post ainda.</p>';
+    ligarPosts($('#posts-perfil'), { u });
+  };
+  if (meu) ligarCompositor($('#compositor'), { u, aoPublicar: carregarPostsPerfil });
+  carregarPostsPerfil();
 
   if (!meu) {
     $('#den-perfil')?.addEventListener('click', () => denunciar('profile', p.id));
@@ -274,6 +315,18 @@ async function abrirEditor(p) {
       </div>
     </div>
 
+    <div class="secao-form"><h3>Moldura e banner</h3>
+      <p class="muted" style="font-size:.85rem">Escolha em <a href="conquistas.html">🏆 Conquistas</a>. O banner de conquista vira o fundo do seu perfil; a imagem que você enviar acima fica no topo.</p>
+      <div class="controles" style="margin-top:8px">${p.equipped_frame ? '<button type="button" class="btn sec pequeno" data-tirar="frame">Tirar moldura da foto</button>' : ''}
+        ${p.equipped_banner ? '<button type="button" class="btn sec pequeno" data-tirar="banner">Tirar banner de conquista</button>' : ''}</div>
+    </div>
+
+    <div class="secao-form"><h3>Vitrine (até 6 jogos)</h3>
+      <p class="muted" style="font-size:.85rem">Os jogos que aparecem em destaque no seu perfil. Só jogos da sua biblioteca.</p>
+      <input type="search" id="vit-busca" placeholder="Filtrar..." style="margin-top:6px">
+      <div class="escolha-jogos" id="vit-lista"><p class="muted">Carregando...</p></div>
+    </div>
+
     <div class="secao-form"><h3>Categorias favoritas</h3>
       <p class="muted" style="font-size:.85rem">Usadas nas suas recomendações.</p>
       <div class="chips" id="favs" style="margin-top:8px">${(cats || []).map((c) => `<button type="button" class="chip ${p.fav_categories.includes(c.id) ? 'ativo' : ''}" data-id="${c.id}">${esc(c.name)}</button>`).join('')}</div>
@@ -285,6 +338,27 @@ async function abrirEditor(p) {
     </div>
   </form>`;
   dlg.showModal();
+
+  // Vitrine: escolhe entre os jogos da biblioteca
+  const escolhidos = new Set(p.showcase_games || []);
+  const { data: meusJogos } = await sb.from('user_games').select('game_id, games(title)').eq('user_id', p.id).limit(2000);
+  const desenharVitrine = () => {
+    const t = $('#vit-busca').value.trim().toLowerCase();
+    const l = (meusJogos || []).filter((x) => x.games && (!t || x.games.title.toLowerCase().includes(t)))
+      .sort((a, b) => escolhidos.has(b.game_id) - escolhidos.has(a.game_id) || a.games.title.localeCompare(b.games.title)).slice(0, 150);
+    $('#vit-lista').innerHTML = l.map((x) => `<label><input type="checkbox" value="${x.game_id}" style="width:auto" ${escolhidos.has(x.game_id) ? 'checked' : ''}> ${esc(x.games.title)}</label>`).join('') || '<p class="muted">Sua biblioteca está vazia.</p>';
+    $('#vit-lista').querySelectorAll('input').forEach((i) => i.onchange = () => {
+      const gid = Number(i.value);
+      if (i.checked && escolhidos.size >= 6) { i.checked = false; return toast('Máximo de 6 jogos na vitrine.', true); }
+      i.checked ? escolhidos.add(gid) : escolhidos.delete(gid);
+    });
+  };
+  desenharVitrine(); $('#vit-busca').oninput = desenharVitrine;
+  dlg.querySelectorAll('[data-tirar]').forEach((b) => b.onclick = async () => {
+    const { error } = await sb.rpc('equip_cosmetic', { tipo: b.dataset.tirar, cid: null });
+    if (error) return falha(error);
+    toast(b.dataset.tirar === 'frame' ? 'Moldura removida.' : 'Banner removido.'); b.remove();
+  });
 
   const contar = () => ($('#bio-cont').textContent = `(${$('#bio').value.length}/300)`);
   contar(); $('#bio').oninput = contar;
@@ -324,6 +398,7 @@ async function abrirEditor(p) {
         discord_user: $('#discord').value.trim() || null, steam_profile: steam || null, twitch_user: $('#twitch').value.trim() || null,
         fav_categories: [...dlg.querySelectorAll('#favs .chip.ativo')].map((b) => Number(b.dataset.id)),
       };
+      if ('showcase_games' in p) dados.showcase_games = [...escolhidos];
       for (const [tipo, coluna] of [['foto', 'avatar_url'], ['banner', 'banner_url']]) {
         if (remover[tipo]) dados[coluna] = null;
         if (novos[tipo]) dados[coluna] = await enviar(p.id, tipo, novos[tipo]);

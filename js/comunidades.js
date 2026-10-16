@@ -69,7 +69,7 @@ async function carregar() {
   const { data } = await q;
   $('#lista').innerHTML = (data || []).map((c) => `
     <a class="cartao" href="comunidade.html?id=${c.id}" style="color:var(--texto);text-decoration:none">
-      <h3>${c.is_private ? '🔒 ' : ''}${esc(c.name)}</h3>
+      <h3 style="display:flex;gap:10px;align-items:center">${urlSegura(c.icon_url) ? `<img src="${urlSegura(c.icon_url)}" alt="" style="width:40px;height:40px;border-radius:10px;object-fit:cover">` : ''}${c.is_private ? '🔒 ' : ''}${esc(c.name)}</h3>
       <p class="muted">${esc(c.description || '')}</p>
       <p style="margin-top:8px">${c.games ? `<span class="tag">${esc(c.games.title)}</span> ` : ''}<span class="tag">${c.members_count} membros</span>
       ${c.discord_invite ? ' <span class="tag" style="background:#5865F2;color:#fff">Discord</span>' : ''}</p>

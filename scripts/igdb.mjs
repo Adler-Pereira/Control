@@ -27,7 +27,7 @@ const cfg = Object.fromEntries((await api('settings?select=key,value')).map((s) 
 // Jogos que já existem (para não duplicar e só completar o que falta)
 const existentes = [];
 for (let de = 0; ; de += 1000) {
-  const lote = await api(`games?select=id,slug,igdb_id,steam_appid,cover_url,description_lang,category_id,release_year,store_ps,store_xbox,store_steam,store_nintendo,platforms,videos,igdb_rating_count&order=id&limit=1000&offset=${de}`);
+  const lote = await api(`games?select=id,slug,igdb_id,steam_appid,cover_url,description_lang,category_id,release_year,store_ps,store_xbox,store_steam,store_nintendo,platforms,videos,screenshots,igdb_rating_count&order=id&limit=1000&offset=${de}`);
   existentes.push(...lote);
   if (lote.length < 1000) break;
 }
@@ -63,6 +63,7 @@ async function importar(onde, ordem, inicio, quantidade) {
       if (!atual.description_lang && linha.description) { patch.description = linha.description; patch.description_lang = 'en'; } // sem descrição ainda
       if (!atual.platforms?.length && linha.platforms.length) patch.platforms = linha.platforms;
       if (!atual.videos?.length && linha.videos.length) patch.videos = linha.videos;
+      if (!atual.screenshots?.length && linha.screenshots.length) patch.screenshots = linha.screenshots;
       // Popularidade só é regravada quando muda bastante (evita milhares de gravações inúteis)
       if (Math.abs((atual.igdb_rating_count || 0) - linha.igdb_rating_count) > 20 || patch.igdb_id) {
         patch.igdb_rating = linha.igdb_rating; patch.igdb_rating_count = linha.igdb_rating_count;

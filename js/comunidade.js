@@ -1,4 +1,5 @@
-import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatar, avatarHtml, data, toast, falha, urlSegura, denunciar, aoVivo, seloAoVivo } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatarHtml, toast, falha, urlSegura, denunciar, aoVivo, seloAoVivo, enviarImagem, esqueletoLista } from './app.js';
+import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 import { montarCall } from './chamada-ui.js';
 
 await montarLayout();
@@ -14,8 +15,9 @@ async function carregar() {
   document.title = `${c.name} | Control Critic`;
   const u = await usuario();
   const p = await perfil();
-  const { data: membro } = u ? await sb.from('community_members').select('user_id').eq('community_id', id).eq('user_id', u.id).maybeSingle() : { data: null };
+  const { data: membro } = u ? await sb.from('community_members').select('*').eq('community_id', id).eq('user_id', u.id).maybeSingle() : { data: null };
   const dono = u && (c.owner_id === u.id || ['admin', 'moderator'].includes(p?.role));
+  const moderador = dono || membro?.role === 'mod';
   const { data: segredo } = membro || dono ? await sb.from('community_secrets').select('*').eq('community_id', id).maybeSingle() : { data: null };
   const { data: pedidos } = dono && c.is_private ? await sb.from('community_requests').select('*, profiles(username,avatar_url,equipped_frame)').eq('community_id', id).order('created_at') : { data: [] };
   const { data: meuPedido } = u && !membro && c.is_private ? await sb.from('community_requests').select('created_at').eq('community_id', id).eq('user_id', u.id).maybeSingle() : { data: null };
@@ -24,7 +26,9 @@ async function carregar() {
 
   main.innerHTML = `
     <div class="cartao" style="margin-bottom:18px">
-      <h1>${c.is_private ? '🔒 ' : ''}${esc(c.name)}</h1>
+      <div class="com-capa" ${urlSegura(c.banner_url) ? `style="background-image:url('${urlSegura(c.banner_url)}')"` : ''}></div>
+      <div class="controles" style="align-items:flex-end;gap:14px"><img class="com-icone" src="${urlSegura(c.icon_url) || 'img/Control.png'}" alt="">
+      <h1 style="margin:8px 0 0">${c.is_private ? '🔒 ' : ''}${esc(c.name)}</h1></div>
       <p class="muted">${esc(c.description || '')}</p>
       <p style="margin:10px 0">${c.games ? `<a class="tag" href="jogo.html?slug=${encodeURIComponent(c.games.slug)}">${esc(c.games.title)}</a> ` : ''}
         <span class="tag">${c.members_count} membros</span> <span class="tag">${c.is_private ? '🔒 Privada' : '🌐 Pública'}</span>
@@ -42,7 +46,7 @@ async function carregar() {
 
     ${bloqueada ? `<div class="cartao vazio">🔒 Esta comunidade é privada. O mural, as partidas e a call aparecem só para membros.
       ${u ? (meuPedido ? '<br>Seu pedido está aguardando o dono aprovar.' : '<br>Peça para entrar ou use um link de convite.') : ''}</div>` : ''}
-    <div class="abas ${bloqueada ? 'hidden' : ''}"><button class="aba ativo" data-a="posts">Mural</button>${dono && c.is_private ? `<button class="aba" data-a="pedidos">Pedidos${pedidos.length ? ` (${pedidos.length})` : ''}</button>` : ''}<button class="aba" data-a="partidas">Partidas 📅</button><button class="aba" data-a="call">Call 🔊</button><button class="aba" data-a="discord">Discord / PS5</button></div>
+    <div class="abas ${bloqueada ? 'hidden' : ''}"><button class="aba ativo" data-a="posts">Mural</button>${dono && c.is_private ? `<button class="aba" data-a="pedidos">Pedidos${pedidos.length ? ` (${pedidos.length})` : ''}</button>` : ''}<button class="aba" data-a="partidas">Partidas 📅</button>${dono ? '<button class="aba" data-a="membros">Membros e cargos</button>' : ''}<button class="aba" data-a="call">Call 🔊</button><button class="aba" data-a="discord">Discord / PS5</button></div>
 
     <section data-p="pedidos" class="hidden">
       <div class="lista">${(pedidos || []).map((r) => `<div class="cartao controles" style="align-items:center">
@@ -53,10 +57,12 @@ async function carregar() {
     </section>
 
     <section data-p="posts" class="${bloqueada ? 'hidden' : ''}">
-      ${membro ? `<form id="form-post" class="cartao" style="margin-bottom:14px"><textarea id="txt" rows="3" maxlength="2000" required placeholder="Compartilhe algo, marque uma partida..."></textarea>
-        <div style="margin-top:8px"><button class="btn">Publicar (+5 XP)</button></div></form>` : '<p class="muted" style="margin-bottom:12px">Participe da comunidade para publicar.</p>'}
-      <div class="lista" id="posts"></div>
+      ${membro ? compositorHtml('Compartilhe algo com a comunidade: um print, uma dica, marque uma partida...') : '<p class="muted" style="margin-bottom:12px">Participe da comunidade para publicar.</p>'}
+      <div class="lista" id="posts" style="margin-top:14px">${esqueletoLista(3)}</div>
     </section>
+
+    <section data-p="membros" class="hidden"><p class="muted" style="margin-bottom:10px">🛡️ <strong>Moderadores</strong> podem apagar posts e comentários desta comunidade. Só você (dono) promove, rebaixa e remove membros.</p>
+      <div class="lista" id="membros"></div></section>
 
     <section data-p="partidas" class="hidden">
       ${membro ? `<details class="cartao" style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:700">+ Agendar uma partida</summary>
@@ -76,6 +82,10 @@ async function carregar() {
 
     <section data-p="call" class="hidden">
       ${membro ? '<div id="call-box"></div>' : '<p class="muted">Participe da comunidade para entrar na call.</p>'}
+      ${c.discord_guild_id && /^\d{17,20}$/.test(c.discord_guild_id) ? `<details class="cartao" style="margin-top:14px"><summary style="cursor:pointer;font-weight:700">💬 Sala de voz do Discord da comunidade (para quem está no PS5/Xbox)</summary>
+        <p class="muted" style="margin:8px 0">Veja quem está nos canais de voz do Discord e entre com um clique. As duas calls são salas separadas: combinem de usar uma só.</p>
+        <iframe src="https://discord.com/widget?id=${c.discord_guild_id}&theme=dark" width="100%" height="420" style="border:0;border-radius:10px;max-width:420px" loading="lazy" title="Discord"
+          sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe></details>` : ''}
     </section>
 
     <section data-p="discord" class="hidden">
@@ -97,6 +107,12 @@ async function carregar() {
       <h2 style="margin-top:0">Configurar comunidade</h2>
       <label for="c-nome">Nome</label><input id="c-nome" required minlength="3" maxlength="60" value="${esc(c.name)}">
       <label for="c-desc">Descrição</label><textarea id="c-desc" rows="3" maxlength="500">${esc(c.description || '')}</textarea>
+      <div class="form-linha">
+        <div><label for="c-banner">Banner (1500×400, até 3 MB)</label><input id="c-banner" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+          ${c.banner_url ? '<label style="display:flex;gap:8px;font-weight:400"><input type="checkbox" id="c-sem-banner" style="width:auto"> Remover banner</label>' : ''}</div>
+        <div><label for="c-icone">Ícone (quadrado, até 3 MB)</label><input id="c-icone" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+          ${c.icon_url ? '<label style="display:flex;gap:8px;font-weight:400"><input type="checkbox" id="c-sem-icone" style="width:auto"> Remover ícone</label>' : ''}</div>
+      </div>
       <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="c-priv" style="width:auto" ${c.is_private ? 'checked' : ''}>
         🔒 Comunidade privada (só membros veem o mural, as partidas e a call; para entrar, link de convite ou pedido aprovado por você)</label>
       <label for="c-inv">Convite do Discord</label><input id="c-inv" placeholder="https://discord.gg/..." value="${esc(c.discord_invite || '')}">
@@ -181,10 +197,17 @@ async function carregar() {
   $('#editar')?.addEventListener('click', () => $('#dlg').showModal());
   $('#dlg')?.addEventListener('close', async () => {
     if ($('#dlg').returnValue !== 'ok') return;
-    const { error } = await sb.from('communities').update({
+    const dados = {
       name: $('#c-nome').value.trim(), description: $('#c-desc').value.trim() || null, is_private: $('#c-priv').checked,
       discord_invite: $('#c-inv').value.trim() || null, discord_guild_id: $('#c-guild').value.trim() || null,
-    }).eq('id', id);
+    };
+    try {
+      if ($('#c-sem-banner')?.checked) dados.banner_url = null;
+      if ($('#c-sem-icone')?.checked) dados.icon_url = null;
+      if ($('#c-banner').files[0]) dados.banner_url = await enviarImagem(u.id, 'comunidade-banner', $('#c-banner').files[0]);
+      if ($('#c-icone').files[0]) dados.icon_url = await enviarImagem(u.id, 'comunidade-icone', $('#c-icone').files[0]);
+    } catch (e) { return falha(e); }
+    const { error } = await sb.from('communities').update(dados).eq('id', id);
     if (error) return falha(/discord/.test(error.message) ? { message: 'Convite ou ID do Discord em formato inválido.' } : error);
     toast('Comunidade atualizada.'); carregar();
   });
@@ -196,38 +219,45 @@ async function carregar() {
   });
 
   // Mural
-  $('#form-post')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const { error } = await sb.from('posts').insert({ community_id: id, user_id: u.id, body: $('#txt').value.trim() });
-    if (error) return falha(error);
-    $('#txt').value = ''; toast('Publicado! +5 XP');
-  });
-  carregarPosts(u, dono);
+  if ($('#compositor')) ligarCompositor($('#compositor'), { u, comunidade: id, jogo: c.games ? { id: c.game_id, title: c.games.title } : null, aoPublicar: () => carregarPosts(u, moderador) });
+  carregarPosts(u, moderador);
   sb.channel('posts:' + id)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'posts', filter: `community_id=eq.${id}` }, () => carregarPosts(u, dono))
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `community_id=eq.${id}` }, () => carregarPosts(u, moderador))
     .subscribe();
+  if (dono) carregarMembros(c, u);
 
   // Call: nas privadas o nome da sala inclui uma chave que só membros conhecem
   if (membro && $('#call-box')) call = montarCall($('#call-box'), {
-    salaId: c.is_private && segredo ? `${id}-${segredo.room_key}` : String(id), u, p,
+    salaId: c.is_private && segredo ? `${id}-${segredo.room_key}` : String(id), u, p, titulo: c.name,
     descricao: 'Voz, câmera e compartilhamento de tela direto no navegador, com chat. Ideal para até 6 pessoas. Clique num vídeo para destacá-lo.',
   });
 }
 
-async function carregarPosts(u, dono) {
-  const { data: posts } = await sb.from('posts').select('*, profiles(username,avatar_url,equipped_frame)').eq('community_id', id).eq('status', 'published')
-    .order('created_at', { ascending: false }).limit(100);
-  $('#posts').innerHTML = (posts || []).map((x) => `
-    <article class="post"><header>${avatarHtml(x.profiles)}
-      <a class="usuario" href="perfil.html?u=${encodeURIComponent(x.profiles?.username || '')}">${esc(x.profiles?.username)}</a><span class="muted">${data(x.created_at)}</span>
-      ${u && (x.user_id === u.id || dono) ? `<button class="btn sec pequeno" data-del="${x.id}" style="margin-left:auto">Apagar</button>`
-        : u ? `<button class="bt-denunciar" data-den="${x.id}">🚩 Denunciar</button>` : ''}</header>
-      <p class="quebra">${esc(x.body)}</p></article>`).join('') || '<p class="vazio">Nenhum post ainda.</p>';
-  $('#posts').querySelectorAll('[data-den]').forEach((b) => b.onclick = () => denunciar('post', b.dataset.den));
-  $('#posts').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
-    if (!confirm('Apagar este post?')) return;
-    const { error } = await sb.from('posts').delete().eq('id', b.dataset.del);
-    if (error) falha(error); else carregarPosts(u, dono);
+async function carregarPosts(u, moderador) {
+  const { data: posts } = await sb.from('posts').select(COLUNAS_POST).eq('community_id', id).eq('status', 'published')
+    .order('created_at', { ascending: false }).limit(60);
+  const box = $('#posts');
+  box.innerHTML = (posts || []).map((x) => postHtml(x, { u, moderar: moderador, mostrarComunidade: false })).join('') || '<p class="vazio">Nenhum post ainda. Seja o primeiro!</p>';
+  ligarPosts(box, { u });
+}
+
+// Membros e cargos (só o dono)
+async function carregarMembros(c, u) {
+  const { data: ms } = await sb.from('community_members').select('user_id, role, joined_at, profiles(username,avatar_url,equipped_frame)').eq('community_id', id).limit(500);
+  const box = $('#membros');
+  const ordem = (m) => (m.user_id === c.owner_id ? 0 : m.role === 'mod' ? 1 : 2);
+  box.innerHTML = (ms || []).sort((a, b) => ordem(a) - ordem(b)).map((m) => `<div class="cartao controles" style="align-items:center">
+    ${avatarHtml(m.profiles)} <a class="usuario" href="perfil.html?u=${encodeURIComponent(m.profiles?.username || '')}" style="flex:1">${esc(m.profiles?.username)}</a>
+    ${m.user_id === c.owner_id ? '<span class="tag amarela">👑 Dono</span>' : `
+      <span class="tag">${m.role === 'mod' ? '🛡️ Moderador' : 'Membro'}</span>
+      <button class="btn sec pequeno" data-cargo="${m.user_id}:${m.role === 'mod' ? 'member' : 'mod'}">${m.role === 'mod' ? 'Tirar moderador' : 'Tornar moderador'}</button>
+      <button class="btn perigo pequeno" data-cargo="${m.user_id}:remover">Remover</button>`}</div>`).join('') || '<p class="vazio">Sem membros.</p>';
+  box.querySelectorAll('[data-cargo]').forEach((b) => b.onclick = async () => {
+    const [uid, papel] = b.dataset.cargo.split(':');
+    if (papel === 'remover' && !confirm('Remover este membro da comunidade?')) return;
+    const { error } = await sb.rpc('set_community_role', { cid: id, uid, papel });
+    if (error) return falha(error);
+    toast('Feito!'); carregarMembros(c, u);
   });
 }
 

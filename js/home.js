@@ -1,4 +1,5 @@
-import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, perfil, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha } from './app.js';
+import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha, carrossel, esqueletoCards, esqueletoLista, param } from './app.js';
+import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -29,33 +30,78 @@ main.insertAdjacentHTML('beforeend', `
     </form>
     <div class="lista" id="lfg-lista" style="margin-top:10px"></div>
   </section>
-  <section id="sec-rec" class="hidden"><h2>Recomendados para você</h2><div class="grade" id="rec"></div></section>
-  <h2>Destaques</h2><div class="grade" id="destaques"></div>
-  <h2>Em promoção</h2><div class="grade" id="promos"></div>
-  <h2>Últimas notícias</h2><div class="lista" id="noticias"></div>`);
+  <section id="sec-rec" class="hidden"><h2>Recomendados para você</h2><div id="rec"></div></section>
+  <h2>Destaques</h2><div id="destaques">${carrossel(esqueletoCards(5))}</div>
+  <h2>🔥 Em promoção <a href="promocoes.html" style="font-size:.9rem;font-family:Inter">ver todas →</a></h2><div id="promos">${carrossel(esqueletoCards(5))}</div>
+  <h2>📰 Últimas notícias <a href="novidades.html" style="font-size:.9rem;font-family:Inter">ver todas →</a></h2><div id="noticias">${carrossel(esqueletoCards(4))}</div>
+  <h2>🆕 Lançamentos</h2><div id="lancamentos">${carrossel(esqueletoCards(5))}</div>
+  <div class="detalhe" style="margin-top:8px">
+    <section><h2>📣 Feed da comunidade</h2><div id="compor"></div><div class="lista" id="feed" style="margin-top:12px">${esqueletoLista(3)}</div>
+      <button class="btn sec hidden" id="mais-feed" style="margin-top:12px;width:100%">Carregar mais</button></section>
+    <aside><h2>👥 Atividade dos amigos</h2><div class="lista" id="atividade"><p class="muted">Entre e siga pessoas para ver o que elas estão jogando e avaliando.</p></div></aside>
+  </div>`);
 
 if (configurado) {
-  const [dest, promos, news] = await Promise.all([
-    sb.from('games').select(COLUNAS_CARD).eq('featured', true).order('avg_rating', { ascending: false }).limit(8),
-    sb.from('deals').select('*, games(slug,title,cover_url)').gt('discount_pct', 0).order('discount_pct', { ascending: false }).limit(4),
-    sb.from('news').select('id,title,summary,source,source_url,created_at').eq('published', true).order('created_at', { ascending: false }).limit(5),
+  const ano = new Date().getFullYear();
+  const [dest, promos, news, lanc] = await Promise.all([
+    sb.from('games').select(COLUNAS_CARD).eq('featured', true).order('avg_rating', { ascending: false }).limit(12),
+    sb.from('deals').select('*, games(slug,title,cover_url)').gt('discount_pct', 0).order('discount_pct', { ascending: false }).limit(12),
+    sb.from('news').select('id,title,summary,source,created_at').eq('published', true).order('created_at', { ascending: false }).limit(10),
+    sb.from('games').select(COLUNAS_CARD).gte('release_year', ano - 1).order('release_year', { ascending: false }).order('igdb_rating_count', { ascending: false, nullsFirst: false }).limit(12),
   ]);
-  $('#destaques').innerHTML = (dest.data || []).map(cardJogo).join('') || '<p class="vazio">Nenhum destaque ainda.</p>';
-  $('#promos').innerHTML = (promos.data || []).map((d) => `
+  $('#destaques').innerHTML = carrossel((dest.data || []).map(cardJogo).join(''), 'Nenhum destaque ainda.');
+  $('#lancamentos').innerHTML = carrossel((lanc.data || []).map(cardJogo).join(''), 'Nenhum lançamento recente.');
+  $('#promos').innerHTML = carrossel((promos.data || []).filter((d) => d.games).map((d) => `
     <a class="jogo-card" href="jogo.html?slug=${encodeURIComponent(d.games.slug)}">
       <img src="${urlSegura(d.games.cover_url) || 'img/Control.png'}" alt="" loading="lazy">
-      <div class="info"><span class="titulo">${esc(d.games.title)}</span>
-      <span><span class="tag amarela">-${d.discount_pct}%</span> <span class="tag">${esc(d.store)}</span></span></div></a>`).join('')
-    || '<p class="vazio">Sem promoções no momento.</p>';
-  $('#noticias').innerHTML = (news.data || []).map((n) => `
-    <article class="cartao"><span class="muted">${data(n.created_at)}${n.source ? ' · ' + esc(n.source) : ''}</span>
-    <h3><a href="novidades.html#n${n.id}">${esc(n.title)}</a></h3>
-    ${n.summary ? `<p class="muted">${esc(n.summary)}</p>` : ''}</article>`).join('') || '<p class="vazio">Nenhuma notícia ainda.</p>';
+      <div class="info"><span class="titulo" title="${esc(d.games.title)}">${esc(d.games.title)}</span>
+      <span><span class="tag amarela">-${d.discount_pct}%</span> <span class="tag">${esc(d.store)}</span></span></div></a>`).join(''), 'Sem promoções no momento.');
+  $('#noticias').innerHTML = carrossel((news.data || []).map((n) => `
+    <a class="noticia-card" href="novidades.html#n${n.id}"><span class="muted" style="font-size:.8rem">${data(n.created_at)}${n.source ? ' · ' + esc(n.source) : ''}</span>
+    <strong>${esc(n.title)}</strong>${n.summary ? `<span class="muted" style="font-size:.88rem">${esc(n.summary.slice(0, 140))}${n.summary.length > 140 ? '…' : ''}</span>` : ''}</a>`).join(''), 'Nenhuma notícia ainda.');
 
-  if (await usuario()) {
-    const { data: rec } = await sb.rpc('recommend_games', { lim: 4 }).select(COLUNAS_CARD);
-    if (rec?.length) { $('#sec-rec').classList.remove('hidden'); $('#rec').innerHTML = rec.map(cardJogo).join(''); }
+  const u = await usuario();
+  if (u) {
+    const { data: rec } = await sb.rpc('recommend_games', { lim: 12 }).select(COLUNAS_CARD);
+    if (rec?.length) { $('#sec-rec').classList.remove('hidden'); $('#rec').innerHTML = carrossel(rec.map(cardJogo).join('')); }
+    carregarAtividade();
+    $('#compor').innerHTML = compositorHtml();
+    ligarCompositor($('#compositor'), { u, aoPublicar: () => carregarFeed(true) });
   }
+  carregarFeed(true);
+}
+
+// ---------- Feed: posts ordenados por relevância (amigos, quem você segue, suas comunidades e jogos) ----------
+let paginaFeed = 0;
+async function carregarFeed(reiniciar) {
+  const u = await usuario(), box = $('#feed'), POR = 15;
+  if (reiniciar) paginaFeed = 0;
+  const { data: ps, error } = await sb.rpc('home_feed', { lim: POR, offs: paginaFeed * POR }).select(COLUNAS_POST);
+  if (error) { box.innerHTML = '<p class="muted">O feed fica disponível depois que o administrador atualizar o banco (schema.sql).</p>'; return; }
+  let html = (ps || []).map((x) => postHtml(x, { u })).join('');
+  // Link direto para um post (?post=ID): mostra ele primeiro
+  const alvo = Number(param('post'));
+  if (reiniciar && alvo && !(ps || []).some((x) => x.id === alvo)) {
+    const { data: um } = await sb.from('posts').select(COLUNAS_POST).eq('id', alvo).maybeSingle();
+    if (um) html = postHtml(um, { u }) + html;
+  }
+  if (reiniciar) box.innerHTML = html || '<p class="vazio">Nenhum post ainda. Que tal ser o primeiro? 📸</p>';
+  else box.insertAdjacentHTML('beforeend', html);
+  ligarPosts(box, { u });
+  $('#mais-feed').classList.toggle('hidden', (ps || []).length < POR);
+  $('#mais-feed').onclick = () => { paginaFeed++; carregarFeed(false); };
+  if (reiniciar && alvo) box.querySelector(`[data-post="${alvo}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function carregarAtividade() {
+  const { data: at, error } = await sb.rpc('friends_activity', { lim: 12 });
+  if (error) return;
+  const st = { jogando: 'está jogando', zerado: 'zerou' };
+  $('#atividade').innerHTML = (at || []).map((a) => `<a class="atividade" href="jogo.html?slug=${encodeURIComponent(a.game_slug)}" style="color:var(--texto);text-decoration:none">
+    ${avatarHtml(a)}<span style="flex:1;min-width:0;font-size:.9rem"><strong>${esc(a.username)}</strong> ${a.tipo === 'review' ? `avaliou com ${'★'.repeat(a.nota)}` : st[a.status] || 'jogou'}
+      <br><span class="muted">${esc(a.game_title)} · ${data(a.quando)}</span></span>
+    ${urlSegura(a.cover_url) ? `<img class="capa" src="${urlSegura(a.cover_url)}" alt="" loading="lazy">` : ''}</a>`).join('')
+    || '<p class="muted">Nada por aqui ainda. <a href="amigos.html">Adicione amigos</a> ou siga pessoas para ver o que estão jogando.</p>';
 }
 
 // ---------- Procurando grupo agora ----------

@@ -9,11 +9,12 @@ if (configurado) carregar();
 async function carregar() {
   const u = await usuario();
   const p = u ? await perfil() : null;
-  const [{ data: itens }, { data: meus }, { data: ranking }] = await Promise.all([
+  const [{ data: todos }, { data: meus }, { data: ranking }] = await Promise.all([
     sb.from('cosmetics').select('*').order('kind').order('sort'),
     u ? sb.from('user_cosmetics').select('*').eq('user_id', u.id) : Promise.resolve({ data: [] }),
     sb.rpc('monthly_ranking', { lim: 20 }),
   ]);
+  const itens = (todos || []).filter((i) => i.active !== false); // itens excluídos pelo admin somem
   const tenho = new Map((meus || []).filter((m) => !m.expires_at || new Date(m.expires_at) > new Date()).map((m) => [m.cosmetic_id, m]));
   const n = p ? nivel(p.xp) : null;
   const porTipo = (k) => itens.filter((i) => i.kind === k);

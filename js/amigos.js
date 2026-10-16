@@ -109,7 +109,7 @@ async function carregar(u) {
     await call?.sair();
     $('#area-call').classList.remove('hidden');
     $('#titulo-call').textContent = `📞 Call com ${a.username}`;
-    call = montarCall($('#call-box'), { salaId: `dm-${a.room_key}`, u, p, descricao: 'Call privada entre vocês dois, com tela compartilhada e chat.' });
+    call = montarCall($('#call-box'), { salaId: `dm-${a.room_key}`, u, p, titulo: 'Call com ' + a.username, descricao: 'Call privada entre vocês dois, com tela compartilhada e chat.' });
     $('#area-call').scrollIntoView({ behavior: 'smooth' });
     if (avisar) { const { error } = await sb.rpc('friend_call', { outro: a.id }); if (!error) toast(`${a.username} foi avisado(a). Clique em "Entrar na call".`); }
   };

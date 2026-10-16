@@ -81,11 +81,14 @@ export default async (req) => {
     const linhas = jogos.filter((g) => porAppid.has(g.appid)).map((g) => ({
       user_id: uid, game_id: porAppid.get(g.appid),
       hours: Math.round((g.playtime_forever || 0) / 6) / 10, updated_at: new Date().toISOString(),
+      hours_2weeks: g.playtime_2weeks ? Math.round(g.playtime_2weeks / 6) / 10 : null,
+      last_played: g.rtime_last_played ? new Date(g.rtime_last_played * 1000).toISOString() : null,
     }));
     for (let i = 0; i < linhas.length; i += 500)
       await api('user_games?on_conflict=user_id,game_id', { method: 'POST', body: linhas.slice(i, i + 500), prefer: 'resolution=merge-duplicates' });
 
-    // Guarda o link do perfil Steam, se a pessoa ainda não tinha preenchido
+    // Guarda o ID da Steam (usado no "jogando agora") e o link do perfil, se a pessoa ainda não tinha preenchido
+    await api(`profiles?id=eq.${uid}`, { method: 'PATCH', body: { steam_id: sid } }).catch(() => {});
     await api(`profiles?id=eq.${uid}&steam_profile=is.null`, { method: 'PATCH', body: { steam_profile: `https://steamcommunity.com/profiles/${sid}` } }).catch(() => {});
 
     return json(200, { importados: linhas.length, novos_no_catalogo: novos, ignorados: jogos.length - linhas.length });
