@@ -100,6 +100,7 @@ async function carregar() {
           : '<span class="muted">Esta comunidade ainda não tem servidor do Discord vinculado.</span>'}
       </div>
       <div id="widget" style="margin-top:14px"></div>
+      ${dono ? '<div id="ponte-box" style="margin-top:14px"></div>' : ''}
     </section>
 
     <dialog id="dlg"><form method="dialog" id="form-cfg">
@@ -126,7 +127,7 @@ async function carregar() {
   main.querySelectorAll('.aba').forEach((b) => b.onclick = () => {
     main.querySelectorAll('.aba').forEach((x) => x.classList.toggle('ativo', x === b));
     main.querySelectorAll('[data-p]').forEach((s) => s.classList.toggle('hidden', s.dataset.p !== b.dataset.a));
-    if (b.dataset.a === 'discord') widgetDiscord(c.discord_guild_id);
+    if (b.dataset.a === 'discord') { widgetDiscord(c.discord_guild_id); if (dono) painelPonte(c); }
     history.replaceState(null, '', '#' + b.dataset.a);
   });
   const abaInicial = main.querySelector(`.aba[data-a="${location.hash.slice(1)}"]`);
@@ -225,9 +226,9 @@ async function carregar() {
     .subscribe();
   if (dono) carregarMembros(c, u);
 
-  // Call: nas privadas o nome da sala inclui uma chave que só membros conhecem
-  if (membro && $('#call-box')) call = montarCall($('#call-box'), {
-    salaId: c.is_private && segredo ? `${id}-${segredo.room_key}` : String(id), u, p, titulo: c.name,
+  if (membro && segredo && $('#call-box')) call = montarCall($('#call-box'), {
+    // A sala tem uma chave que só membros conhecem (em todas as comunidades): ninguém de fora entra na call só sabendo o número
+    salaId: `${id}-${segredo?.room_key || 'sem-chave'}`, u, p, titulo: c.name,
     descricao: 'Voz, câmera e compartilhamento de tela direto no navegador, com chat. Ideal para até 6 pessoas. Clique num vídeo para destacá-lo.',
   });
 }
@@ -257,6 +258,57 @@ async function carregarMembros(c, u) {
     const { error } = await sb.rpc('set_community_role', { cid: id, uid, papel });
     if (error) return falha(error);
     toast('Feito!'); carregarMembros(c, u);
+  });
+}
+
+// Ponte de voz oficial (só o dono vê): adiciona o robô, escolhe o canal e confirma com /vincular no Discord
+async function painelPonte(c) {
+  const box = $('#ponte-box');
+  const [{ data: cfg }, { data: ponte, error }] = await Promise.all([
+    sb.rpc('public_settings'), sb.from('discord_bridges').select('*').eq('community_id', id).maybeSingle()]);
+  if (error) { box.innerHTML = ''; return; }                       // banco ainda sem a tabela
+  const app = /^\d{17,20}$/.test(cfg?.robo_discord || '') ? cfg.robo_discord : null;
+  const servidor = /^\d{17,20}$/.test(c.discord_guild_id || '') ? c.discord_guild_id : null;
+  // Permissões: ver canais, conectar, falar e usar detecção de voz
+  const convite = app && `https://discord.com/oauth2/authorize?client_id=${app}&scope=bot%20applications.commands&permissions=36701184${servidor ? '&guild_id=' + servidor : ''}`;
+  box.innerHTML = `<div class="cartao">
+    <h3>🔗 Ponte de voz com o Discord <span class="tag">só você vê</span></h3>
+    <p class="muted">Junta um canal de voz do seu servidor do Discord com a call desta comunidade: quem está no console fala com quem está no site.</p>
+    ${!app ? '<p class="aviso" style="margin-top:10px">O robô oficial ainda não foi configurado pela equipe do site.</p>' : !servidor
+      ? '<p class="aviso" style="margin-top:10px">Primeiro preencha o <strong>ID do servidor do Discord</strong> em "Configurar" (no topo da comunidade).</p>' : `
+      <ol style="margin:10px 0 0 18px;line-height:1.9">
+        <li><a class="btn sec pequeno" href="${convite}" target="_blank" rel="noopener">➕ Adicionar o robô ao meu servidor</a> <span class="muted" style="font-size:.85rem">(precisa ser administrador do servidor)</span></li>
+        <li>No Discord: Configurações → Avançado → ligue o <strong>Modo desenvolvedor</strong>. Clique com o botão direito no canal de voz → <strong>Copiar ID do canal</strong>.
+          <form id="form-ponte" class="controles" style="margin-top:6px"><input id="ponte-canal" required pattern="\\d{17,20}" placeholder="ID do canal de voz" value="${esc(ponte?.channel_id || '')}" style="max-width:260px">
+            <button class="btn pequeno">Salvar canal</button></form></li>
+        ${ponte ? `<li>${ponte.verified ? `✅ <strong>Confirmado</strong> no Discord${ponte.verified_by ? ' por ' + esc(ponte.verified_by) : ''}.`
+          : `No seu servidor do Discord, digite <code style="font-size:1.05rem">/vincular ${esc(ponte.verify_code)}</code> (precisa da permissão "Gerenciar servidor").
+             <button class="btn sec pequeno" id="ponte-atualizar">Já digitei</button>`}</li>` : ''}
+      </ol>
+      ${ponte ? `<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin-top:10px"><input type="checkbox" id="ponte-ativa" style="width:auto" ${ponte.active ? 'checked' : ''}> Ponte ligada
+        <span class="muted" style="font-size:.85rem">(ela entra sozinha quando há gente no site e no Discord)</span></label>
+        <button class="btn perigo pequeno" id="ponte-remover" style="margin-top:8px">Remover ponte</button>` : ''}
+      <p class="muted" style="font-size:.82rem;margin-top:10px">A ponte leva só a voz (o Discord não permite robôs com vídeo). Ela depende do computador da equipe do site estar ligado.
+        Avise a galera do servidor que o canal está ligado ao site.</p>`}
+  </div>`;
+  $('#form-ponte')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const canal = $('#ponte-canal').value.trim();
+    const { error: er } = ponte
+      ? await sb.from('discord_bridges').update({ guild_id: servidor, channel_id: canal }).eq('community_id', id)
+      : await sb.from('discord_bridges').insert({ community_id: id, guild_id: servidor, channel_id: canal });
+    if (er) return falha(er);
+    toast('Canal salvo! Agora confirme no Discord com /vincular.'); painelPonte(c);
+  });
+  $('#ponte-atualizar')?.addEventListener('click', () => painelPonte(c));
+  $('#ponte-ativa')?.addEventListener('change', async (e) => {
+    const { error: er } = await sb.from('discord_bridges').update({ active: e.target.checked }).eq('community_id', id);
+    er ? falha(er) : toast(e.target.checked ? 'Ponte ligada.' : 'Ponte desligada.');
+  });
+  $('#ponte-remover')?.addEventListener('click', async () => {
+    if (!confirm('Remover a ponte desta comunidade?')) return;
+    const { error: er } = await sb.from('discord_bridges').delete().eq('community_id', id);
+    er ? falha(er) : painelPonte(c);
   });
 }
 

@@ -2393,3 +2393,65 @@ begin
 end $$;
 revoke execute on function public.award_challenge(bigint,uuid[]) from public, anon;
 grant execute on function public.award_challenge(bigint,uuid[]) to authenticated;
+
+-- =====================================================================
+-- PONTE DE VOZ OFICIAL (robô do Control Critic para várias comunidades)
+-- O dono da comunidade escolhe o canal de voz; um administrador do servidor do Discord confirma
+-- com /vincular <código>. Só então o robô (que roda com a chave secreta) liga a ponte.
+-- =====================================================================
+create table if not exists public.discord_bridges (
+  community_id  bigint primary key references public.communities(id) on delete cascade,
+  guild_id      text not null check (guild_id ~ '^\d{17,20}$'),
+  channel_id    text not null check (channel_id ~ '^\d{17,20}$'),
+  verify_code   text not null default lpad((floor(random() * 1000000))::int::text, 6, '0'),
+  verified      boolean not null default false,
+  verified_by   text,                    -- usuário do Discord que confirmou
+  active        boolean not null default true,
+  created_by    uuid references public.profiles(id) on delete set null,
+  updated_at    timestamptz not null default now()
+);
+alter table public.discord_bridges enable row level security;
+
+create or replace function public.is_comm_owner(cid bigint) returns boolean
+language sql stable security definer set search_path = public as $$
+  select is_staff() or exists (select 1 from communities where id = cid and owner_id = auth.uid());
+$$;
+
+drop policy if exists db_owner_read on public.discord_bridges;
+create policy db_owner_read on public.discord_bridges for select using (is_comm_owner(community_id));
+drop policy if exists db_owner_ins on public.discord_bridges;
+create policy db_owner_ins on public.discord_bridges for insert with check (is_comm_owner(community_id) and not verified);
+drop policy if exists db_owner_upd on public.discord_bridges;
+create policy db_owner_upd on public.discord_bridges for update using (is_comm_owner(community_id)) with check (is_comm_owner(community_id));
+drop policy if exists db_owner_del on public.discord_bridges;
+create policy db_owner_del on public.discord_bridges for delete using (is_comm_owner(community_id));
+
+-- Trocar servidor ou canal invalida a confirmação e gera um código novo; o dono não pode se "auto-verificar"
+create or replace function public.discord_bridges_bu() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if auth.uid() is not null then
+    if tg_op = 'INSERT' then
+      new.verified := false; new.verified_by := null; new.created_by := auth.uid();
+    else
+      if new.guild_id is distinct from old.guild_id or new.channel_id is distinct from old.channel_id then
+        new.verified := false; new.verified_by := null;
+        new.verify_code := lpad((floor(random() * 1000000))::int::text, 6, '0');
+      else
+        new.verified := old.verified; new.verified_by := old.verified_by; new.verify_code := old.verify_code;
+      end if;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists discord_bridges_bu on public.discord_bridges;
+create trigger discord_bridges_bu before insert or update on public.discord_bridges for each row execute function public.discord_bridges_bu();
+
+-- Configurações públicas: agora inclui o ID do aplicativo do robô (para o botão "Adicionar ao Discord")
+create or replace function public.public_settings() returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object('aviso', (select value from settings where key = 'aviso_site'),
+                           'robo_discord', (select value->>'client_id' from settings where key = 'robo_discord'));
+$$;
+grant execute on function public.public_settings() to anon, authenticated;

@@ -3,6 +3,25 @@
 Quando o computador está ligado, ele retransmite o áudio/vídeo de quem não consegue conexão direta na call.
 Com ele desligado, a call continua funcionando para quem consegue se conectar direto (e usa a Cloudflare, se estiver configurada).
 
+## O que passa pelo TURN (e quanto de internet gasta)
+
+O TURN retransmite **tudo** da call de quem precisa dele: **voz, câmera e tela compartilhada**.
+
+Ele só entra quando duas pessoas não conseguem se conectar direto, por exemplo no 4G ou em redes com CGNAT. Na maioria das calls a conexão é direta e o seu PC nem é usado.
+
+Quando é usado, cada transmissão retransmitida passa pela sua internet: **entra** do lado de quem envia e **sai** para quem assiste. Por pessoa que recebe pelo TURN:
+
+| O que é transmitido | Gasto aproximado |
+|---|---|
+| Voz | 0,05 Mbps |
+| Câmera 720p | 1,2 Mbps |
+| Tela 720p | 2,5 Mbps |
+| Tela 1080p | 4 Mbps |
+
+Exemplo: alguém compartilha a tela em 1080p para 3 pessoas, todas pelo TURN. Isso gasta uns **12 Mbps de upload** da sua internet (e o mesmo de download).
+
+Com 20 a 50 Mbps de upload, dá conta tranquilo de uma ou duas calls assim. Se ficar pesado, peça para quem transmite usar 720p.
+
 ## 0. Verifique se é possível (CGNAT)
 1. Abra o painel do seu roteador (geralmente http://192.168.0.1 ou http://192.168.1.1) e veja o **IP WAN**.
 2. Compare com o IP de https://ifconfig.me
