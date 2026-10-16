@@ -62,7 +62,7 @@ if (configurado) {
 if (configurado) carregarLfg();
 async function carregarLfg() {
   const u = await usuario();
-  const { data: ps } = await sb.from('lfg_posts').select('*, profiles(username,avatar_url,equipped_frame,psn_id,xbox_gamertag,discord_user), games(slug,title,cover_url), lfg_interest(user_id)')
+  const { data: ps } = await sb.from('lfg_posts').select('*, profiles!lfg_posts_user_id_fkey(username,avatar_url,equipped_frame,psn_id,xbox_gamertag,discord_user), games(slug,title,cover_url), lfg_interest(user_id)')
     .gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(20);
   $('#lfg-abrir').classList.toggle('hidden', !u);
   const resta = (d) => { const m = Math.max(0, Math.round((new Date(d) - Date.now()) / 60000)); return m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${m} min`; };

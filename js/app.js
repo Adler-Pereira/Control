@@ -327,7 +327,7 @@ export function cssDoItem(c) {
   if (c.kind === 'frame') {
     const anel = img ? `url("${img}") center/100% 100% no-repeat` : cores.length > 1 ? `conic-gradient(${[...cores, cores[0]].join(',')})` : cores[0] || '#ffd33c';
     return `.m-${c.id}{--anel:${anel};${st.animado && !img ? `--anim:girar ${vel}s linear infinite;` : ''}}`
-      + (img ? `.m-${c.id}.com{padding:7px}` : '') + (st.brilho ? `.m-${c.id}.com{box-shadow:0 0 14px 2px ${cores[0] || '#ffd33c'}88}` : '')
+      + (img ? `.m-${c.id}.com::before{inset:-40%;border-radius:0;z-index:2;pointer-events:none}.m-${c.id}.com{padding:0}.m-${c.id}.com>img{border:0!important}` : '') + (st.brilho ? `.m-${c.id}.com{box-shadow:0 0 14px 2px ${cores[0] || '#ffd33c'}88}` : '')
       + (emoji ? `.m-${c.id}::after{${emoji}}` : '');
   }
   if (c.kind === 'banner') {
