@@ -1,0 +1,21 @@
+<!-- Modelo de e-mail do Control Critic: cole em Supabase → Authentication → Emails → Change email address (campo "Message body") -->
+<div style="background:#0b0b0d;padding:32px 12px;font-family:Arial,Helvetica,sans-serif">
+  <table role="presentation" width="100%" style="max-width:520px;margin:0 auto;background:#16161b;border:1px solid #2a2a33;border-radius:14px;border-top:4px solid #ffd33c">
+    <tr><td style="padding:28px 28px 8px;text-align:center">
+      <img src="https://control-critic.netlify.app/img/ControlHeader.png" alt="Control Critic" width="200" style="max-width:200px;height:auto">
+    </td></tr>
+    <tr><td style="padding:8px 28px 4px;color:#f2f2f5">
+      <h1 style="font-size:22px;margin:12px 0">Confirme seu novo e-mail</h1>
+      <p style="font-size:15px;line-height:1.6;color:#c9c9d1;margin:0 0 20px">Você pediu para trocar o e-mail da sua conta do Control Critic para este endereço. Confirme para concluir.</p>
+    </td></tr>
+    <tr><td style="padding:0 28px 24px;text-align:center">
+      <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#ffd33c;color:#0b0b0d;font-weight:bold;font-size:16px;text-decoration:none;padding:14px 28px;border-radius:10px">Confirmar novo e-mail</a>
+    </td></tr>
+    <tr><td style="padding:0 28px 28px;color:#8b8b96;font-size:12px;line-height:1.6">
+      Se o botão não funcionar, copie e cole este link no navegador:<br>
+      <a href="{{ .ConfirmationURL }}" style="color:#ffd33c;word-break:break-all">{{ .ConfirmationURL }}</a><br><br>
+      Não pediu essa troca? Ignore este e-mail e, por segurança, troque sua senha.
+    </td></tr>
+  </table>
+  <p style="text-align:center;color:#5c5c66;font-size:11px;margin-top:16px">Control Critic · rede social de jogos</p>
+</div>
