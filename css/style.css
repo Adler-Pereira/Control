@@ -39,25 +39,28 @@ h3 { font-size: 1.25rem; margin-bottom: 8px; }
 
 /* ---------- Cabeçalho ---------- */
 .topo { background: var(--preto); border-bottom: 3px solid var(--amarelo); position: sticky; top: 0; z-index: 50; }
-.topo-inner { max-width: 1200px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.topo-inner { max-width: 1400px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .logo { display: flex; align-items: center; gap: 10px; }
 .logo img.marca { height: 44px; width: auto; }
 .logo img.mascote { height: 44px; width: auto; }
-.nav { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
-.nav a { color: var(--texto); padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: .95rem; }
+.nav { display: flex; gap: 2px; flex-wrap: nowrap; flex: 1; min-width: 0; align-items: center; }
+.nav a { white-space: nowrap; color: var(--texto); padding: 8px 11px; border-radius: 8px; font-weight: 600; font-size: .95rem; }
 .nav a:hover, .nav a.ativo { background: var(--amarelo); color: var(--preto); text-decoration: none; }
 .busca { display: flex; }
-.busca input { width: 180px; border-radius: 999px; }
+.busca input { width: 170px; border-radius: 999px; }
+.conta { flex-shrink: 0; }
+/* Telas médias: menos espaço, para o menu caber numa linha só mesmo logado */
+@media (max-width: 1280px) { .logo img.mascote { display: none; } .busca input { width: 140px; } .nav a, .nav-mais summary { padding: 8px 9px; font-size: .9rem; } }
 .conta { display: flex; align-items: center; gap: 8px; }
 .avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 2px solid var(--amarelo); background: var(--cartao); }
 .avatar.grande { width: 96px; height: 96px; }
 .menu-toggle { display: none; background: none; border: 0; color: var(--texto); font-size: 1.6rem; cursor: pointer; }
 
-@media (max-width: 860px) {
+@media (max-width: 1080px) {
   .menu-toggle { display: block; margin-left: auto; }
   .nav, .busca { display: none; width: 100%; }
   .topo.aberto .nav, .topo.aberto .busca { display: flex; }
-  .nav { flex-direction: column; }
+  .nav { flex-direction: column; align-items: stretch; }
   .busca input { width: 100%; }
 }
 
@@ -440,11 +443,11 @@ dialog.visor::backdrop { background: rgba(0,0,0,.85); }
 
 /* ---------- Menu "Mais" ---------- */
 .nav-mais { position: relative; }
-.nav-mais summary { list-style: none; cursor: pointer; color: var(--texto); padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: .95rem; }
+.nav-mais summary { white-space: nowrap; list-style: none; cursor: pointer; color: var(--texto); padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: .95rem; }
 .nav-mais summary::-webkit-details-marker { display: none; }
 .nav-mais summary:hover, .nav-mais summary.ativo, .nav-mais[open] summary { background: var(--amarelo); color: var(--preto); }
 .nav-sub { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 190px; background: var(--cartao); border: 1px solid var(--borda); border-radius: 10px; padding: 6px; box-shadow: var(--sombra); display: flex; flex-direction: column; }
 .nav-sub a { white-space: nowrap; }
 :root[data-tema="claro"] .nav-mais summary:not(.ativo) { color: #f2f2f5; }
 :root[data-tema="claro"] .nav-mais[open] summary { color: var(--preto); }
-@media (max-width: 860px) { .nav-sub { position: static; box-shadow: none; border: 0; padding: 0 0 0 12px; background: transparent; } }
+@media (max-width: 1080px) { .nav-sub { position: static; box-shadow: none; border: 0; padding: 0 0 0 12px; background: transparent; } }
