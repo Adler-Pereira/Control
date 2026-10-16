@@ -2210,3 +2210,186 @@ grant execute on function public.friends_activity(int) to authenticated;
 
 -- Capturas de tela do IGDB (só o código da imagem) para o carrossel da página do jogo
 alter table public.games add column if not exists screenshots text[] not null default '{}';
+
+-- =====================================================================
+-- LANÇAMENTO: relatos de problemas, registro de erros, uso do banco,
+-- menções (@usuario), resumo semanal e limpeza automática
+-- =====================================================================
+
+-- ---------- Relatos de problemas (botão no rodapé) e erros automáticos do navegador ----------
+create table if not exists public.app_feedback (
+  id          bigserial primary key,
+  user_id     uuid references public.profiles(id) on delete set null,
+  kind        text not null check (kind in ('bug','sugestao','erro')),
+  message     text not null check (char_length(message) between 1 and 2000),
+  page        text check (char_length(page) <= 300),
+  agent       text check (char_length(agent) <= 300),
+  details     jsonb,
+  status      text not null default 'aberto' check (status in ('aberto','resolvido')),
+  created_at  timestamptz not null default now()
+);
+create index if not exists app_feedback_idx on public.app_feedback(status, created_at desc);
+alter table public.app_feedback enable row level security;
+drop policy if exists fb_ins on public.app_feedback;
+-- Qualquer visitante pode relatar (erros acontecem antes do login também); o id gravado é sempre o de quem está logado
+create policy fb_ins on public.app_feedback for insert with check (user_id is not distinct from auth.uid() and status = 'aberto');
+drop policy if exists fb_staff on public.app_feedback;
+create policy fb_staff on public.app_feedback for all using (is_staff()) with check (is_staff());
+
+-- Limite contra abuso: no máximo 20 relatos por pessoa (ou visitante) por hora
+create or replace function public.feedback_limite() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.user_id is not null and (select count(*) from app_feedback where user_id = new.user_id and created_at > now() - interval '1 hour') >= 20 then
+    raise exception 'Muitos relatos em pouco tempo. Tente mais tarde.';
+  end if;
+  if new.user_id is null and (select count(*) from app_feedback where user_id is null and created_at > now() - interval '1 minute') >= 30 then
+    return null; -- visitantes: descarta em silêncio se houver uma enxurrada
+  end if;
+  -- Erros iguais repetidos (mesma mensagem na mesma hora) não duplicam
+  if new.kind = 'erro' and exists (select 1 from app_feedback where kind = 'erro' and message = new.message and created_at > now() - interval '1 hour') then
+    return null;
+  end if;
+  return new;
+end $$;
+drop trigger if exists feedback_bi on public.app_feedback;
+create trigger feedback_bi before insert on public.app_feedback for each row execute function public.feedback_limite();
+
+-- ---------- Uso do banco e do armazenamento (painel do admin) ----------
+create or replace function public.admin_usage() returns json
+language plpgsql stable security definer set search_path = public as $$
+declare r json;
+begin
+  if not is_admin() then raise exception 'Somente administradores.'; end if;
+  select json_build_object(
+    'banco_bytes', pg_database_size(current_database()),
+    'tabelas', (select json_agg(t) from (
+        select c.relname as nome, pg_total_relation_size(c.oid) as bytes, c.reltuples::bigint as linhas
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind = 'r' order by 2 desc limit 12) t),
+    'arquivos', (select count(*) from storage.objects where bucket_id = 'media'),
+    'arquivos_bytes', (select coalesce(sum((metadata->>'size')::bigint), 0) from storage.objects where bucket_id = 'media')
+  ) into r;
+  return r;
+end $$;
+revoke execute on function public.admin_usage() from public, anon;
+grant execute on function public.admin_usage() to authenticated;
+
+-- ---------- Menções: @usuario em posts e comentários avisa a pessoa ----------
+create or replace function public.notify_mentions() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare autor text; alvo record; link text; pid bigint;
+begin
+  if new.body !~ '@[A-Za-z0-9_]{3,30}' then return null; end if;
+  select username into autor from profiles where id = new.user_id;
+  if tg_table_name = 'posts' then pid := new.id; else pid := new.post_id; end if;
+  link := 'index.html?post=' || pid;
+  for alvo in
+    select distinct p.id from profiles p
+    where lower(p.username) in (select lower(m[1]) from regexp_matches(new.body, '@([A-Za-z0-9_]{3,30})', 'g') m)
+      and p.id <> new.user_id
+    limit 10
+  loop
+    insert into notifications (user_id, type, title, body, link)
+    values (alvo.id, 'mencao', autor || ' mencionou você', left(new.body, 140), link);
+  end loop;
+  return null;
+end $$;
+drop trigger if exists posts_mentions on public.posts;
+create trigger posts_mentions after insert on public.posts for each row execute function public.notify_mentions();
+drop trigger if exists post_comments_mentions on public.post_comments;
+create trigger post_comments_mentions after insert on public.post_comments for each row execute function public.notify_mentions();
+
+-- ---------- Resumo semanal (domingo 10h de Brasília): só para quem tem novidade ----------
+create or replace function public.weekly_digest() returns void
+language plpgsql security definer set search_path = public as $$
+declare u record; promos int; zeraram int; curtidas int; partes text[];
+begin
+  for u in select id from profiles where coalesce(last_checkin, created_at::date) > current_date - 30 and not banned loop
+    select count(*) into promos from user_games ug join deals d on d.game_id = ug.game_id
+      where ug.user_id = u.id and ug.wishlist and d.discount_pct > 0;
+    select count(*) into zeraram from user_games ug
+      where ug.status = 'zerado' and ug.updated_at > now() - interval '7 days'
+        and ug.user_id in (select case when f.user_a = u.id then f.user_b else f.user_a end from friendships f where f.status = 'aceita' and u.id in (f.user_a, f.user_b));
+    select count(*) into curtidas from post_likes l join posts p on p.id = l.post_id
+      where p.user_id = u.id and l.created_at > now() - interval '7 days';
+    partes := array_remove(array[
+      case when promos > 0 then promos || ' jogo(s) da sua lista de desejos em promoção' end,
+      case when zeraram > 0 then 'seus amigos zeraram ' || zeraram || ' jogo(s)' end,
+      case when curtidas > 0 then 'seus posts receberam ' || curtidas || ' curtida(s)' end], null);
+    if cardinality(partes) > 0 then
+      insert into notifications (user_id, type, title, body, link)
+      values (u.id, 'resumo', '📬 Seu resumo da semana', array_to_string(partes, ' · '), case when promos > 0 then 'perfil.html' else 'index.html' end);
+    end if;
+  end loop;
+end $$;
+revoke execute on function public.weekly_digest() from public, anon, authenticated;
+
+-- Limpeza: erros automáticos com mais de 60 dias e notificações lidas com mais de 90 dias
+create or replace function public.cleanup_old() returns void language sql security definer set search_path = public as $$
+  delete from app_feedback where kind = 'erro' and created_at < now() - interval '60 days';
+  delete from notifications where read and created_at < now() - interval '90 days';
+$$;
+revoke execute on function public.cleanup_old() from public, anon, authenticated;
+
+do $$ begin
+  perform cron.unschedule('resumo-semanal') where exists (select 1 from cron.job where jobname = 'resumo-semanal');
+  perform cron.schedule('resumo-semanal', '0 13 * * 0', 'select public.weekly_digest()');
+  perform cron.unschedule('limpeza') where exists (select 1 from cron.job where jobname = 'limpeza');
+  perform cron.schedule('limpeza', '30 4 * * *', 'select public.cleanup_old()');
+exception when others then null; end $$;
+
+-- ---------- Desafios (ex.: "Melhor print da semana"): posts participam, o admin premia ----------
+create table if not exists public.challenges (
+  id               bigserial primary key,
+  title            text not null check (char_length(title) between 3 and 80),
+  description      text check (char_length(description) <= 1000),
+  starts_at        timestamptz not null default now(),
+  ends_at          timestamptz not null,
+  reward_cosmetic  text references public.cosmetics(id) on delete set null,
+  reward_xp        integer not null default 100 check (reward_xp between 0 and 5000),
+  winners          uuid[] not null default '{}',
+  created_by       uuid references public.profiles(id) on delete set null,
+  created_at       timestamptz not null default now(),
+  check (ends_at > starts_at)
+);
+alter table public.challenges enable row level security;
+drop policy if exists ch_read on public.challenges;
+create policy ch_read on public.challenges for select using (true);
+drop policy if exists ch_admin on public.challenges;
+create policy ch_admin on public.challenges for all using (is_admin()) with check (is_admin());
+
+alter table public.posts add column if not exists challenge_id bigint references public.challenges(id) on delete set null;
+create index if not exists posts_challenge_idx on public.posts(challenge_id, likes_count desc) where challenge_id is not null;
+
+-- Só dá para participar enquanto o desafio está aberto
+create or replace function public.posts_challenge_check() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.challenge_id is not null and not exists (select 1 from challenges where id = new.challenge_id and now() between starts_at and ends_at) then
+    raise exception 'Este desafio não está aberto.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists posts_challenge_bi on public.posts;
+create trigger posts_challenge_bi before insert on public.posts for each row execute function public.posts_challenge_check();
+
+-- Premia os vencedores (item + XP + aviso). Pode ser chamado de novo para acrescentar vencedores.
+create or replace function public.award_challenge(chid bigint, vencedores uuid[]) returns void
+language plpgsql security definer set search_path = public as $$
+declare ch challenges; v uuid;
+begin
+  if not is_admin() then raise exception 'Somente administradores.'; end if;
+  select * into ch from challenges where id = chid;
+  if ch.id is null then raise exception 'Desafio não encontrado.'; end if;
+  foreach v in array vencedores loop
+    continue when v = any(ch.winners);
+    if ch.reward_cosmetic is not null then perform grant_cosmetic(v, ch.reward_cosmetic); end if;
+    if ch.reward_xp > 0 then perform add_xp(v, ch.reward_xp, 'desafio'); end if;
+    insert into notifications (user_id, type, title, body, link)
+    values (v, 'desafio', '🏆 Você venceu o desafio "' || ch.title || '"!', 'Seu prêmio já está na sua conta.', 'conquistas.html');
+  end loop;
+  update challenges set winners = (select array_agg(distinct x) from unnest(winners || vencedores) x) where id = chid;
+end $$;
+revoke execute on function public.award_challenge(bigint,uuid[]) from public, anon;
+grant execute on function public.award_challenge(bigint,uuid[]) to authenticated;

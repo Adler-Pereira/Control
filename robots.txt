@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+Disallow: /amigos.html
+Disallow: /notificacoes.html
+Disallow: /chamada.html
+Sitemap: https://control-critic.netlify.app/sitemap.xml

@@ -1,6 +1,7 @@
 import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha, carrossel, esqueletoCards, esqueletoLista, param } from './app.js';
-import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
+import { COLUNAS_POST_DESAFIO as COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
+let compositor = null, paginaFeed = 0; // declarados antes do uso (o código abaixo roda já no carregamento)
 await montarLayout();
 const main = $('#conteudo');
 main.insertAdjacentHTML('beforeend', `
@@ -36,7 +37,7 @@ main.insertAdjacentHTML('beforeend', `
   <h2>📰 Últimas notícias <a href="novidades.html" style="font-size:.9rem;font-family:Inter">ver todas →</a></h2><div id="noticias">${carrossel(esqueletoCards(4))}</div>
   <h2>🆕 Lançamentos</h2><div id="lancamentos">${carrossel(esqueletoCards(5))}</div>
   <div class="detalhe" style="margin-top:8px">
-    <section><h2>📣 Feed da comunidade</h2><div id="compor"></div><div class="lista" id="feed" style="margin-top:12px">${esqueletoLista(3)}</div>
+    <section><div id="desafio"></div><h2>📣 Feed da comunidade</h2><div id="compor"></div><div class="lista" id="feed" style="margin-top:12px">${esqueletoLista(3)}</div>
       <button class="btn sec hidden" id="mais-feed" style="margin-top:12px;width:100%">Carregar mais</button></section>
     <aside><h2>👥 Atividade dos amigos</h2><div class="lista" id="atividade"><p class="muted">Entre e siga pessoas para ver o que elas estão jogando e avaliando.</p></div></aside>
   </div>`);
@@ -66,13 +67,37 @@ if (configurado) {
     if (rec?.length) { $('#sec-rec').classList.remove('hidden'); $('#rec').innerHTML = carrossel(rec.map(cardJogo).join('')); }
     carregarAtividade();
     $('#compor').innerHTML = compositorHtml();
-    ligarCompositor($('#compositor'), { u, aoPublicar: () => carregarFeed(true) });
+    compositor = ligarCompositor($('#compositor'), { u, aoPublicar: () => { carregarFeed(true); carregarDesafio(); } });
   }
   carregarFeed(true);
+  carregarDesafio();
+}
+
+// ---------- Desafio ativo (ou que acabou de terminar, com os vencedores) ----------
+async function carregarDesafio() {
+  const agora = new Date().toISOString();
+  const { data: ch, error } = await sb.from('challenges').select('*, cosmetics(name)').lte('starts_at', agora).gte('ends_at', new Date(Date.now() - 7 * 864e5).toISOString())
+    .order('ends_at', { ascending: false }).limit(1).maybeSingle();
+  if (error || !ch) return;
+  const aberto = new Date(ch.ends_at) > new Date();
+  const { data: ps } = await sb.from('posts').select('id,image_url,body,likes_count,user_id,profiles!posts_user_id_fkey(username)').eq('challenge_id', ch.id).eq('status', 'published')
+    .order('likes_count', { ascending: false }).limit(10);
+  const { data: venc } = ch.winners?.length ? await sb.from('profiles').select('username').in('id', ch.winners) : { data: [] };
+  const dias = Math.ceil((new Date(ch.ends_at) - Date.now()) / 864e5);
+  $('#desafio').innerHTML = `<div class="cartao" style="margin-bottom:16px;border-color:var(--amarelo)">
+    <h2 style="margin:0">🏆 ${esc(ch.title)}</h2>
+    <p class="muted" style="margin:6px 0">${aberto ? `Termina em ${dias} dia(s)` : 'Encerrado'} · Prêmio: ${ch.cosmetics ? `<strong>${esc(ch.cosmetics.name)}</strong> + ` : ''}${ch.reward_xp} XP</p>
+    ${ch.description ? `<p class="quebra">${esc(ch.description)}</p>` : ''}
+    ${venc?.length ? `<p style="margin-top:8px">🥇 Vencedor(es): ${venc.map((v) => `<a href="perfil.html?u=${encodeURIComponent(v.username)}">${esc(v.username)}</a>`).join(', ')}</p>` : ''}
+    ${(ps || []).length ? `<p style="margin:10px 0 6px"><strong>Mais curtidos até agora:</strong></p>${carrossel(ps.map((x) => `<a class="noticia-card" href="index.html?post=${x.id}" style="min-height:0">
+      ${x.image_url ? `<img src="${urlSegura(x.image_url)}" alt="" loading="lazy" style="aspect-ratio:5/3;object-fit:cover;border-radius:8px">` : `<span class="quebra">${esc(x.body.slice(0, 120))}</span>`}
+      <span class="muted" style="font-size:.85rem">${esc(x.profiles?.username)} · ❤️ ${x.likes_count}</span></a>`).join(''))}` : ''}
+    ${aberto ? (compositor ? '<button class="btn" id="participar-desafio" style="margin-top:8px">Participar</button>' : '<p class="muted"><a href="entrar.html">Entre</a> para participar.</p>') : ''}
+  </div>`;
+  $('#participar-desafio')?.addEventListener('click', () => { compositor.definirDesafio(ch); $('#compositor').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#cp-txt').focus(); });
 }
 
 // ---------- Feed: posts ordenados por relevância (amigos, quem você segue, suas comunidades e jogos) ----------
-let paginaFeed = 0;
 async function carregarFeed(reiniciar) {
   const u = await usuario(), box = $('#feed'), POR = 15;
   if (reiniciar) paginaFeed = 0;

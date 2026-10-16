@@ -162,6 +162,34 @@ Quando este repositório trouxer mudanças no banco, rode de novo, no SQL Editor
 `supabase/seed.sql`. Os dois podem ser executados várias vezes sem apagar nada: só adicionam o que falta.
 Depois rode o robô (Actions → Run workflow) para buscar capas, descrições, preços e notícias dos jogos novos.
 
+## Checklist de lançamento
+
+Antes de abrir para o público, confira:
+
+- [ ] `supabase/schema.sql` rodado por inteiro depois da última atualização (sem erros).
+- [ ] Extensões ativas no Supabase (Database → Extensions): **pg_cron** e **pg_net**.
+- [ ] Variáveis no Netlify: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET`, `STEAM_API_KEY`,
+      `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `PUSH_SECRET` e, para as calls fora da rede local, o TURN (veja a seção do TURN).
+- [ ] Novo deploy no Netlify depois de mexer nas variáveis.
+- [ ] Segredos do GitHub (Settings → Secrets → Actions) iguais aos do Netlify, e as Actions `sync`, `igdb` e `backup` rodando verdes.
+- [ ] Teste com 2 contas: cadastro, post com foto, curtida, comentário com @menção, pedido de amizade, mensagem, call com tela, notificação no celular.
+- [ ] Admin → Visão geral → **Uso do Supabase** abaixo de 80%.
+- [ ] Admin → **Problemas 🐞** sem erros novos depois dos testes.
+- [ ] Textos de [Privacidade](privacidade.html) e [Termos](termos.html) revisados por vocês (e, se possível, por alguém da área jurídica).
+- [ ] Testar a prévia de um link no WhatsApp ou no Discord (ex.: a página de um jogo).
+- [ ] Enviar o sitemap no Google Search Console: `https://SEU-SITE/sitemap.xml` (o endereço no `robots.txt` está com control-critic.netlify.app; troque se mudar o domínio).
+
+## Publicar na Play Store (opcional)
+
+O site já é um app instalável (PWA). Para aparecer na Play Store sem reescrever nada, empacote com o **Bubblewrap** (Trusted Web Activity):
+
+1. Instale o Node e rode `npx @bubblewrap/cli init --manifest https://SEU-SITE/manifest.webmanifest`.
+2. `npx @bubblewrap/cli build` gera o `.aab` (envie na Play Console; a conta de desenvolvedor custa US$ 25, pagamento único).
+3. O Bubblewrap mostra a impressão digital (SHA-256) da chave. Crie o arquivo `.well-known/assetlinks.json` neste repositório com ela
+   (modelo na documentação do Bubblewrap) para o app abrir sem a barra do navegador.
+
+No iPhone, a App Store não aceita PWAs empacotados com facilidade: lá o caminho é "Adicionar à Tela de Início" pelo Safari.
+
 ## Rodar localmente
 Os módulos JS precisam de um servidor (abrir o arquivo direto não funciona):
 ```bash

@@ -58,3 +58,9 @@
   to = "/404.html"
   status = 404
   force = true
+
+# Prévia de links para robôs (WhatsApp, Discord...) e SEO
+[[redirects]]
+  from = "/sitemap.xml"
+  to = "/.netlify/functions/sitemap"
+  status = 200

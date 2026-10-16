@@ -2,6 +2,8 @@
 import { sb, $, esc, avatarHtml, toast, falha, urlSegura, denunciar, enviarImagem, esqueletoLista } from './app.js';
 
 export const COLUNAS_POST = '*, profiles!posts_user_id_fkey(username,avatar_url,equipped_frame), games(slug,title), communities(id,name)';
+// Com desafio (só depois do schema novo): usado onde os desafios aparecem
+export const COLUNAS_POST_DESAFIO = COLUNAS_POST + ', challenges(id,title)';
 
 const tempo = (d) => {
   const m = Math.round((Date.now() - new Date(d)) / 60000);
@@ -11,7 +13,10 @@ const tempo = (d) => {
   return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
 };
 // Deixa links clicáveis (só http/https) depois de escapar o texto
-const comLinks = (t) => esc(t).replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener nofollow">${u}</a>`);
+// @usuario vira link para o perfil (e a pessoa é avisada pelo banco)
+const comLinks = (t) => esc(t)
+  .replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener nofollow">${u}</a>`)
+  .replace(/(^|[\s(])@([A-Za-z0-9_]{3,30})\b/g, (_, a, n) => `${a}<a href="perfil.html?u=${n}">@${n}</a>`);
 
 export function postHtml(x, { u, moderar = false, mostrarComunidade = true } = {}) {
   const meu = u && x.user_id === u.id;
@@ -19,6 +24,7 @@ export function postHtml(x, { u, moderar = false, mostrarComunidade = true } = {
     <header>${avatarHtml(x.profiles)}
       <span style="flex:1;min-width:0"><a class="usuario" href="perfil.html?u=${encodeURIComponent(x.profiles?.username || '')}">${esc(x.profiles?.username)}</a>
         ${mostrarComunidade && x.communities ? `<span class="muted"> em <a href="comunidade.html?id=${x.communities.id}">${esc(x.communities.name)}</a></span>` : ''}
+        ${x.challenges ? `<span class="tag amarela" style="margin-left:4px">🏆 ${esc(x.challenges.title)}</span>` : ''}
         <br><span class="muted" style="font-size:.8rem">${tempo(x.created_at)}${x.games ? ` · 🎮 <a href="jogo.html?slug=${encodeURIComponent(x.games.slug)}">${esc(x.games.title)}</a>` : ''}</span></span>
       ${meu || moderar ? `<button class="btn sec pequeno" data-p-del="${x.id}">Apagar</button>` : u ? `<button class="bt-denunciar" data-p-den="${x.id}" aria-label="Denunciar">🚩</button>` : ''}
     </header>
@@ -99,9 +105,10 @@ async function abrirComentarios(art, u) {
 }
 
 // Caixa de criar post (texto + imagem + jogo opcional). comunidade: id ou null (post no perfil/feed)
-export function compositorHtml(placeholder = 'O que você está jogando? Compartilhe um print, uma conquista, uma dica...') {
+export function compositorHtml(placeholder = 'O que você está jogando? Compartilhe um print, uma conquista, uma dica... (use @nome para marcar alguém)') {
   return `<form class="cartao compositor" id="compositor">
     <textarea id="cp-txt" rows="2" maxlength="2000" placeholder="${esc(placeholder)}"></textarea>
+    <div class="cp-desafio hidden" id="cp-desafio"></div>
     <div class="cp-previa hidden" id="cp-previa"><img alt=""><button type="button" class="btn sec pequeno" id="cp-tirar">✕ Remover imagem</button></div>
     <div class="controles" style="margin-top:8px;align-items:center">
       <label class="btn sec pequeno" style="cursor:pointer">🖼️ Imagem / GIF<input type="file" id="cp-img" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
@@ -111,7 +118,14 @@ export function compositorHtml(placeholder = 'O que você está jogando? Compart
 }
 
 export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPublicar }) {
-  let arquivo = null, t;
+  let arquivo = null, t, desafio = null;
+  const boxDesafio = $('#cp-desafio', form);
+  const definirDesafio = (ch) => {
+    desafio = ch;
+    boxDesafio.classList.toggle('hidden', !ch);
+    boxDesafio.innerHTML = ch ? `<span class="tag amarela">🏆 Participando: ${esc(ch.title)}</span> <button type="button" class="btn sec pequeno">✕</button>` : '';
+    boxDesafio.querySelector('button')?.addEventListener('click', () => definirDesafio(null));
+  };
   const previa = $('#cp-previa', form);
   if (jogo) { $('#cp-jogo', form).value = jogo.id; $('#cp-busca', form).value = jogo.title; }
   $('#cp-img', form).onchange = (e) => {
@@ -140,10 +154,11 @@ export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPub
     try {
       const image_url = arquivo ? await enviarImagem(u.id, 'post', arquivo) : null;
       const { error } = await sb.from('posts').insert({ user_id: u.id, community_id: comunidade, body: texto || '📷',
-        image_url, game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null });
+        image_url, game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null, ...(desafio ? { challenge_id: desafio.id } : {}) });
       if (error) throw /row-level/.test(error.message) ? new Error('Você precisa participar da comunidade para publicar.') : error;
       form.reset(); arquivo = null; previa.classList.add('hidden');
-      toast('Publicado!'); aoPublicar?.();
+      toast(desafio ? 'Participação enviada! Boa sorte 🏆' : 'Publicado!'); definirDesafio(null); aoPublicar?.();
     } catch (err) { falha(err); } finally { bt.disabled = false; bt.textContent = 'Publicar'; }
   };
+  return { definirDesafio };
 }
