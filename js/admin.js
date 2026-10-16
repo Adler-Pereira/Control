@@ -774,6 +774,20 @@ async function site() {
       </div>
       <button class="btn" style="margin-top:12px">Salvar aviso</button>
     </form>`;
+  // Robô oficial do Discord (ponte de voz): só o ID público do aplicativo, para o botão de convite das comunidades
+  const { data: robo } = await sb.from('settings').select('value').eq('key', 'robo_discord').maybeSingle();
+  painel().insertAdjacentHTML('beforeend', `<form class="cartao" id="form-robo" style="margin-top:14px">
+    <h3>🔗 Robô da ponte de voz (Discord)</h3>
+    <p class="muted">Com o ID preenchido, os donos de comunidade veem o botão "Adicionar o robô ao Discord" e podem ligar a ponte na comunidade deles.
+      É o <strong>Application ID</strong> do Discord Developer Portal (General Information). Ele é público: <strong>não</strong> é o token.</p>
+    <div class="controles" style="margin-top:8px"><input id="robo-id" pattern="\\d{17,20}" placeholder="ex.: 123456789012345678" value="${esc(robo?.value?.client_id || '')}" style="max-width:280px">
+      <button class="btn">Salvar</button></div></form>`);
+  $('#form-robo').onsubmit = async (e) => {
+    e.preventDefault();
+    const v = $('#robo-id').value.trim();
+    const { error } = await sb.from('settings').upsert({ key: 'robo_discord', value: { client_id: v || null } });
+    error ? falha(error) : toast(v ? 'Robô configurado! O botão já aparece para os donos de comunidade.' : 'Robô removido.');
+  };
   // Notificações no celular: gera as chaves no navegador (nunca saem daqui) e configura o banco
   const { data: pushCfg } = await sb.from('settings').select('value').eq('key', 'push').maybeSingle();
   painel().insertAdjacentHTML('beforeend', `<div class="cartao" style="margin-top:14px">

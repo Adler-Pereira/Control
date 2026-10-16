@@ -22,15 +22,15 @@ const TESTE = env('MODO_TESTE') === '1'; // sem Discord: toca um bipe na call do
 const CFG = {
   supabaseUrl: env('SUPABASE_URL').replace(/\/+(rest\/v1)?\/*$/, ''),
   chavePublica: env('SUPABASE_CHAVE_PUBLICA'),
-  chaveSecreta: env('SUPABASE_SERVICE_KEY'),     // só para comunidades privadas (ler a chave da sala)
+  chaveSecreta: env('SUPABASE_SERVICE_KEY'),     // lê as chaves das salas e a lista de pontes (fica só no seu PC)
   site: env('SITE_URL', 'https://control-critic.netlify.app').replace(/\/+$/, ''),
   token: env('DISCORD_TOKEN'),
   nome: env('NOME_NA_CALL', '🎮 Discord'),
-  // "idDaComunidade:idDoCanalDeVoz", várias separadas por vírgula. Ex.: 3:123456789012345678,7:234567890123456789
+  // Opcional (as pontes normalmente vêm do site): "idDaComunidade:idDoCanalDeVoz", várias separadas por vírgula
   pontes: env('PONTES').split(',').map((x) => x.trim()).filter(Boolean).map((x) => { const [c, v] = x.split(':'); return { comunidade: Number(c), canal: v?.trim() }; }),
 };
-const faltam = [['SUPABASE_URL', CFG.supabaseUrl], ['SUPABASE_CHAVE_PUBLICA', CFG.chavePublica], ['PONTES', CFG.pontes.length],
-  ...(TESTE ? [] : [['DISCORD_TOKEN', CFG.token]])].filter(([, v]) => !v).map(([k]) => k);
+const faltam = [['SUPABASE_URL', CFG.supabaseUrl], ['SUPABASE_CHAVE_PUBLICA', CFG.chavePublica],
+  ...(TESTE ? [['PONTES', CFG.pontes.length]] : [['DISCORD_TOKEN', CFG.token], ['SUPABASE_SERVICE_KEY', CFG.chaveSecreta]])].filter(([, v]) => !v).map(([k]) => k);
 if (faltam.length) { console.error(`Faltam variáveis no .env: ${faltam.join(', ')}`); process.exit(1); }
 if (CFG.pontes.some((p) => !p.comunidade || !/^\d{17,20}$/.test(p.canal || ''))) {
   console.error('PONTES em formato inválido. Use idDaComunidade:idDoCanalDeVoz (ex.: 3:123456789012345678).'); process.exit(1);
@@ -137,6 +137,7 @@ class SalaSite {
     for (const id of [...this.peers.keys()]) this.#remover(id);
     await this.canal.untrack().catch(() => {});
   }
+  async encerrar() { clearInterval(this.vigia); await this.desativar(); await this.sb.removeChannel(this.canal).catch(() => {}); this.trilha.stop(); }
   falar(amostras10ms) { this.fonte.onData({ samples: amostras10ms, sampleRate: TAXA, bitsPerSample: 16, channelCount: 1, numberOfFrames: amostras10ms.length }); }
 
   #sincronizar() {
@@ -282,37 +283,38 @@ class CanalDiscord {
 // ---------------------------------------------------------------------------
 // Uma ponte por comunidade
 // ---------------------------------------------------------------------------
+let adm = null; // cliente com a chave secreta (lê as chaves das salas e a lista de pontes)
 async function salaDaComunidade(id) {
   if (TESTE && env('SALA_TESTE')) return { nome: 'teste', salaId: env('SALA_TESTE') };
-  const pub = createClient(CFG.supabaseUrl, CFG.chavePublica, { auth: { persistSession: false } });
-  const { data: c, error } = await pub.from('communities').select('id,name,is_private').eq('id', id).maybeSingle();
+  const { data: c, error } = await adm.from('communities').select('id,name').eq('id', id).maybeSingle();
   if (error || !c) throw new Error(`Comunidade ${id} não encontrada (${error?.message || 'confira o número no endereço comunidade.html?id=...'}).`);
-  if (!c.is_private) return { nome: c.name, salaId: String(id) };
-  if (!CFG.chaveSecreta) throw new Error(`"${c.name}" é privada: coloque SUPABASE_SERVICE_KEY no .env para a ponte achar a sala.`);
-  const adm = createClient(CFG.supabaseUrl, CFG.chaveSecreta, { auth: { persistSession: false } });
+  // Toda sala de call tem uma chave que só membros (e a ponte) conhecem
   const { data: s } = await adm.from('community_secrets').select('room_key').eq('community_id', id).maybeSingle();
-  if (!s) throw new Error(`Não achei a chave da sala da comunidade privada ${id}.`);
+  if (!s) throw new Error(`Não achei a chave da sala da comunidade ${id}. Rode o schema.sql atualizado no Supabase.`);
   return { nome: c.name, salaId: `${id}-${s.room_key}` };
 }
 
-async function criarPonte({ comunidade, canal: canalId }, sb, discord) {
+async function criarPonte({ comunidade, canal: canalId, servidor }, sb, discord) {
   const { nome, salaId } = await salaDaComunidade(comunidade);
   const doSite = new Mesa(), doDiscord = new Mesa();
-  let ativo = false, ocupado = false, timerSaida = null, pronto = false;
+  const timers = [];
+  let ativo = false, ocupado = false, timerSaida = null, pronto = false, encerrada = false;
   const site = new SalaSite({ sb, salaId, eu: `zzzz-ponte-discord-${comunidade}`, aoAudio: (k, a) => doSite.colocar(k, a), aoMudar: () => avaliar() });
-  let dc = null;
+  let dc = null, ouvinteVoz = null;
   if (discord) {
     const canal = await discord.cliente.channels.fetch(canalId).catch(() => null);
-    if (!canal?.isVoiceBased?.()) throw new Error(`Canal de voz ${canalId} não encontrado. O robô foi convidado para o servidor? O ID é de um canal de VOZ?`);
+    if (!canal?.isVoiceBased?.()) throw new Error(`Canal de voz ${canalId} não encontrado. O robô foi adicionado ao servidor? O ID é de um canal de VOZ?`);
+    if (servidor && canal.guild.id !== servidor) throw new Error(`O canal ${canalId} não é do servidor ${servidor} informado na comunidade.`);
     dc = new CanalDiscord({ voz: discord.voz, cliente: discord.cliente, canal, aoAudio: (k, a) => doDiscord.colocar(k, a) });
-    discord.aoMudarVoz.add((antes, depois) => { if ([antes.channelId, depois.channelId].includes(canalId)) avaliar(); });
+    ouvinteVoz = (antes, depois) => { if ([antes.channelId, depois.channelId].includes(canalId)) avaliar(); };
+    discord.aoMudarVoz.add(ouvinteVoz);
   }
   await site.conectar();
-  log(`ponte "${nome}" pronta: call do site <-> ${dc ? '#' + dc.canal.name : 'MODO TESTE (bipe)'}`);
+  log(`ponte "${nome}" pronta: call do site <-> ${dc ? '#' + dc.canal.name + ' (' + dc.canal.guild.name + ')' : 'MODO TESTE (bipe)'}`);
 
   // Liga quando há gente dos dois lados; desliga 30 s depois que um lado esvazia
   async function avaliar() {
-    if (ocupado || !pronto) return;
+    if (ocupado || !pronto || encerrada) return;
     const noSite = site.humanos(), noDiscord = dc ? dc.humanos() : ['teste'];
     const deveLigar = noSite.length > 0 && noDiscord.length > 0;
     if (deveLigar) { clearTimeout(timerSaida); timerSaida = null; }
@@ -328,17 +330,17 @@ async function criarPonte({ comunidade, canal: canalId }, sb, discord) {
       timerSaida = setTimeout(async () => {
         timerSaida = null;
         if (site.humanos().length && (!dc || dc.humanos().length)) return;
-        await site.desativar(); dc?.sair(); doSite.limpar(); doDiscord.limpar();
-        ativo = false; log(`ponte "${nome}" desligada (um dos lados ficou vazio)`);
+        await desligar(); log(`ponte "${nome}" desligada (um dos lados ficou vazio)`);
       }, 30000);
     }
   }
+  async function desligar() { await site.desativar(); dc?.sair(); doSite.limpar(); doDiscord.limpar(); ativo = false; }
   pronto = true;
-  setInterval(avaliar, 15000);
+  timers.push(setInterval(avaliar, 15000));
   avaliar();
 
   // Relógio de áudio: a cada 10 ms manda o Discord para o site; a cada 20 ms manda o site para o Discord
-  let fase = 0, t = 0, medidas = [];
+  let fase = 0, t = 0, medidas = [], prox = performance.now(), timerRelogio = null;
   const passo = () => {
     if (!ativo) return;
     let paraSite = doDiscord.tirar(480);
@@ -349,32 +351,97 @@ async function criarPonte({ comunidade, canal: canalId }, sb, discord) {
       if (dc) dc.tocar(paraDiscord); else medidas.push(volume(paraDiscord));
     }
   };
-  let prox = performance.now();
   const relogio = () => {
+    if (encerrada) return;
     const agora = performance.now();
     if (agora - prox > 200) prox = agora;                // ficou travado: não tenta "recuperar" segundos de áudio
     while (prox <= agora) { passo(); prox += 10; }
-    setTimeout(relogio, Math.max(0, prox - performance.now()));
+    timerRelogio = setTimeout(relogio, Math.max(0, prox - performance.now()));
   };
   relogio();
-  if (!dc) setInterval(() => { if (medidas.length) { log(`teste: volume recebido do site (média 5 s): ${Math.round(medidas.reduce((a, b) => a + b, 0) / medidas.length)}`); medidas = []; } }, 5000);
+  if (!dc) timers.push(setInterval(() => { if (medidas.length) { log(`teste: volume recebido do site (média 5 s): ${Math.round(medidas.reduce((a, b) => a + b, 0) / medidas.length)}`); medidas = []; } }, 5000));
+
+  return {
+    async encerrar() {
+      encerrada = true; clearTimeout(timerSaida); clearTimeout(timerRelogio); timers.forEach(clearInterval);
+      if (ouvinteVoz) discord.aoMudarVoz.delete(ouvinteVoz);
+      await desligar(); await site.encerrar();
+      log(`ponte "${nome}" removida`);
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
+// Lista de pontes: as do .env (PONTES) + as que os donos de comunidade configuraram no site
+// (tabela discord_bridges, confirmadas com /vincular). Atualiza a cada 30 s, sem reiniciar.
+// ---------------------------------------------------------------------------
+async function pontesDoBanco() {
+  const { data, error } = await adm.from('discord_bridges').select('community_id,guild_id,channel_id').eq('verified', true).eq('active', true);
+  if (error) { log('não consegui ler as pontes do site:', error.message); return null; }
+  return data.map((b) => ({ comunidade: Number(b.community_id), canal: b.channel_id, servidor: b.guild_id }));
+}
+
+// /vincular <código>: um administrador do servidor confirma que aceita a ponte com a comunidade
+function registrarVincular(discord) {
+  const { cliente, djs } = discord;
+  cliente.application.commands.set([{
+    name: 'vincular', description: 'Liga um canal de voz deste servidor à call de uma comunidade do Control Critic',
+    defaultMemberPermissions: djs.PermissionFlagsBits.ManageGuild, contexts: [djs.InteractionContextType.Guild],
+    options: [{ type: djs.ApplicationCommandOptionType.String, name: 'codigo', description: 'Código mostrado na comunidade, no site (aba Discord / PS5)', required: true, minLength: 6, maxLength: 6 }],
+  }]).then(() => log('discord: comando /vincular registrado')).catch((e) => log('não consegui registrar /vincular:', e.message));
+  cliente.on(djs.Events.InteractionCreate, async (it) => {
+    if (!it.isChatInputCommand() || it.commandName !== 'vincular') return;
+    const responder = (texto) => it.reply({ content: texto, flags: djs.MessageFlags.Ephemeral }).catch(() => {});
+    if (!it.inGuild()) return responder('Use este comando dentro do servidor.');
+    if (!it.memberPermissions?.has(djs.PermissionFlagsBits.ManageGuild)) return responder('Só quem tem a permissão **Gerenciar servidor** pode vincular.');
+    const codigo = it.options.getString('codigo', true).trim();
+    const { data: b } = await adm.from('discord_bridges').select('community_id,guild_id,channel_id,verified').eq('verify_code', codigo).eq('guild_id', it.guildId).maybeSingle();
+    if (!b) return responder('Código não encontrado para este servidor. Confira o código na comunidade (aba **Discord / PS5**) e se o ID do servidor está certo em "Configurar".');
+    if (b.verified) return responder('Esta ponte já estava confirmada. ✅');
+    const canal = await it.guild.channels.fetch(b.channel_id).catch(() => null);
+    if (!canal?.isVoiceBased?.()) return responder(`Não encontrei o canal de voz ${b.channel_id} neste servidor (ou não tenho permissão para vê-lo).`);
+    const { error } = await adm.from('discord_bridges').update({ verified: true, verified_by: it.user.username }).eq('community_id', b.community_id);
+    if (error) return responder('Não consegui salvar a confirmação. Tente de novo em instantes.');
+    log(`discord: ${it.user.username} vinculou a comunidade ${b.community_id} ao canal #${canal.name} (${it.guild.name})`);
+    responder(`✅ Pronto! O canal **${canal.name}** está ligado à call da comunidade. A ponte entra sozinha quando houver gente no site e aqui (pode levar até 30 s).`);
+    sincronizar();
+  });
+}
+
+const ativas = new Map(); // "comunidade:canal" -> ponte
+let ctx = null;
+async function sincronizar() {
+  const desejadas = [...CFG.pontes];
+  if (!TESTE) { const banco = await pontesDoBanco(); if (banco) desejadas.push(...banco); }
+  const chaves = new Map(desejadas.map((p) => [`${p.comunidade}:${p.canal}`, p]));
+  for (const [k, ponte] of ativas) if (!chaves.has(k)) { ativas.delete(k); await ponte.encerrar().catch(() => {}); }
+  for (const [k, p] of chaves) {
+    if (ativas.has(k)) continue;
+    ativas.set(k, null); // reserva enquanto cria
+    try { ativas.set(k, await criarPonte(p, ctx.sb, ctx.discord)); }
+    catch (e) { ativas.delete(k); log('❌', e.message); }
+  }
+}
+
 async function main() {
+  adm = createClient(CFG.supabaseUrl, CFG.chaveSecreta || CFG.chavePublica, { auth: { persistSession: false } });
   const sb = createClient(CFG.supabaseUrl, CFG.chavePublica, { auth: { persistSession: false }, realtime: { params: { eventsPerSecond: 20 } } });
   let discord = null;
   if (!TESTE) {
-    const [{ Client, GatewayIntentBits, Events }, voz, prism] = await Promise.all([import('discord.js'), import('@discordjs/voice'), import('prism-media')]);
-    const cliente = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+    const [djs, voz, prism] = await Promise.all([import('discord.js'), import('@discordjs/voice'), import('prism-media')]);
+    const cliente = new djs.Client({ intents: [djs.GatewayIntentBits.Guilds, djs.GatewayIntentBits.GuildVoiceStates] });
     const aoMudarVoz = new Set();
-    cliente.on(Events.VoiceStateUpdate, (a, d) => aoMudarVoz.forEach((f) => f(a, d)));
-    cliente.on(Events.Error, (e) => log('discord:', e.message));
-    await new Promise((ok, erro) => { cliente.once(Events.ClientReady, ok); cliente.login(CFG.token).catch(erro); });
-    log(`discord: conectado como ${cliente.user.tag}`);
-    discord = { cliente, voz: { ...voz, prism: prism.default ?? prism }, aoMudarVoz };
+    cliente.on(djs.Events.VoiceStateUpdate, (a, d) => aoMudarVoz.forEach((f) => f(a, d)));
+    cliente.on(djs.Events.Error, (e) => log('discord:', e.message));
+    await new Promise((ok, erro) => { cliente.once(djs.Events.ClientReady, ok); cliente.login(CFG.token).catch(erro); });
+    log(`discord: conectado como ${cliente.user.tag} (em ${cliente.guilds.cache.size} servidor(es))`);
+    discord = { cliente, djs, voz: { ...voz, prism: prism.default ?? prism }, aoMudarVoz };
+    registrarVincular(discord);
   } else log('MODO TESTE: sem Discord, a ponte toca um bipe na call do site.');
-  for (const p of CFG.pontes) await criarPonte(p, sb, discord).catch((e) => log('❌', e.message));
+  ctx = { sb, discord };
+  await sincronizar();
+  if (!ativas.size) log('Nenhuma ponte ainda. Elas aparecem aqui quando um dono de comunidade confirmar com /vincular (ou preencha PONTES no .env).');
+  setInterval(() => sincronizar().catch((e) => log('sincronizar:', e.message)), 30000);
 }
 process.on('unhandledRejection', (e) => log('erro:', e?.message || e));
 main().catch((e) => { console.error('❌', e.message); process.exit(1); });
