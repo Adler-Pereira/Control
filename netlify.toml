@@ -64,3 +64,8 @@
   from = "/sitemap.xml"
   to = "/.netlify/functions/sitemap"
   status = 200
+
+# CDN de imagens do Netlify: capas de jogos e imagens enviadas passam por /.netlify/images
+# (redimensionadas, em WebP e servidas pelo mesmo domínio do site)
+[images]
+  remote_images = ["https://images\\.igdb\\.com/.*", "https://[a-z0-9.-]*steamstatic\\.com/.*", "https://[a-z0-9-]+\\.supabase\\.co/storage/.*"]

@@ -1,4 +1,4 @@
-import { sb, $, $$, esc, montarLayout, configurado, urlSegura } from './app.js';
+import { sb, $, $$, esc, montarLayout, configurado, urlSegura, srcCapa } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -52,7 +52,7 @@ async function carregar(continuar = false) {
   if (error) { $('#lista').innerHTML = '<p class="vazio">Erro ao carregar promoções.</p>'; return; }
   const html = deals.map((d) => `
     <div class="jogo-card">
-      <a href="jogo.html?slug=${encodeURIComponent(d.games.slug)}"><img src="${urlSegura(d.games.cover_url) || 'img/Control.png'}" alt="" loading="lazy"></a>
+      <a href="jogo.html?slug=${encodeURIComponent(d.games.slug)}"><img ${srcCapa(d.games.cover_url, 480)} alt="" loading="lazy"></a>
       <div class="info">
         <a class="titulo" href="jogo.html?slug=${encodeURIComponent(d.games.slug)}" style="color:var(--texto)">${esc(d.games.title)}</a>
         <span><span class="tag amarela">-${d.discount_pct}%</span> <span class="tag">${esc(d.store)}</span></span>

@@ -61,6 +61,24 @@ export function nivel(xp) {
   return { lv, titulo: titulos[Math.min(lv - 1, titulos.length - 1)], pct: Math.round(((xp - atual) / (prox - atual)) * 100), prox };
 }
 
+// Capas: passam pelo CDN de imagens do Netlify (mesmo domínio do site, redimensionadas e em WebP).
+// Isso evita bloqueios do navegador a sites externos e deixa a página mais leve. Se falhar, tenta o
+// endereço original e, por fim, a imagem padrão (ver o tratador de erro logo abaixo).
+const CDN_OK = !/^(localhost|127\.|\[)/.test(location.hostname); // em teste local não existe o CDN
+const EXTERNA = /^https:\/\/(images\.igdb\.com|[a-z0-9.-]*steamstatic\.com|[a-z0-9-]+\.supabase\.co)\//;
+export function srcCapa(url, largura = 480) {
+  const u = urlSegura(url);
+  if (!u) return 'src="img/Control.png"';
+  if (!CDN_OK || !EXTERNA.test(url)) return `src="${u}"`;
+  return `src="/.netlify/images?url=${encodeURIComponent(url)}&amp;w=${largura}&amp;fm=webp&amp;q=75" data-orig="${u}"`;
+}
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (img?.tagName !== 'IMG') return;
+  if (img.dataset.orig) { const o = img.dataset.orig; delete img.dataset.orig; img.src = o; return; }
+  if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(img.src) && !img.src.endsWith('img/Control.png') && img.closest('.jogo-card, .vitrine-jogos, .atividade, .lista, .grade, .detalhe')) img.src = 'img/Control.png';
+}, true);
+
 export const avatar = (p) => urlSegura(p?.avatar_url) || 'img/perfilpadrao.png';
 
 // Foto com a moldura equipada (gamificação). classe: classes extras da <img>
@@ -188,7 +206,7 @@ export const COLUNAS_CARD = 'id,slug,title,cover_url,avg_rating,reviews_count,ca
 
 export function cardJogo(g) {
   return `<a class="jogo-card" href="jogo.html?slug=${encodeURIComponent(g.slug)}">
-    <img src="${urlSegura(g.cover_url) || 'img/Control.png'}" alt="" loading="lazy">
+    <img ${srcCapa(g.cover_url, 480)} alt="" loading="lazy">
     <div class="info">
       <span class="titulo" title="${esc(g.title)}">${esc(g.title)}</span>
       ${g.categories ? `<span><span class="tag">${esc(g.categories.name)}</span></span>` : ''}

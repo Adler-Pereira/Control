@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador, carrossel, imgIgdb } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador, carrossel, imgIgdb, srcCapa } from './app.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor, verImagem } from './posts.js';
 
 await montarLayout();
@@ -32,7 +32,7 @@ async function carregar() {
   main.innerHTML = `
     <div class="detalhe">
       <div>
-        <img src="${urlSegura(g.cover_url) || 'img/Control.png'}" alt="" style="border-radius:14px;width:100%">
+        <img ${srcCapa(g.cover_url, 1000)} alt="" style="border-radius:14px;width:100%">
         <h1 style="margin-top:16px">${esc(g.title)}</h1>
         <p>${g.categories ? `<a class="tag" href="jogos.html?cat=${g.categories.id}">${esc(g.categories.name)}</a>` : ''} ${g.release_year ? `<span class="tag">${g.release_year}</span>` : ''}
           ${(g.platforms || []).map((pl) => `<a class="tag" href="jogos.html?plat=${encodeURIComponent(pl)}">${esc(pl)}</a>`).join(' ')}</p>
