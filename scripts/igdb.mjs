@@ -2,6 +2,7 @@
 //   node scripts/igdb.mjs continuo 2000    -> (automático, todo dia) próximos 2000 populares + lançamentos recentes
 //   node scripts/igdb.mjs populares 5000   -> os N jogos mais avaliados, do início
 //   node scripts/igdb.mjs recentes         -> só os lançamentos dos últimos 60 dias
+//   node scripts/igdb.mjs recategorizar 20000 -> refaz a categoria dos jogos vindos do IGDB com as regras atuais
 // Variáveis: IGDB_CLIENT_ID, IGDB_CLIENT_SECRET, SUPABASE_URL, SUPABASE_SERVICE_KEY
 import { igdb, CAMPOS, FILTRO_BASE, paraLinha, supabaseRest } from '../lib/igdb.mjs';
 
@@ -68,6 +69,7 @@ async function importar(onde, ordem, inicio, quantidade) {
       if (Math.abs((atual.igdb_rating_count || 0) - linha.igdb_rating_count) > 20 || patch.igdb_id) {
         patch.igdb_rating = linha.igdb_rating; patch.igdb_rating_count = linha.igdb_rating_count;
       }
+      if (modo === 'recategorizar' && atual.igdb_id && linha.category_id && atual.category_id !== linha.category_id) patch.category_id = linha.category_id;
       if (Object.keys(patch).length) {
         await api(`games?id=eq.${atual.id}`, { method: 'PATCH', body: patch });
         Object.assign(atual, patch); totais.completados++;
@@ -88,7 +90,9 @@ const POPULARES = `${FILTRO_BASE} & total_rating_count > 5`;
 const RECENTES = `${FILTRO_BASE} & first_release_date > ${agora - 60 * 86400} & first_release_date < ${agora} & (hypes > 3 | total_rating_count > 0)`;
 let proximoOffset = Number(cfg.igdb_offset) || 0;
 
-if (modo === 'populares') {
+if (modo === 'recategorizar') {
+  await importar(POPULARES, 'total_rating_count desc', 0, qtd);
+} else if (modo === 'populares') {
   await importar(POPULARES, 'total_rating_count desc', 0, qtd);
   proximoOffset = Math.max(proximoOffset, qtd);
 } else if (modo === 'recentes') {
