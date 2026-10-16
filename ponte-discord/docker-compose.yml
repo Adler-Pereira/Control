@@ -1,0 +1,11 @@
+# Ponte de voz Discord <-> call do Control Critic.
+# Ligar:  docker compose up -d --build      Ver o que está acontecendo:  docker compose logs -f
+# Desligar: docker compose down             Atualizar depois de baixar uma versão nova: docker compose up -d --build
+services:
+  ponte:
+    build: .
+    container_name: controlcritic-ponte-discord
+    restart: unless-stopped        # liga sozinha junto com o Docker Desktop
+    env_file: .env
+    logging:
+      options: { max-size: "5m", max-file: "2" }

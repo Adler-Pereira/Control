@@ -179,6 +179,11 @@ Antes de abrir para o público, confira:
 - [ ] Testar a prévia de um link no WhatsApp ou no Discord (ex.: a página de um jogo).
 - [ ] Enviar o sitemap no Google Search Console: `https://SEU-SITE/sitemap.xml` (o endereço no `robots.txt` está com control-critic.netlify.app; troque se mudar o domínio).
 
+## Ponte de voz com o Discord (opcional)
+
+Junta o canal de voz do Discord da comunidade com a call do site, para quem joga no console falar com quem está no site.
+Roda no seu PC com o Docker Desktop. O passo a passo completo está em [`ponte-discord/LEIA-ME.md`](ponte-discord/LEIA-ME.md).
+
 ## Publicar na Play Store (opcional)
 
 O site já é um app instalável (PWA). Para aparecer na Play Store sem reescrever nada, empacote com o **Bubblewrap** (Trusted Web Activity):

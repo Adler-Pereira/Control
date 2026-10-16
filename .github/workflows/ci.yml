@@ -15,7 +15,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - name: Sintaxe do JavaScript
-        run: for f in js/*.js scripts/*.mjs lib/*.mjs netlify/functions/*.mjs sw.js; do node --check "$f" || exit 1; done
+        run: for f in js/*.js scripts/*.mjs lib/*.mjs netlify/functions/*.mjs ponte-discord/ponte.mjs sw.js; do node --check "$f" || exit 1; done
       - name: Testes das funções
         run: node --test tests/*.test.mjs
       - name: Validação do HTML
