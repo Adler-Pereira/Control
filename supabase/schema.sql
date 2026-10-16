@@ -1577,3 +1577,101 @@ begin
                        where reviews_count > 0 order by avg_rating desc, reviews_count desc limit 5) t)
   );
 end $$;
+
+-- =====================================================================
+-- ITENS PERSONALIZADOS: admin cria molduras, banners e selos pelo painel
+-- =====================================================================
+alter table public.cosmetics add column if not exists custom boolean not null default false;
+alter table public.cosmetics add column if not exists style jsonb;            -- aparência (cores, animação, imagem)
+alter table public.cosmetics add column if not exists unlock_level integer check (unlock_level is null or unlock_level between 1 and 500);
+alter table public.cosmetics add column if not exists unlock_streak integer check (unlock_streak is null or unlock_streak between 1 and 3650);
+-- Valida a aparência (cores #rrggbb, imagem só do armazenamento do próprio projeto, emoji curto)
+create or replace function public.cosmetic_style_ok(st jsonb) returns boolean
+language plpgsql immutable as $$
+declare c text;
+begin
+  if st is null then return true; end if;
+  if jsonb_typeof(st) <> 'object' then return false; end if;
+  if st ? 'cores' and st->'cores' <> 'null'::jsonb then
+    if jsonb_typeof(st->'cores') <> 'array' or jsonb_array_length(st->'cores') not between 1 and 6 then return false; end if;
+    for c in select jsonb_array_elements_text(st->'cores') loop
+      if c !~ '^#[0-9a-fA-F]{6}$' then return false; end if;
+    end loop;
+  end if;
+  if coalesce(st->>'imagem', '') <> '' and st->>'imagem' !~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/[A-Za-z0-9/_.-]+$' then return false; end if;
+  if char_length(coalesce(st->>'emoji', '')) > 4 then return false; end if;
+  return true;
+end $$;
+alter table public.cosmetics drop constraint if exists cosmetics_style_ok;
+alter table public.cosmetics add constraint cosmetics_style_ok check (public.cosmetic_style_ok(style));
+
+-- Recompensas automáticas também para itens criados no painel
+create or replace function public.rewards_on_xp() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare lv int := level_of(new.xp);
+begin
+  if level_of(old.xp) >= lv then return null; end if;
+  if lv >= 5  then perform grant_cosmetic(new.id, 'f_bronze'); end if;
+  if lv >= 10 then perform grant_cosmetic(new.id, 'f_prata'); end if;
+  if lv >= 15 then perform grant_cosmetic(new.id, 'b_neon'); end if;
+  if lv >= 20 then perform grant_cosmetic(new.id, 'f_ouro'); end if;
+  if lv >= 30 then perform grant_cosmetic(new.id, 'f_diamante'); end if;
+  if lv >= 40 then perform grant_cosmetic(new.id, 'b_galaxia'); end if;
+  if lv >= 50 then perform grant_cosmetic(new.id, 'f_lenda'); end if;
+  perform grant_cosmetic(new.id, c.id) from cosmetics c where c.unlock_level is not null and c.unlock_level <= lv;
+  insert into notifications (user_id, type, title, body, link)
+  values (new.id, 'levelup', 'Você subiu para o nível ' || lv || '! 🎉', 'Veja as recompensas em Conquistas.', 'conquistas.html');
+  return null;
+end $$;
+
+create or replace function public.streak_rewards() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.streak_current > coalesce(old.streak_current, 0) then
+    perform grant_cosmetic(new.id, c.id) from cosmetics c where c.unlock_streak is not null and c.unlock_streak <= new.streak_current;
+  end if;
+  return null;
+end $$;
+drop trigger if exists profiles_streak_rewards on public.profiles;
+create trigger profiles_streak_rewards after update of streak_current on public.profiles
+  for each row execute function public.streak_rewards();
+
+-- Ao criar/alterar a regra de um item, quem já cumpre recebe na hora
+create or replace function public.cosmetic_retro_grant() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.unlock_level is not null then
+    perform grant_cosmetic(p.id, new.id) from profiles p where level_of(p.xp) >= new.unlock_level;
+  end if;
+  if new.unlock_streak is not null then
+    perform grant_cosmetic(p.id, new.id) from profiles p where p.streak_best >= new.unlock_streak;
+  end if;
+  return null;
+end $$;
+drop trigger if exists cosmetics_retro on public.cosmetics;
+create trigger cosmetics_retro after insert or update of unlock_level, unlock_streak on public.cosmetics
+  for each row execute function public.cosmetic_retro_grant();
+
+-- Itens personalizados podem ser excluídos; os originais do site não
+drop policy if exists cosmetics_admin on public.cosmetics;
+drop policy if exists cosmetics_admin_ins on public.cosmetics;
+create policy cosmetics_admin_ins on public.cosmetics for insert with check (is_admin() and custom);
+drop policy if exists cosmetics_admin_upd on public.cosmetics;
+create policy cosmetics_admin_upd on public.cosmetics for update using (is_admin()) with check (is_admin());
+drop policy if exists cosmetics_admin_del on public.cosmetics;
+create policy cosmetics_admin_del on public.cosmetics for delete using (is_admin() and custom);
+
+-- Admin pode enviar imagens de itens para a pasta "itens/" do armazenamento (já coberto pela política media_admin)
+
+-- Ao excluir um item, ele sai de quem estava usando
+create or replace function public.cosmetic_before_delete() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set equipped_frame = null where equipped_frame = old.id;
+  update profiles set equipped_banner = null where equipped_banner = old.id;
+  perform set_config('cc.sistema', 'off', true);
+  return old;
+end $$;
+drop trigger if exists cosmetics_bd on public.cosmetics;
+create trigger cosmetics_bd before delete on public.cosmetics for each row execute function public.cosmetic_before_delete();
