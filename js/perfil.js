@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel, enviarImagem } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel, enviarImagem, srcCapa } from './app.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 await montarLayout();
@@ -54,7 +54,7 @@ async function carregar(p, meu, u) {
   const itemBib = (x) => {
     const d = (x.games.deals || []).filter((k) => k.discount_pct > 0).sort((a, b) => b.discount_pct - a.discount_pct)[0];
     return `<a class="review" href="jogo.html?slug=${encodeURIComponent(x.games.slug)}" style="display:flex;gap:10px;align-items:center;color:var(--texto);text-decoration:none">
-      <img src="${urlSegura(x.games.cover_url) || 'img/Control.png'}" alt="" style="width:64px;height:38px;object-fit:cover;border-radius:6px">
+      <img ${srcCapa(x.games.cover_url, 160)} alt="" style="width:64px;height:38px;object-fit:cover;border-radius:6px">
       <span style="flex:1"><strong>${esc(x.games.title)}</strong>${x.hours ? ` <span class="muted">· ${Number(x.hours).toLocaleString('pt-BR')} h</span>` : ''}</span>
       ${d ? `<span class="tag amarela">-${d.discount_pct}% ${d.price_cents != null ? reais(d.price_cents) : ''}</span>` : ''}</a>`;
   };
@@ -113,7 +113,7 @@ async function carregar(p, meu, u) {
       <span style="flex:1">Importe seus jogos e horas jogadas da <strong>Steam</strong> (seu perfil e a lista de jogos precisam estar públicos).</span>
       <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button></div>
       <p class="muted" style="font-size:.82rem;margin-top:6px">PlayStation e Xbox não oferecem importação oficial: adicione esses jogos pela página de cada jogo.</p></div>` : ''}
-    ${vitrine.length || meu ? `<h2>🏆 Vitrine</h2>${vitrine.length ? `<div class="vitrine-jogos">${vitrine.map((g) => `<a href="jogo.html?slug=${encodeURIComponent(g.slug)}"><img src="${urlSegura(g.cover_url) || 'img/Control.png'}" alt="" loading="lazy"><span>${esc(g.title)}</span></a>`).join('')}</div>`
+    ${vitrine.length || meu ? `<h2>🏆 Vitrine</h2>${vitrine.length ? `<div class="vitrine-jogos">${vitrine.map((g) => `<a href="jogo.html?slug=${encodeURIComponent(g.slug)}"><img ${srcCapa(g.cover_url, 320)} alt="" loading="lazy"><span>${esc(g.title)}</span></a>`).join('')}</div>`
       : '<p class="muted">Escolha até 6 jogos favoritos para exibir aqui em "✏️ Editar perfil".</p>'}` : ''}
     ${lista.length ? `<h3 style="margin-top:14px">🕹️ Jogados recentemente</h3>
       <div class="lista">${recentes.map(itemBib).join('') || '<p class="muted">Nada jogado recentemente.</p>'}</div>

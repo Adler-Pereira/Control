@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, usuario, avatarHtml, urlSegura, toast, falha } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, usuario, avatarHtml, urlSegura, toast, falha, srcCapa } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -29,7 +29,7 @@ async function carregar() {
     <ol class="lista lista-jogos">${(itens || []).map((it, i) => `
       <li class="cartao controles" style="align-items:center">
         <span class="pos">${i + 1}</span>
-        <a href="jogo.html?slug=${encodeURIComponent(it.games.slug)}"><img src="${urlSegura(it.games.cover_url) || 'img/Control.png'}" alt="" style="width:110px;height:64px;object-fit:cover;border-radius:8px"></a>
+        <a href="jogo.html?slug=${encodeURIComponent(it.games.slug)}"><img ${srcCapa(it.games.cover_url, 480)} alt="" style="width:110px;height:64px;object-fit:cover;border-radius:8px"></a>
         <div style="flex:1;min-width:160px"><a href="jogo.html?slug=${encodeURIComponent(it.games.slug)}"><strong>${esc(it.games.title)}</strong></a>
           ${it.games.release_year ? `<span class="muted"> (${it.games.release_year})</span>` : ''}
           ${it.note ? `<p class="muted quebra">${esc(it.note)}</p>` : ''}</div>

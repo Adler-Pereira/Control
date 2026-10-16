@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha, carrossel, esqueletoCards, esqueletoLista, param } from './app.js';
+import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha, carrossel, esqueletoCards, esqueletoLista, param, srcCapa } from './app.js';
 import { COLUNAS_POST_DESAFIO as COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 let compositor = null, paginaFeed = 0; // declarados antes do uso (o código abaixo roda já no carregamento)
@@ -54,7 +54,7 @@ if (configurado) {
   $('#lancamentos').innerHTML = carrossel((lanc.data || []).map(cardJogo).join(''), 'Nenhum lançamento recente.');
   $('#promos').innerHTML = carrossel((promos.data || []).filter((d) => d.games).map((d) => `
     <a class="jogo-card" href="jogo.html?slug=${encodeURIComponent(d.games.slug)}">
-      <img src="${urlSegura(d.games.cover_url) || 'img/Control.png'}" alt="" loading="lazy">
+      <img ${srcCapa(d.games.cover_url, 480)} alt="" loading="lazy">
       <div class="info"><span class="titulo" title="${esc(d.games.title)}">${esc(d.games.title)}</span>
       <span><span class="tag amarela">-${d.discount_pct}%</span> <span class="tag">${esc(d.store)}</span></span></div></a>`).join(''), 'Sem promoções no momento.');
   $('#noticias').innerHTML = carrossel((news.data || []).map((n) => `
