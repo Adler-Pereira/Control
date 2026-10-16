@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel, enviarImagem, srcCapa } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel } from './app.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 await montarLayout();
@@ -280,7 +280,7 @@ async function abrirEditor(p) {
 
     <div class="editor-imagens">
       <div>
-        <label>Banner <span class="muted">(recomendado 1500×500, até ${LIMITE_MB} MB)</span></label>
+        <label>Banner <span class="muted">(recomendado 1500×500; fotos grandes são reduzidas automaticamente)</span></label>
         <label class="zona-upload banner" id="zona-banner" style="${p.banner_url ? `background-image:url('${urlSegura(p.banner_url)}')` : ''}">
           <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-tipo="banner">
           <span class="dica">📷 Clique ou arraste uma imagem para o banner</span>
@@ -292,7 +292,7 @@ async function abrirEditor(p) {
           <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-tipo="foto">
           <span class="dica">📷 Trocar</span>
         </label>
-        <div class="muted" style="font-size:.88rem">Foto de perfil<br>Quadrada, até ${LIMITE_MB} MB.<br>
+        <div class="muted" style="font-size:.88rem">Foto de perfil<br>Quadrada (fotos grandes são reduzidas).<br>
           ${p.avatar_url ? '<button type="button" class="btn sec pequeno" data-remover="foto" style="margin-top:6px">Usar foto padrão</button>' : ''}</div>
       </div>
     </div>
@@ -368,8 +368,8 @@ async function abrirEditor(p) {
   // Pré-visualização + arrastar e soltar
   const escolher = (tipo, arq) => {
     if (!arq) return;
-    if (!arq.type.startsWith('image/')) return toast('Escolha um arquivo de imagem.', true);
-    if (arq.size > LIMITE_MB * 1024 * 1024) return toast(`A imagem deve ter no máximo ${LIMITE_MB} MB.`, true);
+    const problema = imagemAceitavel(arq, LIMITE_MB);
+    if (problema) return toast(problema, true);
     novos[tipo] = arq; remover[tipo] = false;
     $(`#zona-${tipo}`).style.backgroundImage = `url('${URL.createObjectURL(arq)}')`;
   };

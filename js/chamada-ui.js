@@ -156,6 +156,16 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
       <button data-t="esq" title="Mover para trás" aria-label="Mover para trás">◀</button><button data-t="dir" title="Mover para frente" aria-label="Mover para frente">▶</button>
       <button data-t="menor" title="Diminuir" aria-label="Diminuir">➖</button><button data-t="maior" title="Aumentar" aria-label="Aumentar">➕</button>
       <button data-t="destaque" title="Destacar (grande e primeiro)" aria-label="Destacar">⭐</button></span>`);
+    // Volume individual (só para os outros): voz e som da tela separados, lembrados neste aparelho
+    if (t.querySelector('audio')) {
+      t.insertAdjacentHTML('beforeend', `<span class="volume-tile">
+        <button data-vol="mudo" title="Silenciar esta pessoa só para você" aria-label="Silenciar esta pessoa">🔊</button>
+        <span class="vol-painel hidden">
+          <label title="Volume da voz">🎤 <input type="range" min="0" max="100" step="5" data-vol="voz" aria-label="Volume da voz"></label>
+          <label title="Volume do som da tela compartilhada">🖥️ <input type="range" min="0" max="100" step="5" data-vol="tela" aria-label="Volume do som da tela"></label>
+        </span></span>`);
+      ligarVolume(t);
+    }
     t.querySelector('.ajuste-tile').onclick = (e) => {
       const b = e.target.closest('button'); if (!b) return;
       e.stopPropagation();
@@ -178,6 +188,38 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     });
   };
   new MutationObserver(() => { tiles().forEach(controlesTile); aplicarLayout(); }).observe(salaEl, { childList: true });
+
+  function ligarVolume(t) {
+    const chave = 'cc_vol_' + t.dataset.id;
+    let cfg = { voz: 100, tela: 100, mudo: false };
+    try { cfg = { ...cfg, ...JSON.parse(localStorage.getItem(chave) || '{}') }; } catch { /* sem armazenamento */ }
+    const v = t.querySelector('.volume-tile'), bt = v.querySelector('[data-vol="mudo"]');
+    const aplicar = () => {
+      t.querySelectorAll('audio').forEach((a) => {
+        a.muted = cfg.mudo;
+        a.volume = (a.classList.contains('som-tela') ? cfg.tela : cfg.voz) / 100;
+      });
+      bt.textContent = cfg.mudo ? '🔇' : cfg.voz < 50 ? '🔉' : '🔊';
+      bt.classList.toggle('ativo', cfg.mudo);
+      t.classList.toggle('silenciado-por-mim', cfg.mudo);
+      try { localStorage.setItem(chave, JSON.stringify(cfg)); } catch { /* ignora */ }
+    };
+    v.querySelector('[data-vol="voz"]').value = cfg.voz;
+    v.querySelector('[data-vol="tela"]').value = cfg.tela;
+    // Clique: silencia/reativa. Passar o mouse (ou tocar e segurar): mostra os controles de volume
+    bt.onclick = (e) => { e.stopPropagation(); cfg.mudo = !cfg.mudo; aplicar(); };
+    bt.oncontextmenu = (e) => { e.preventDefault(); v.querySelector('.vol-painel').classList.toggle('hidden'); };
+    v.onmouseenter = () => v.querySelector('.vol-painel').classList.remove('hidden');
+    v.onmouseleave = () => v.querySelector('.vol-painel').classList.add('hidden');
+    v.querySelectorAll('input').forEach((i) => {
+      i.onclick = (e) => e.stopPropagation();
+      i.oninput = () => { cfg[i.dataset.vol] = Number(i.value); if (i.dataset.vol === 'voz' && cfg.mudo && cfg.voz > 0) cfg.mudo = false; aplicar(); };
+    });
+    v.draggable = false; v.ondragstart = (e) => { e.preventDefault(); e.stopPropagation(); };
+    // O som da tela compartilhada chega depois (outro elemento <audio>): aplica também nele
+    new MutationObserver(aplicar).observe(t, { childList: true });
+    aplicar();
+  }
   box.querySelector('[data-l="auto"]').onclick = () => { ajustes.clear(); aplicarLayout(); };
 
   // Configurações de áudio
