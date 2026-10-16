@@ -115,8 +115,11 @@ async function carregarFeed(reiniciar) {
     const { data: um } = await sb.from('posts').select(COLUNAS_POST).eq('id', alvo).maybeSingle();
     if (um) html = postHtml(um, { u }) + html;
   }
-  if (reiniciar) box.innerHTML = html || '<p class="vazio">Nenhum post ainda. Que tal ser o primeiro? 📸</p>';
+  if (reiniciar) box.innerHTML = html || `<div class="cartao vazio" style="text-align:center">📸 <strong>O feed está esperando o primeiro post!</strong>
+    <p class="muted" style="margin:6px 0 10px">Compartilhe um print, uma conquista ou o que você está jogando.</p>
+    ${u ? '<button class="btn" id="primeiro-post">Publicar agora</button>' : '<a class="btn" href="entrar.html">Entrar para publicar</a>'}</div>`;
   else box.insertAdjacentHTML('beforeend', html);
+  $('#primeiro-post')?.addEventListener('click', () => { $('#cp-txt')?.focus(); $('#compositor')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
   ligarPosts(box, { u });
   $('#mais-feed').classList.toggle('hidden', (ps || []).length < POR);
   $('#mais-feed').onclick = () => { paginaFeed++; carregarFeed(false); };

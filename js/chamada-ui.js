@@ -35,8 +35,8 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     </div>
     <div class="controles" style="align-items:center;justify-content:space-between">
       <p class="muted" data-v="info"></p>
-      <span class="controles hidden" data-v="layout"><button class="chip ativo" data-l="grade">▦ Grade</button><button class="chip" data-l="destaque">⬛ Destaque</button>
-        <span class="muted" style="font-size:.8rem">Clique nos vídeos para fixar (até 4 lado a lado)</span></span>
+      <span class="controles hidden" data-v="layout" style="align-items:center"><button class="chip" data-l="auto" title="Volta todos os vídeos ao tamanho e à ordem automáticos">↺ Organizar automático</button>
+        <span class="muted" style="font-size:.8rem">Passe o mouse num vídeo: ➖➕ muda o tamanho, ◀▶ ou arrastar muda a ordem, ⭐ destaca. Clique duplo: maximizar.</span></span>
     </div>
     <div class="aviso hidden" data-v="aviso"></div>
     <div class="call-layout">
@@ -106,31 +106,79 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
       if (el('o-som').checked && !r?.comSom) toast('Compartilhando sem som: o navegador não liberou o áudio dessa janela. Para ter som, compartilhe a tela inteira ou uma aba.');
     } catch (e) { if (e.name !== 'NotAllowedError') falha(e); }
   };
-  // Layout: grade (todos iguais) ou destaque (um grande + miniaturas). Clique num vídeo para destacá-lo.
+  // Grade livre: cada vídeo tem tamanho (colunas de 12) e posição escolhidos por você.
+  // Sem ajuste manual, o tamanho é automático pela quantidade de pessoas.
   const salaEl = el('sala');
-  // Várias transmissões fixadas ao mesmo tempo dividem a linha de cima; as demais viram miniaturas
-  const aplicarFoco = () => {
-    const fixos = salaEl.querySelectorAll('.participante.foco');
-    salaEl.classList.toggle('destaque', fixos.length > 0);
-    salaEl.style.setProperty('--span', String(12 / Math.min(fixos.length || 1, 4) | 0 || 12));
-    if (fixos.length === 4) salaEl.style.setProperty('--span', '6'); // 2x2
-    box.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('ativo', b.dataset.l === (fixos.length ? 'destaque' : 'grade')));
+  salaEl.classList.add('livre');
+  const TAMANHOS = [3, 4, 6, 8, 12];
+  const ajustes = new Map(); // id -> { tam, ordem } (só o que você mexeu)
+  const tiles = () => [...salaEl.querySelectorAll('.participante')];
+  const tamAuto = () => { const n = tiles().length; return n <= 1 ? 12 : n <= 4 ? 6 : n <= 9 ? 4 : 3; };
+  const aplicarLayout = () => {
+    const lista = tiles().sort((x, y) => (ajustes.get(x.dataset.id)?.ordem ?? 1e3 + tiles().indexOf(x)) - (ajustes.get(y.dataset.id)?.ordem ?? 1e3 + tiles().indexOf(y)));
+    lista.forEach((t, i) => {
+      const a = ajustes.get(t.dataset.id);
+      t.style.setProperty('--tam', a?.tam ?? tamAuto());
+      t.style.order = i;
+      t.dataset.pos = i;
+    });
   };
-  salaEl.addEventListener('click', (e) => {
-    const t = e.target.closest('.participante');
-    if (!t || e.target.closest('button')) return;
-    if (!t.classList.contains('foco') && salaEl.querySelectorAll('.participante.foco').length >= 4) return toast('Máximo de 4 vídeos fixados.');
-    t.classList.toggle('foco'); aplicarFoco();
-  });
-  box.querySelectorAll('[data-l]').forEach((b) => b.onclick = () => {
-    salaEl.querySelectorAll('.participante').forEach((t) => t.classList.remove('foco'));
-    if (b.dataset.l === 'destaque') {
-      // destaque: fixa quem está transmitindo vídeo (ou o primeiro)
-      const comVideo = [...salaEl.querySelectorAll('.participante')].filter((t) => t.querySelector('video.v')?.style.display !== 'none').slice(0, 4);
-      (comVideo.length ? comVideo : [salaEl.querySelector('.participante')]).forEach((t) => t?.classList.add('foco'));
-    }
-    aplicarFoco();
-  });
+  const renumerar = () => tiles().sort((x, y) => x.dataset.pos - y.dataset.pos).forEach((t, i) => { const a = ajustes.get(t.dataset.id) || {}; a.ordem = i; ajustes.set(t.dataset.id, a); });
+  const mover = (t, d) => {
+    renumerar();
+    const lista = tiles().sort((x, y) => ajustes.get(x.dataset.id).ordem - ajustes.get(y.dataset.id).ordem);
+    const i = lista.indexOf(t), j = i + d;
+    if (j < 0 || j >= lista.length) return;
+    [lista[i], lista[j]] = [lista[j], lista[i]];
+    lista.forEach((x, k) => (ajustes.get(x.dataset.id).ordem = k));
+    aplicarLayout();
+  };
+  const redimensionar = (t, d) => {
+    const a = ajustes.get(t.dataset.id) || {};
+    const atual = Number(t.style.getPropertyValue('--tam')) || tamAuto();
+    const k = TAMANHOS.findIndex((x) => x >= atual);
+    a.tam = TAMANHOS[Math.max(0, Math.min(TAMANHOS.length - 1, (k < 0 ? 2 : k) + d))];
+    ajustes.set(t.dataset.id, a); aplicarLayout();
+  };
+  const destacar = (t) => {
+    renumerar();
+    const a = ajustes.get(t.dataset.id);
+    const ja = a.tam === 12 && a.ordem === 0;
+    tiles().forEach((x) => { const b = ajustes.get(x.dataset.id); if (x !== t) b.ordem += 1; });
+    a.ordem = 0; a.tam = ja ? undefined : 12;
+    aplicarLayout();
+  };
+  // Controles em cada vídeo (adicionados quando a pessoa entra na sala)
+  const controlesTile = (t) => {
+    if (t.querySelector('.ajuste-tile')) return;
+    t.draggable = true;
+    t.insertAdjacentHTML('beforeend', `<span class="ajuste-tile">
+      <button data-t="esq" title="Mover para trás" aria-label="Mover para trás">◀</button><button data-t="dir" title="Mover para frente" aria-label="Mover para frente">▶</button>
+      <button data-t="menor" title="Diminuir" aria-label="Diminuir">➖</button><button data-t="maior" title="Aumentar" aria-label="Aumentar">➕</button>
+      <button data-t="destaque" title="Destacar (grande e primeiro)" aria-label="Destacar">⭐</button></span>`);
+    t.querySelector('.ajuste-tile').onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      e.stopPropagation();
+      ({ esq: () => mover(t, -1), dir: () => mover(t, 1), menor: () => redimensionar(t, -1), maior: () => redimensionar(t, 1), destaque: () => destacar(t) })[b.dataset.t]();
+    };
+    t.addEventListener('dblclick', (e) => { if (!e.target.closest('button')) destacar(t); });
+    // Arrastar e soltar: solta um vídeo sobre outro para trocar de lugar
+    t.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', t.dataset.id); t.classList.add('arrastando'); });
+    t.addEventListener('dragend', () => t.classList.remove('arrastando'));
+    t.addEventListener('dragover', (e) => { e.preventDefault(); t.classList.add('alvo'); });
+    t.addEventListener('dragleave', () => t.classList.remove('alvo'));
+    t.addEventListener('drop', (e) => {
+      e.preventDefault(); t.classList.remove('alvo');
+      const outro = salaEl.querySelector(`.participante[data-id="${CSS.escape(e.dataTransfer.getData('text/plain'))}"]`);
+      if (!outro || outro === t) return;
+      renumerar();
+      const a = ajustes.get(t.dataset.id), b = ajustes.get(outro.dataset.id);
+      [a.ordem, b.ordem] = [b.ordem, a.ordem];
+      aplicarLayout();
+    });
+  };
+  new MutationObserver(() => { tiles().forEach(controlesTile); aplicarLayout(); }).observe(salaEl, { childList: true });
+  box.querySelector('[data-l="auto"]').onclick = () => { ajustes.clear(); aplicarLayout(); };
 
   // Configurações de áudio
   const prefs = prefsAudio();

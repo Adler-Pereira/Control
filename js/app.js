@@ -110,8 +110,10 @@ export async function exigirLogin() {
 // ---------- Layout comum ----------
 const LINKS = [
   ['index.html', 'Início'], ['jogos.html', 'Jogos'], ['novidades.html', 'Novidades'], ['promocoes.html', 'Promoções'],
-  ['comunidades.html', 'Comunidades'], ['sobre.html', 'Quem Somos'], ['contato.html', 'Fale Conosco'],
+  ['comunidades.html', 'Comunidades'],
 ];
+// Ficam no menu "Mais" (deixa a barra do topo numa linha só)
+const LINKS_MAIS = [['conquistas.html', '🏆 Conquistas'], ['sobre.html', 'Quem Somos'], ['contato.html', 'Fale Conosco'], ['privacidade.html', 'Privacidade']];
 
 export async function montarLayout() {
   const pagina = location.pathname.split('/').pop() || 'index.html';
@@ -124,12 +126,15 @@ export async function montarLayout() {
         <img class="mascote" src="img/Adelino.png" alt="">
       </a>
       <button class="menu-toggle" aria-label="Abrir menu">☰</button>
-      <nav class="nav">${LINKS.map(([h, t]) => `<a href="${h}" class="${h === pagina ? 'ativo' : ''}">${t}</a>`).join('')}</nav>
+      <nav class="nav">${LINKS.map(([h, t]) => `<a href="${h}" class="${h === pagina ? 'ativo' : ''}">${t}</a>`).join('')}
+        <details class="nav-mais"><summary class="${LINKS_MAIS.some(([h]) => h === pagina) ? 'ativo' : ''}">Mais ▾</summary>
+          <div class="nav-sub">${LINKS_MAIS.map(([h, t]) => `<a href="${h}" class="${h === pagina ? 'ativo' : ''}">${t}</a>`).join('')}</div></details></nav>
       <form class="busca" action="jogos.html"><input name="q" type="search" placeholder="Buscar jogo..." aria-label="Buscar jogo"></form>
       <div class="conta"></div>
     </div>`;
   document.body.prepend(topo);
   $('.menu-toggle', topo).onclick = () => topo.classList.toggle('aberto');
+  document.addEventListener('click', (e) => { const m = $('.nav-mais', topo); if (m?.open && !m.contains(e.target)) m.open = false; });
 
   const rodape = document.createElement('footer');
   rodape.className = 'rodape';
