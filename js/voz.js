@@ -14,10 +14,15 @@ async function servidoresIce() {
     const r = await fetch('/.netlify/functions/turn');
     if (r.ok) {
       const d = await r.json();
-      if (d.iceServers?.length) return (iceCache = { lista: [...ICE_SERVERS, ...d.iceServers], turn: true, expira: Date.now() + 3600e3 });
+      if (d.iceServers?.length) {
+        // Primeiro só os TURN próprios (Oracle, IPv6 de casa); a Cloudflare entra como reserva se não conectar
+        const completa = [...ICE_SERVERS, ...d.iceServers];
+        const inicial = d.primarios?.length && d.reserva?.length ? [...ICE_SERVERS, ...d.primarios] : completa;
+        return (iceCache = { lista: inicial, completa, turn: true, expira: Date.now() + 3600e3 });
+      }
     }
   } catch { /* sem função: só STUN */ }
-  return (iceCache = { lista: ICE_SERVERS, turn: false, expira: Date.now() + 600e3 });
+  return (iceCache = { lista: ICE_SERVERS, completa: ICE_SERVERS, turn: false, expira: Date.now() + 600e3 });
 }
 
 // Preferências de áudio (salvas no aparelho): microfone, supressão de ruído, cancelamento de eco, ganho automático
@@ -74,6 +79,12 @@ export class SalaVoz {
     for (const [id, p] of this.peers) {
       const { pc } = p;
       if (pc.connectionState === 'connected' || Date.now() - p.criado < 5000) continue;
+      // Não conectou só com os servidores próprios: acrescenta a reserva (Cloudflare) e refaz a busca de caminho
+      if (!p.comReserva && this.ice.completa.length > this.ice.lista.length) {
+        p.comReserva = true;
+        try { pc.setConfiguration({ ...pc.getConfiguration(), iceServers: this.ice.completa }); if (!p.polite && pc.remoteDescription) pc.restartIce(); } catch (e) { console.warn(e); }
+        continue;
+      }
       try {
         if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
           this.#enviar(id, { desc: pc.localDescription });              // a oferta pode ter se perdido

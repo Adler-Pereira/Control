@@ -179,6 +179,16 @@ Antes de abrir para o público, confira:
 - [ ] Testar a prévia de um link no WhatsApp ou no Discord (ex.: a página de um jogo).
 - [ ] Enviar o sitemap no Google Search Console: `https://SEU-SITE/sitemap.xml` (o endereço no `robots.txt` está com control-critic.netlify.app; troque se mudar o domínio).
 
+## Servidores TURN próprios (opcional, economizam a Cloudflare)
+
+A call tenta primeiro os seus servidores TURN e só usa a Cloudflare se eles não responderem.
+
+Guias na pasta `turn-proprio`:
+- [`GUIA-ORACLE.md`](turn-proprio/GUIA-ORACLE.md): máquina grátis na Oracle Cloud, sempre ligada;
+- [`GUIA-IPV6-CASA.md`](turn-proprio/GUIA-IPV6-CASA.md): o seu PC, por IPv6, para quem tem CGNAT.
+
+Para testar se cada servidor está respondendo: **Admin → Site → 📡 Servidores de retransmissão**.
+
 ## Ponte de voz com o Discord (opcional)
 
 Junta o canal de voz do Discord da comunidade com a call do site, para quem joga no console falar com quem está no site.
