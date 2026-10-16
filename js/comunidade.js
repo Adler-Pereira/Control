@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatar, avatarHtml, data, toast, falha, urlSegura, denunciar } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, usuario, perfil, avatar, avatarHtml, data, toast, falha, urlSegura, denunciar, aoVivo, seloAoVivo } from './app.js';
 import { montarCall } from './chamada-ui.js';
 
 await montarLayout();
@@ -133,6 +133,15 @@ async function carregar() {
     carregarEventos(u, membro, dono, c.game_id);
   });
   $('#den-comunidade')?.addEventListener('click', () => denunciar('community', id));
+
+  // Membros transmitindo na Twitch agora
+  if (!bloqueada) sb.from('community_members').select('profiles(username,twitch_user)').eq('community_id', id).limit(300).then(async ({ data: ms }) => {
+    const comTwitch = (ms || []).map((m) => m.profiles).filter((x) => x?.twitch_user);
+    const vivo = await aoVivo(comTwitch.map((x) => x.twitch_user));
+    const lives = comTwitch.filter((x) => vivo.has(x.twitch_user.toLowerCase()));
+    if (lives.length) main.querySelector('.cartao')?.insertAdjacentHTML('beforeend', `<div style="margin-top:10px"><strong>📺 Membros ao vivo agora:</strong>
+      ${lives.map((x) => `${esc(x.username)} ${seloAoVivo(vivo.get(x.twitch_user.toLowerCase()), x.twitch_user)}`).join(' · ')}</div>`);
+  });
 
   $('#participar')?.addEventListener('click', async () => {
     let mensagem = null;

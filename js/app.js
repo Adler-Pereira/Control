@@ -4,6 +4,9 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 // Aceita a URL com ou sem "/rest/v1" e barras no final
 const URL_PROJETO = SUPABASE_URL.trim().replace(/\/+(rest\/v1)?\/*$/, '');
 const chaveSecreta = /^sb_secret_/.test(SUPABASE_ANON_KEY) || /service_role/.test(atobSeguro(SUPABASE_ANON_KEY.split('.')[1]));
+// Tema salvo (claro/escuro) aplicado antes de montar a página
+try { const t = localStorage.getItem('cc_tema'); if (t) document.documentElement.dataset.tema = t; } catch { /* ignora */ }
+
 export const configurado = URL_PROJETO.startsWith('https://') && !SUPABASE_ANON_KEY.startsWith('COLE_') && !chaveSecreta;
 export const sb = configurado ? createClient(URL_PROJETO, SUPABASE_ANON_KEY) : null;
 
@@ -121,8 +124,17 @@ export async function montarLayout() {
     <p>© ${new Date().getFullYear()} Control Critic. Todos os direitos reservados.</p>
     <p style="font-size:.8rem;margin-top:6px">Dados de jogos: <a href="https://www.igdb.com" target="_blank" rel="noopener">IGDB.com</a> e Steam.</p>
     <p style="font-size:.85rem;margin-top:8px"><a href="privacidade.html">Privacidade</a> · <a href="termos.html">Termos de uso</a> ·
-      <a href="contato.html">Contato</a> <button class="btn sec pequeno hidden" id="instalar" style="margin-left:8px">📲 Instalar app</button></p>`;
+      <a href="contato.html">Contato</a> <button class="btn sec pequeno hidden" id="instalar" style="margin-left:8px">📲 Instalar app</button>
+      <button class="btn sec pequeno" id="tema" style="margin-left:8px" aria-label="Alternar tema claro/escuro">${document.documentElement.dataset.tema === 'claro' ? '🌙 Tema escuro' : '☀️ Tema claro'}</button></p>`;
   document.body.append(rodape);
+  $('#tema', rodape).onclick = (e) => {
+    const claro = document.documentElement.dataset.tema !== 'claro';
+    document.documentElement.dataset.tema = claro ? 'claro' : '';
+    e.currentTarget.textContent = claro ? '🌙 Tema escuro' : '☀️ Tema claro';
+    try { localStorage.setItem('cc_tema', claro ? 'claro' : ''); } catch { /* ignora */ }
+  };
+  // Atalho para leitores de tela / teclado
+  document.body.insertAdjacentHTML('afterbegin', '<a class="pular" href="#conteudo">Pular para o conteúdo</a>');
 
   configurarPwa();
 
@@ -167,6 +179,9 @@ export async function montarLayout() {
   }
   sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') location.href = 'index.html'; });
 }
+
+// Colunas usadas pelos cards de jogo (pedir só isso economiza tráfego do Supabase)
+export const COLUNAS_CARD = 'id,slug,title,cover_url,avg_rating,reviews_count,categories(name)';
 
 export function cardJogo(g) {
   return `<a class="jogo-card" href="jogo.html?slug=${encodeURIComponent(g.slug)}">
@@ -254,10 +269,21 @@ async function loginDiario() {
 // ---------- Quem está online (presença global, usada na página de amigos) ----------
 let canalOnline = null;
 const ouvintesOnline = new Set();
+// Para economizar conexões do Supabase, sai da presença quando a aba fica 1 min em segundo plano
 function entrarOnline(p) {
-  canalOnline = sb.channel('online', { config: { presence: { key: p.id } } });
-  canalOnline.on('presence', { event: 'sync' }, () => ouvintesOnline.forEach((f) => f(onlineAgora())))
-    .subscribe((st) => { if (st === 'SUBSCRIBED') canalOnline.track({ em: Date.now() }); });
+  const conectar = () => {
+    if (canalOnline) return;
+    canalOnline = sb.channel('online', { config: { presence: { key: p.id } } });
+    canalOnline.on('presence', { event: 'sync' }, () => ouvintesOnline.forEach((f) => f(onlineAgora())))
+      .subscribe((st) => { if (st === 'SUBSCRIBED') canalOnline?.track({ em: Date.now() }); });
+  };
+  let timer;
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(timer);
+    if (document.hidden) timer = setTimeout(() => { if (canalOnline) { sb.removeChannel(canalOnline); canalOnline = null; } }, 60000);
+    else conectar();
+  });
+  conectar();
 }
 export function onlineAgora() { return new Set(Object.keys(canalOnline?.presenceState() || {})); }
 export function aoMudarOnline(f) { ouvintesOnline.add(f); f(onlineAgora()); }
@@ -268,7 +294,7 @@ export function aoMudarOnline(f) { ouvintesOnline.add(f); f(onlineAgora()); }
 export async function sair() {
   try { await sb.auth.signOut({ scope: 'local' }); } catch { /* segue limpando */ }
   try {
-    for (const k of Object.keys(localStorage)) if (k.startsWith('sb-') || k.startsWith('cc_')) localStorage.removeItem(k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith('sb-') || (k.startsWith('cc_') && k !== 'cc_tema')) localStorage.removeItem(k);
     sessionStorage.clear();
   } catch { /* armazenamento bloqueado */ }
   location.href = 'index.html';
@@ -321,4 +347,47 @@ async function carregarEstilosItens() {
   let el = document.getElementById('estilos-itens');
   if (!el) { el = document.createElement('style'); el.id = 'estilos-itens'; document.head.append(el); }
   el.textContent = itens.map(cssDoItem).join('\n');
+}
+
+// ---------- Twitch: quem está ao vivo ----------
+export async function aoVivo(logins) {
+  const lista = [...new Set(logins.filter((l) => /^[A-Za-z0-9_]{3,25}$/.test(l || '')).map((l) => l.toLowerCase()))].slice(0, 100);
+  if (!lista.length) return new Map();
+  try {
+    const r = await fetch('/.netlify/functions/ao-vivo?logins=' + lista.join(','));
+    if (!r.ok) return new Map();
+    return new Map((await r.json()).ao_vivo.map((s) => [s.login.toLowerCase(), s]));
+  } catch { return new Map(); }
+}
+export const seloAoVivo = (s, login) => `<a class="ao-vivo" href="https://twitch.tv/${encodeURIComponent(login)}" target="_blank" rel="noopener"
+  title="${esc(s.titulo || '')}">🔴 AO VIVO${s.jogo ? ' · ' + esc(s.jogo) : ''}</a>`;
+
+// ---------- Notificações no celular (Web Push) ----------
+const b64url = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+export function pushSuportado() { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+export async function estadoPush() {
+  if (!pushSuportado()) return 'sem-suporte';
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = await reg?.pushManager.getSubscription();
+  return sub ? 'ativo' : Notification.permission === 'denied' ? 'bloqueado' : 'inativo';
+}
+export async function ativarPush(uid) {
+  if (!pushSuportado()) throw new Error('Este navegador não suporta notificações. No iPhone, instale o app (Compartilhar → Adicionar à Tela de Início) e abra por ele.');
+  const r = await fetch('/.netlify/functions/push');
+  if (!r.ok) throw new Error('As notificações no celular ainda não foram configuradas pelo administrador.');
+  const { publicKey } = await r.json();
+  if (await Notification.requestPermission() !== 'granted') throw new Error('Permissão negada. Libere as notificações nas configurações do navegador para este site.');
+  const reg = await navigator.serviceWorker.register('/sw.js');
+  await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) });
+  const j = sub.toJSON();
+  const { error } = await sb.from('push_subscriptions').upsert({ endpoint: j.endpoint, user_id: uid, p256dh: j.keys.p256dh, auth: j.keys.auth });
+  if (error) throw error;
+}
+export async function desativarPush() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = await reg?.pushManager.getSubscription();
+  if (!sub) return;
+  await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+  await sub.unsubscribe();
 }

@@ -27,6 +27,24 @@ const painel = () => $('#painel');
 const VIEWS = { geral, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, registro, site, auto };
 function abrir(k) { painel().innerHTML = '<p class="muted">Carregando...</p>'; VIEWS[k]().catch(falha); }
 
+// Campo de busca de jogo com sugestões (o catálogo tem milhares de jogos)
+function ligarBuscaJogo(input) {
+  const caixa = input.parentElement, oculto = caixa.querySelector('input[type=hidden]'), sug = caixa.querySelector('.sugestoes');
+  let t;
+  input.oninput = () => {
+    oculto.value = '';
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const termo = input.value.trim().replace(/[%,()]/g, '');
+      if (termo.length < 2) return sug.classList.add('hidden');
+      const { data } = await sb.from('games').select('id,title,release_year').ilike('title', `%${termo}%`).order('igdb_rating_count', { ascending: false, nullsFirst: false }).limit(8);
+      sug.innerHTML = (data || []).map((j) => `<button type="button" data-id="${j.id}" data-t="${esc(j.title)}">${esc(j.title)}${j.release_year ? ` <span class="muted">(${j.release_year})</span>` : ''}</button>`).join('') || '<p class="muted" style="padding:8px">Nenhum jogo.</p>';
+      sug.classList.remove('hidden');
+      sug.querySelectorAll('[data-id]').forEach((b) => b.onclick = () => { oculto.value = b.dataset.id; input.value = b.dataset.t; sug.classList.add('hidden'); });
+    }, 300);
+  };
+}
+
 // Formulário genérico em <dialog>. campos: [nome, rótulo, tipo, opções]
 function formulario(titulo, campos, valores = {}) {
   const dlg = $('#dlg');
@@ -37,10 +55,13 @@ function formulario(titulo, campos, valores = {}) {
       if (tipo === 'checkbox') return `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="${n}" style="width:auto" ${v ? 'checked' : ''}> ${r}</label>`;
       if (tipo === 'select') return `<label>${r}</label><select name="${n}"><option value="">—</option>${ops.map(([ov, ot]) => `<option value="${esc(ov)}" ${String(ov) === String(v) ? 'selected' : ''}>${esc(ot)}</option>`).join('')}</select>`;
       if (tipo === 'file') return `<label>${r}</label><input type="file" name="${n}" accept="image/*">`;
+      if (tipo === 'jogo') return `<label>${r}</label><div class="busca-jogo"><input type="search" data-busca-jogo="${n}" placeholder="Digite o nome do jogo..." value="${esc(valores.__jogo_titulo || '')}" autocomplete="off">
+        <input type="hidden" name="${n}" value="${esc(v)}"><div class="sugestoes hidden"></div></div>`;
       return `<label>${r}</label><input type="${tipo}" name="${n}" value="${esc(v)}">`;
     }).join('')}
     <div class="controles" style="margin-top:16px"><button class="btn" value="ok">Salvar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div></form>`;
   dlg.showModal();
+  dlg.querySelectorAll('[data-busca-jogo]').forEach(ligarBuscaJogo);
   return new Promise((ok) => dlg.addEventListener('close', () => {
     if (dlg.returnValue !== 'ok') return ok(null);
     const f = dlg.querySelector('form'), out = {};
@@ -96,9 +117,14 @@ async function geral() {
 }
 
 // ---------------- Jogos ----------------
+const filtroJogos = { q: '', destaque: false, pagina: 0 };
 async function jogos() {
-  const [{ data: gs }, { data: cats }] = await Promise.all([
-    sb.from('games').select('*, categories(name)').order('title'), sb.from('categories').select('*').order('name')]);
+  const f = filtroJogos;
+  let q = sb.from('games').select('id,slug,title,featured,avg_rating,reviews_count,categories(name)', { count: 'exact' })
+    .order('featured', { ascending: false }).order('igdb_rating_count', { ascending: false, nullsFirst: false }).range(f.pagina * 50, f.pagina * 50 + 49);
+  if (f.q) q = q.ilike('title', `%${f.q.replace(/[%,()]/g, '')}%`);
+  if (f.destaque) q = q.eq('featured', true);
+  const [{ data: gs, count }, { data: cats }] = await Promise.all([q, sb.from('categories').select('*').order('name')]);
   const campos = [
     ['title', 'Título'], ['slug', 'Slug (endereço, ex.: elden-ring)'], ['description', 'Descrição', 'textarea'],
     ['category_id', 'Categoria', 'select', cats.map((c) => [c.id, c.name])], ['release_year', 'Ano de lançamento', 'number'],
@@ -106,7 +132,10 @@ async function jogos() {
     ['store_ps', 'Link PlayStation'], ['store_xbox', 'Link Xbox'], ['store_steam', 'Link Steam'], ['store_nintendo', 'Link Nintendo'],
     ['steam_appid', 'ID na Steam (para promoções e notícias automáticas)', 'number'],
   ];
-  painel().innerHTML = `<div class="controles" style="margin-bottom:12px"><button class="btn" data-acao="novo">+ Novo jogo</button></div>
+  painel().innerHTML = `<div class="controles" style="margin-bottom:12px"><button class="btn" data-acao="novo">+ Novo jogo</button>
+      <input id="j-q" type="search" placeholder="Buscar jogo..." value="${esc(f.q)}" style="max-width:300px">
+      <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:400"><input type="checkbox" id="j-dest" style="width:auto" ${f.destaque ? 'checked' : ''}> Só destaques</label>
+      <span class="muted">${(count ?? 0).toLocaleString('pt-BR')} jogo(s)</span></div>
     ${tabela(['Jogo', 'Categoria', 'Nota', 'Destaque', ''], gs.map((g) => `<tr>
       <td><a href="jogo.html?slug=${encodeURIComponent(g.slug)}" target="_blank">${esc(g.title)}</a></td><td>${esc(g.categories?.name || '—')}</td>
       <td>${Number(g.avg_rating).toFixed(1)} (${g.reviews_count})</td><td>${g.featured ? '⭐' : ''}</td>
@@ -125,20 +154,28 @@ async function jogos() {
   };
   acoes({
     novo: () => salvar({}),
-    editar: (id) => salvar(gs.find((g) => g.id == id), id),
+    editar: async (id) => { const { data: g } = await sb.from('games').select('*').eq('id', id).single(); salvar(g, id); },
     excluir: async (id) => {
       if (!confirm('Excluir o jogo e todas as avaliações dele?')) return;
       const { error } = await sb.from('games').delete().eq('id', id); if (error) throw error; jogos();
     },
   });
+  let tj;
+  $('#j-q').oninput = (e) => { clearTimeout(tj); tj = setTimeout(() => { f.q = e.target.value.trim(); f.pagina = 0; jogos(); }, 350); };
+  $('#j-dest').onchange = (e) => { f.destaque = e.target.checked; f.pagina = 0; jogos(); };
+  painel().insertAdjacentHTML('beforeend', `<div class="controles" style="justify-content:center;margin-top:12px">
+    ${f.pagina > 0 ? '<button class="btn sec pequeno" id="j-ant">← Anteriores</button>' : ''}
+    ${(f.pagina + 1) * 50 < (count ?? 0) ? '<button class="btn sec pequeno" id="j-prox">Próximos →</button>' : ''}</div>`);
+  $('#j-ant')?.addEventListener('click', () => { f.pagina--; jogos(); });
+  $('#j-prox')?.addEventListener('click', () => { f.pagina++; jogos(); });
 }
 
 // ---------------- Notícias ----------------
 async function noticias() {
   const [{ data: ns }, { data: gs }] = await Promise.all([
-    sb.from('news').select('*').order('created_at', { ascending: false }).limit(200), sb.from('games').select('id,title').order('title')]);
+    sb.from('news').select('*, games(title)').order('created_at', { ascending: false }).limit(200), Promise.resolve({ data: [] })]);
   const campos = [['title', 'Título'], ['summary', 'Resumo (aparece na página inicial)'], ['body', 'Texto', 'textarea'],
-    ['game_id', 'Jogo relacionado', 'select', gs.map((g) => [g.id, g.title])], ['cover_url', 'URL da imagem'], ['imagem', 'Enviar imagem', 'file'],
+    ['game_id', 'Jogo relacionado (opcional)', 'jogo'], ['cover_url', 'URL da imagem'], ['imagem', 'Enviar imagem', 'file'],
     ['published', 'Publicada', 'checkbox']];
   painel().innerHTML = `<div class="controles" style="margin-bottom:12px"><button class="btn" data-acao="novo">+ Escrever notícia</button></div>
     ${tabela(['Título', 'Fonte', 'Data', 'Status', ''], ns.map((n) => `<tr>
@@ -158,7 +195,7 @@ async function noticias() {
   };
   acoes({
     novo: () => salvar({ published: true }),
-    editar: (id) => salvar(ns.find((n) => n.id == id), id),
+    editar: (id) => { const n = ns.find((x) => x.id == id); salvar({ ...n, __jogo_titulo: n.games?.title }, id); },
     alternar: async (id) => { const n = ns.find((x) => x.id == id); const { error } = await sb.from('news').update({ published: !n.published }).eq('id', id); if (error) throw error; noticias(); },
     excluir: async (id) => { if (!confirm('Excluir notícia?')) return; const { error } = await sb.from('news').delete().eq('id', id); if (error) throw error; noticias(); },
   });
@@ -167,12 +204,12 @@ async function noticias() {
 // ---------------- Promoções ----------------
 async function promos() {
   const [{ data: ds }, { data: gs }] = await Promise.all([
-    sb.from('deals').select('*, games(title)').order('discount_pct', { ascending: false }), sb.from('games').select('id,title').order('title')]);
-  const campos = [['game_id', 'Jogo', 'select', gs.map((g) => [g.id, g.title])],
+    sb.from('deals').select('*, games(title)').eq('auto', false).order('discount_pct', { ascending: false }).limit(300), Promise.resolve({ data: [] })]);
+  const campos = [['game_id', 'Jogo', 'jogo'],
     ['store', 'Loja', 'select', [['playstation', 'PlayStation'], ['xbox', 'Xbox'], ['nintendo', 'Nintendo'], ['steam', 'Steam'], ['outra', 'Outra']]],
     ['preco', 'Preço com desconto (R$)', 'number'], ['original', 'Preço original (R$)', 'number'], ['discount_pct', 'Desconto (%)', 'number'],
     ['url', 'Link da oferta'], ['ends_at', 'Termina em', 'date']];
-  painel().innerHTML = `<p class="muted">Promoções da Steam são atualizadas automaticamente (marcadas como "auto"). Cadastre aqui ofertas de outras lojas.</p>
+  painel().innerHTML = `<p class="muted">Aqui ficam as ofertas cadastradas manualmente (PlayStation, Xbox, Nintendo...). As da Steam são automáticas e aparecem na página Promoções.</p>
     <div class="controles" style="margin:12px 0"><button class="btn" data-acao="novo">+ Nova promoção</button></div>
     ${tabela(['Jogo', 'Loja', 'Preço', 'Desconto', 'Atualizada', ''], ds.map((d) => `<tr>
       <td>${esc(d.games?.title)}</td><td>${esc(d.store)} ${d.auto ? '<span class="tag">auto</span>' : ''}</td>
@@ -181,7 +218,7 @@ async function promos() {
       <button class="btn perigo pequeno" data-acao="excluir" data-id="${d.id}">Excluir</button></td></tr>`))}`;
   const salvar = async (v, id) => {
     const d = await formulario(id ? 'Editar promoção' : 'Nova promoção', campos,
-      { ...v, preco: v.price_cents != null ? v.price_cents / 100 : '', original: v.original_cents != null ? v.original_cents / 100 : '', ends_at: v.ends_at?.slice(0, 10) });
+      { ...v, __jogo_titulo: v.games?.title, preco: v.price_cents != null ? v.price_cents / 100 : '', original: v.original_cents != null ? v.original_cents / 100 : '', ends_at: v.ends_at?.slice(0, 10) });
     if (!d) return;
     if (!d.game_id || !d.store) return toast('Escolha o jogo e a loja.', true);
     const dados = { game_id: Number(d.game_id), store: d.store, url: d.url, ends_at: d.ends_at,
@@ -204,14 +241,16 @@ async function denuncias() {
   const { data: rs } = await sb.from('reports').select('*, profiles!reports_reporter_id_fkey(username)').eq('status', filtro).order('created_at', { ascending: false }).limit(200);
   // Carrega o conteúdo denunciado para mostrar junto
   const ids = (t) => rs.filter((r) => r.target_type === t).map((r) => r.target_id);
-  const [rev, pos, pro, com] = await Promise.all([
+  const [rev, pos, pro, com, cmt] = await Promise.all([
     ids('review').length ? sb.from('reviews').select('id,body,status,user_id,games(slug,title),profiles(username)').in('id', ids('review')) : { data: [] },
     ids('post').length ? sb.from('posts').select('id,body,status,user_id,community_id,profiles(username)').in('id', ids('post')) : { data: [] },
     ids('profile').length ? sb.from('profiles').select('id,username,bio,banned').in('id', ids('profile')) : { data: [] },
     ids('community').length ? sb.from('communities').select('id,name,description').in('id', ids('community')) : { data: [] },
+    ids('comment').length ? sb.from('review_comments').select('id,body,status,profiles(username)').in('id', ids('comment')) : { data: [] },
   ]);
   const alvo = { review: new Map((rev.data || []).map((x) => [String(x.id), x])), post: new Map((pos.data || []).map((x) => [String(x.id), x])),
-    profile: new Map((pro.data || []).map((x) => [String(x.id), x])), community: new Map((com.data || []).map((x) => [String(x.id), x])) };
+    profile: new Map((pro.data || []).map((x) => [String(x.id), x])), community: new Map((com.data || []).map((x) => [String(x.id), x])),
+    comment: new Map((cmt.data || []).map((x) => [String(x.id), x])) };
   const descrever = (r) => {
     const x = alvo[r.target_type]?.get(String(r.target_id));
     if (!x) return '<span class="muted">(conteúdo já removido)</span>';
@@ -219,12 +258,13 @@ async function denuncias() {
     if (r.target_type === 'post') return `Post de <strong>${esc(x.profiles?.username)}</strong> (<a href="comunidade.html?id=${x.community_id}" target="_blank">comunidade</a>): “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculto</span>' : ''}`;
     if (r.target_type === 'profile') return `Perfil <a href="perfil.html?u=${encodeURIComponent(x.username)}" target="_blank">${esc(x.username)}</a> ${x.banned ? '<span class="tag">banido</span>' : ''}`;
     if (r.target_type === 'community') return `Comunidade <a href="comunidade.html?id=${x.id}" target="_blank">${esc(x.name)}</a>`;
+    if (r.target_type === 'comment') return `Comentário de <strong>${esc(x.profiles?.username)}</strong>: “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculto</span>' : ''}`;
     return esc(r.target_type);
   };
   const acaoAlvo = (r) => {
     const x = alvo[r.target_type]?.get(String(r.target_id));
     if (!x) return '';
-    if (r.target_type === 'review' || r.target_type === 'post') return x.status === 'hidden' ? '' : `<button class="btn perigo pequeno" data-acao="ocultar" data-id="${r.id}">Ocultar conteúdo</button>`;
+    if (['review', 'post', 'comment'].includes(r.target_type)) return x.status === 'hidden' ? '' : `<button class="btn perigo pequeno" data-acao="ocultar" data-id="${r.id}">Ocultar conteúdo</button>`;
     if (r.target_type === 'profile' && P.role === 'admin' && !x.banned) return `<button class="btn perigo pequeno" data-acao="banir" data-id="${r.id}">Banir usuário</button>`;
     if (r.target_type === 'community') return `<button class="btn perigo pequeno" data-acao="excluirCom" data-id="${r.id}">Excluir comunidade</button>`;
     return '';
@@ -242,7 +282,7 @@ async function denuncias() {
     resolver: async (id) => { await marcar(id, 'resolvida'); denuncias(); },
     descartar: async (id) => { await marcar(id, 'descartada'); denuncias(); },
     ocultar: async (id) => {
-      const d = r(id), t = d.target_type === 'review' ? 'reviews' : 'posts';
+      const d = r(id), t = { review: 'reviews', post: 'posts', comment: 'review_comments' }[d.target_type];
       const { error } = await sb.from(t).update({ status: 'hidden' }).eq('id', d.target_id); if (error) throw error;
       await marcar(id, 'resolvida'); toast('Conteúdo ocultado.'); denuncias();
     },
@@ -614,6 +654,34 @@ async function site() {
       </div>
       <button class="btn" style="margin-top:12px">Salvar aviso</button>
     </form>`;
+  // Notificações no celular: gera as chaves no navegador (nunca saem daqui) e configura o banco
+  const { data: pushCfg } = await sb.from('settings').select('value').eq('key', 'push').maybeSingle();
+  painel().insertAdjacentHTML('beforeend', `<div class="cartao" style="margin-top:14px">
+    <h3>Notificações no celular</h3>
+    <p class="muted">Situação: ${pushCfg?.value?.url ? '✅ banco configurado (falta só conferir as variáveis no Netlify)' : '⚠️ ainda não configurado'}.</p>
+    <p class="muted" style="font-size:.88rem;margin-top:6px">Clique para gerar as chaves. Elas são criadas aqui no seu navegador. Copie cada uma para
+      <strong>Netlify → Site configuration → Environment variables</strong> e faça um novo deploy. Gerar de novo invalida as inscrições antigas
+      (as pessoas precisam ativar de novo).</p>
+    <button class="btn" id="gerar-push" style="margin-top:10px">🔑 Gerar chaves e configurar</button>
+    <div id="chaves-push" class="hidden" style="margin-top:12px"></div></div>`);
+  $('#gerar-push').onclick = async () => {
+    if (pushCfg?.value?.url && !confirm('Já existe uma configuração. Gerar novas chaves? Quem já ativou vai precisar ativar de novo.')) return;
+    const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const par = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const publica = b64(await crypto.subtle.exportKey('raw', par.publicKey));
+    const privada = (await crypto.subtle.exportKey('jwk', par.privateKey)).d;
+    const segredo = b64(crypto.getRandomValues(new Uint8Array(32)));
+    const { error } = await sb.from('settings').upsert({ key: 'push', value: { url: location.origin + '/.netlify/functions/push', segredo } });
+    if (error) return falha(error);
+    const linha = (nome, valor) => `<div class="controles" style="align-items:center;margin-bottom:6px"><code style="min-width:170px">${nome}</code>
+      <input readonly value="${esc(valor)}" style="flex:1;font-family:monospace;font-size:.8rem"><button type="button" class="btn sec pequeno" data-copiar="${esc(valor)}">Copiar</button></div>`;
+    $('#chaves-push').innerHTML = `<div class="aviso">Copie agora: a chave privada e o segredo <strong>não aparecem de novo</strong> e não devem ser compartilhados.</div>
+      ${linha('VAPID_PUBLIC_KEY', publica)}${linha('VAPID_PRIVATE_KEY', privada)}${linha('VAPID_SUBJECT', 'mailto:' + (P.username || 'admin') + '@controlcritic.app')}${linha('PUSH_SECRET', segredo)}
+      <p class="muted" style="font-size:.85rem">No VAPID_SUBJECT, se preferir, use um e-mail seu de contato (ex.: mailto:voce@gmail.com).</p>`;
+    $('#chaves-push').classList.remove('hidden');
+    $('#chaves-push').querySelectorAll('[data-copiar]').forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copiar); toast('Copiado!'); } catch { toast('Selecione e copie manualmente.', true); } });
+  };
+
   $('#form-aviso').onsubmit = async (e) => {
     e.preventDefault();
     const link = $('#av-link').value.trim();

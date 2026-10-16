@@ -1,4 +1,4 @@
-import { sb, $, $$, esc, montarLayout, cardJogo, configurado, param } from './app.js';
+import { sb, $, $$, esc, montarLayout, cardJogo, configurado, param, COLUNAS_CARD } from './app.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -43,7 +43,7 @@ async function carregar(continuar = false) {
   $$('#cats .chip').forEach((b) => b.classList.toggle('ativo', b.dataset.c === String(cat)));
   $$('#plats .chip').forEach((b) => b.classList.toggle('ativo', b.dataset.p === plat));
   const ordem = $('#ordem').value;
-  let q = sb.from('games').select('*, categories(name)', { count: 'exact' })
+  let q = sb.from('games').select(COLUNAS_CARD, { count: 'exact' })
     .order(ordem, { ascending: ordem === 'title', nullsFirst: false })
     .order('igdb_rating_count', { ascending: false })
     .range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);

@@ -27,6 +27,16 @@ integração com o **Discord** (para quem joga no PS5/Xbox) e um **painel de adm
 | Partidas | Agendar partidas nas comunidades, confirmar presença com limite de vagas, lembrete 1h antes e exportar para a agenda (.ics) |
 | Segurança e LGPD | Denúncias com fila de moderação, Política de Privacidade, Termos de Uso, aceite no cadastro, baixar meus dados e excluir conta |
 | Gamificação | Login diário com sequência (🔥), XP e bônus semanal; molduras de avatar, banners e selos desbloqueados por nível, sequência e conquistas; ranking mensal com moldura temporária para o top 10. Tudo cosmético, sem vantagem paga |
+| Críticas | Votos de "útil" (as melhores sobem), comentários, selos de crítico útil e XP para quem ajuda |
+| Listas | Listas pessoais ordenáveis e compartilháveis ("Meus RPGs favoritos"), públicas ou privadas |
+| Preços | Histórico automático e "menor preço já visto" em cada jogo |
+| Procurando grupo | "Quero jogar agora" com jogo, plataforma e vagas; avisa os amigos e expira sozinho |
+| Mensagens | Conversa privada entre amigos em tempo real |
+| Ao vivo | Membros e amigos transmitindo na Twitch aparecem com 🔴 AO VIVO |
+| Trailers | Trailers dos jogos (YouTube, carregados só ao clicar) |
+| Notificações no celular | Web Push: chamadas, mensagens, partidas e promoções mesmo com o site fechado |
+| Acessibilidade | Tema claro, foco visível no teclado, atalho "pular para o conteúdo", respeita "reduzir movimento" |
+| Qualidade | Testes automáticos (funções e schema.sql num Postgres) a cada envio; backup semanal do banco |
 | App instalável | PWA: instala no celular/computador e abre mesmo sem internet (última versão) |
 | Fale Conosco | Mensagens com assunto (inclusive pedidos de privacidade), respondidas pelo painel |
 | Painel de Admin | Visão geral (números e cadastros por dia), denúncias, jogos, notícias, promoções, moderação, mensagens; usuários com busca, filtros e ficha completa (permissão, suspensão temporária com motivo, cargos, XP, itens, histórico); cargos personalizados; registro de todas as ações da equipe; aviso global no topo do site; automação |
@@ -128,7 +138,21 @@ A função `netlify/functions/turn.mjs` gera credenciais temporárias; as chaves
 **Alternativa grátis: TURN no seu computador.** Veja `turn-caseiro/LEIA-ME.md` (coturn com Docker). Configure
 `TURN_URL` e `TURN_SECRET` no Netlify. Pode usar junto com a Cloudflare: o navegador escolhe o que funcionar.
 
-### 11. Discord em uma comunidade
+### 11. Notificações no celular
+1. No site, vá em **Admin → Site → Notificações no celular → Gerar chaves e configurar**.
+2. Copie as 4 variáveis mostradas para o **Netlify** e faça um novo deploy.
+3. Cada pessoa ativa em **Perfil → Notificações no celular** (no iPhone, só pelo app instalado na tela de início).
+O banco envia as notificações pela extensão `pg_net` do Supabase (ative em Database → Extensions se o SQL avisar).
+
+### 12. Ao vivo na Twitch
+Usa o mesmo app da Twitch do IGDB (as variáveis `IGDB_CLIENT_ID` e `IGDB_CLIENT_SECRET` precisam estar **também no Netlify**).
+Cada pessoa informa o usuário da Twitch em **Editar perfil**.
+
+### 13. Backup
+Toda semana o GitHub Actions exporta as tabelas (sem senhas nem e-mails). Para baixar: **Actions → Backup do banco → execução
+mais recente → Artifacts**. Também dá para rodar na hora com **Run workflow**.
+
+### 14. Discord em uma comunidade
 Na página da comunidade, o dono clica em **Configurar** e cola:
 - o **convite** (`https://discord.gg/...`), de preferência sem expiração;
 - opcionalmente o **ID do servidor**, depois de ativar *Configurações do servidor → Widget → Habilitar widget*.

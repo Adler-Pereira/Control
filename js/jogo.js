@@ -13,10 +13,17 @@ async function carregar() {
   document.title = `${g.title} | Control Critic`;
   const u = await usuario();
   const [{ data: reviews }, { data: deals }, { data: comms }] = await Promise.all([
-    sb.from('reviews').select('*, profiles(username,avatar_url,equipped_frame)').eq('game_id', g.id).eq('status', 'published').order('created_at', { ascending: false }),
+    sb.from('reviews').select('*, profiles(username,avatar_url,equipped_frame)').eq('game_id', g.id).eq('status', 'published')
+      .order('helpful_count', { ascending: false }).order('created_at', { ascending: false }),
     sb.from('deals').select('*').eq('game_id', g.id).order('discount_pct', { ascending: false }),
     sb.from('communities').select('id,name,members_count').eq('game_id', g.id).limit(5),
   ]);
+  const [{ data: meusVotos }, { data: precos }, { data: minhasListas }] = await Promise.all([
+    u ? sb.from('review_votes').select('review_id').eq('user_id', u.id).in('review_id', reviews.map((r) => r.id).slice(0, 200)) : Promise.resolve({ data: [] }),
+    sb.rpc('price_summary', { gid: g.id }),
+    u ? sb.from('user_lists').select('id,title').eq('user_id', u.id).order('updated_at', { ascending: false }) : Promise.resolve({ data: [] }),
+  ]);
+  const votei = new Set((meusVotos || []).map((v) => v.review_id));
   const { data: bib } = u ? await sb.from('user_games').select('*').eq('user_id', u.id).eq('game_id', g.id).maybeSingle() : { data: null };
   const { count: desejam } = await sb.from('user_games').select('user_id', { count: 'exact', head: true }).eq('game_id', g.id).eq('wishlist', true);
   const minha = u && reviews.find((r) => r.user_id === u.id);
@@ -49,6 +56,16 @@ async function carregar() {
       </aside>
     </div>
 
+    ${(g.videos || []).filter((v) => /^[A-Za-z0-9_-]{6,20}$/.test(v)).length ? `<h2>Trailers</h2><div class="trailers">${g.videos.filter((v) => /^[A-Za-z0-9_-]{6,20}$/.test(v)).slice(0, 3).map((v) => `
+      <div class="trailer" data-video="${v}"><img src="https://i.ytimg.com/vi/${v}/hqdefault.jpg" alt="Trailer" loading="lazy"><span>▶</span></div>`).join('')}</div>` : ''}
+
+    ${precos?.menor ? `<div class="cartao" style="margin-top:14px"><h3>📉 Histórico de preço</h3>
+      <p>Menor preço já visto aqui: <strong>${reais(precos.menor.preco)}</strong> na ${esc(precos.menor.loja)} em ${new Date(precos.menor.quando).toLocaleDateString('pt-BR')}
+      <span class="muted">(acompanhando desde ${new Date(precos.desde).toLocaleDateString('pt-BR')})</span></p>
+      ${(deals || []).find((d) => d.store === precos.menor.loja && d.price_cents != null && d.price_cents <= precos.menor.preco) ? '<p style="color:var(--ok);margin-top:4px">✅ O preço atual é o menor que já registramos!</p>' : ''}
+      <details style="margin-top:6px"><summary class="muted" style="cursor:pointer">Ver variações</summary>
+        <div class="lista" style="margin-top:6px;font-size:.88rem">${precos.pontos.slice().reverse().slice(0, 15).map((x) => `<span>${new Date(x.quando).toLocaleDateString('pt-BR')} · ${esc(x.loja)} · ${reais(x.preco)}</span>`).join('')}</div></details></div>` : ''}
+
     <h2>Minha biblioteca</h2>
     <div class="cartao">
       ${u ? `<div class="biblioteca">
@@ -58,6 +75,8 @@ async function carregar() {
             .map(([v, t]) => `<option value="${v}" ${bib?.status === v ? 'selected' : ''}>${t}</option>`).join('')}
         </select>
         <input id="b-horas" type="number" min="0" step="0.5" placeholder="Horas" value="${bib?.hours ?? ''}" style="max-width:110px" aria-label="Horas jogadas">
+        <select id="b-lista" style="width:auto" aria-label="Adicionar a uma lista"><option value="">📋 Adicionar a uma lista…</option>
+          ${(minhasListas || []).map((l) => `<option value="${l.id}">${esc(l.title)}</option>`).join('')}<option value="nova">+ Nova lista</option></select>
         <button class="btn sec desejo ${bib?.wishlist ? 'ativo' : ''}" id="b-desejo">${bib?.wishlist ? '💖 Na lista de desejos' : '🤍 Lista de desejos'}</button>
       </div>
       <p class="muted" style="font-size:.85rem;margin-top:8px">Na lista de desejos você recebe uma notificação quando o jogo entrar em promoção.
@@ -81,13 +100,51 @@ async function carregar() {
 
     <h2>Avaliações da comunidade</h2>
     <div class="lista">${reviews.map((r) => `
-      <article class="review"><header>${avatarHtml(r.profiles)}
+      <article class="review" id="r${r.id}"><header>${avatarHtml(r.profiles)}
         <a class="usuario" href="perfil.html?u=${encodeURIComponent(r.profiles?.username || '')}">${esc(r.profiles?.username)}</a> ${estrelas(r.rating)} <span class="muted">${data(r.created_at)}</span>
         ${u && r.user_id !== u.id ? `<button class="bt-denunciar" data-den="${r.id}" title="Denunciar">🚩 Denunciar</button>` : ''}</header>
-        ${r.body ? `<p class="quebra">${esc(r.body)}</p>` : ''}</article>`).join('') || '<p class="vazio">Seja o primeiro a avaliar!</p>'}
+        ${r.body ? `<p class="quebra">${esc(r.body)}</p>` : ''}
+        <div class="controles acoes-review">
+          <button class="chip ${votei.has(r.id) ? 'ativo' : ''}" data-util="${r.id}" ${!u || r.user_id === u.id ? 'disabled title="' + (u ? 'Você não pode votar na própria avaliação' : 'Entre para votar') + '"' : ''}>👍 Útil · <span>${r.helpful_count || 0}</span></button>
+          <button class="chip" data-coment="${r.id}">💬 ${r.comments_count || 0} comentário(s)</button>
+        </div>
+        <div class="comentarios hidden" data-lista-coment="${r.id}"></div></article>`).join('') || '<p class="vazio">Seja o primeiro a avaliar!</p>'}
     </div>`;
 
   main.querySelectorAll('[data-den]').forEach((b) => b.onclick = () => denunciar('review', b.dataset.den));
+  // Trailers: carrega o player só ao clicar (mais leve e sem rastreamento antes do clique)
+  main.querySelectorAll('[data-video]').forEach((t) => t.onclick = () => {
+    t.outerHTML = `<iframe class="trailer" src="https://www.youtube-nocookie.com/embed/${t.dataset.video}?autoplay=1" title="Trailer" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+  });
+  // Útil
+  main.querySelectorAll('[data-util]').forEach((b) => b.onclick = async () => {
+    const id = Number(b.dataset.util), ativo = b.classList.contains('ativo');
+    const { error } = ativo ? await sb.from('review_votes').delete().eq('review_id', id).eq('user_id', u.id)
+      : await sb.from('review_votes').insert({ review_id: id, user_id: u.id });
+    if (error) return falha(error);
+    b.classList.toggle('ativo', !ativo);
+    const n = b.querySelector('span'); n.textContent = Number(n.textContent) + (ativo ? -1 : 1);
+  });
+  // Comentários
+  main.querySelectorAll('[data-coment]').forEach((b) => b.onclick = () => abrirComentarios(Number(b.dataset.coment), u));
+  if (/^#r\d+$/.test(location.hash)) { const id = Number(location.hash.slice(2)); document.getElementById('r' + id)?.scrollIntoView(); abrirComentarios(id, u); }
+  // Listas
+  $('#b-lista')?.addEventListener('change', async (e) => {
+    let lista = e.target.value;
+    if (!lista) return;
+    if (lista === 'nova') {
+      const titulo = prompt('Nome da nova lista (ex.: "Meus RPGs favoritos"):');
+      if (!titulo?.trim()) { e.target.value = ''; return; }
+      const { data: l, error } = await sb.from('user_lists').insert({ user_id: u.id, title: titulo.trim().slice(0, 80) }).select().single();
+      if (error) return falha(error);
+      lista = l.id;
+    }
+    const { error } = await sb.from('list_items').insert({ list_id: Number(lista), game_id: g.id, position: Date.now() % 1e9 });
+    if (error && error.code !== '23505') return falha(error);
+    toast(error ? 'Esse jogo já está na lista.' : 'Adicionado à lista!');
+    e.target.value = '';
+    if (!error) { await sb.from('user_lists').update({ updated_at: new Date().toISOString() }).eq('id', lista); }
+  });
   if (g.description_lang === 'en') traduzirDescricao(g);
 
   // Biblioteca: salva ao mudar qualquer campo
@@ -145,4 +202,30 @@ async function traduzirDescricao(g) {
   const t = await traduzirNoNavegador(g.description);
   if (t) { $('#descricao').textContent = t; if (aviso) aviso.textContent = '🌐 Tradução automática do navegador (original em inglês).'; }
   else if (aviso) aviso.textContent = '🌐 Descrição disponível apenas em inglês por enquanto.';
+}
+
+async function abrirComentarios(rid, u) {
+  const box = document.querySelector(`[data-lista-coment="${rid}"]`);
+  if (!box) return;
+  box.classList.remove('hidden');
+  const { data: cs } = await sb.from('review_comments').select('*, profiles(username,avatar_url,equipped_frame)').eq('review_id', rid).order('created_at').limit(100);
+  box.innerHTML = `${(cs || []).map((c) => `<div class="comentario">${avatarHtml(c.profiles)}
+      <div style="flex:1"><a class="usuario" href="perfil.html?u=${encodeURIComponent(c.profiles?.username || '')}">${esc(c.profiles?.username)}</a>
+      <span class="muted" style="font-size:.8rem">${data(c.created_at)}</span>
+      ${u && c.user_id === u.id ? `<button class="bt-denunciar" data-apagar-coment="${c.id}">Apagar</button>` : u ? `<button class="bt-denunciar" data-den-coment="${c.id}">🚩</button>` : ''}
+      <p class="quebra">${esc(c.body)}</p></div></div>`).join('') || '<p class="muted">Nenhum comentário ainda.</p>'}
+    ${u ? `<form class="controles" data-form-coment="${rid}" style="margin-top:8px"><input maxlength="1000" required placeholder="Escreva um comentário..." style="flex:1"><button class="btn pequeno">Comentar</button></form>`
+      : '<p class="muted"><a href="entrar.html">Entre</a> para comentar.</p>'}`;
+  box.querySelector('form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const txt = e.target.querySelector('input').value.trim();
+    const { error } = await sb.from('review_comments').insert({ review_id: rid, user_id: u.id, body: txt });
+    if (error) return falha(error);
+    abrirComentarios(rid, u);
+  });
+  box.querySelectorAll('[data-apagar-coment]').forEach((b) => b.onclick = async () => {
+    const { error } = await sb.from('review_comments').delete().eq('id', b.dataset.apagarComent);
+    error ? falha(error) : abrirComentarios(rid, u);
+  });
+  box.querySelectorAll('[data-den-coment]').forEach((b) => b.onclick = () => denunciar('comment', b.dataset.denComent));
 }
