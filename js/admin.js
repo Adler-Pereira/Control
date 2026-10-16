@@ -242,7 +242,7 @@ async function denuncias() {
   // Carrega o conteúdo denunciado para mostrar junto
   const ids = (t) => rs.filter((r) => r.target_type === t).map((r) => r.target_id);
   const [rev, pos, pro, com, cmt] = await Promise.all([
-    ids('review').length ? sb.from('reviews').select('id,body,status,user_id,games(slug,title),profiles(username)').in('id', ids('review')) : { data: [] },
+    ids('review').length ? sb.from('reviews').select('id,body,status,user_id,games(slug,title),profiles!reviews_user_id_fkey(username)').in('id', ids('review')) : { data: [] },
     ids('post').length ? sb.from('posts').select('id,body,status,user_id,community_id,profiles(username)').in('id', ids('post')) : { data: [] },
     ids('profile').length ? sb.from('profiles').select('id,username,bio,banned').in('id', ids('profile')) : { data: [] },
     ids('community').length ? sb.from('communities').select('id,name,description').in('id', ids('community')) : { data: [] },
@@ -301,7 +301,7 @@ async function denuncias() {
 
 // ---------------- Moderação ----------------
 async function reviews() {
-  const { data: rs } = await sb.from('reviews').select('*, games(title), profiles(username)').order('created_at', { ascending: false }).limit(200);
+  const { data: rs } = await sb.from('reviews').select('*, games(title), profiles!reviews_user_id_fkey(username)').order('created_at', { ascending: false }).limit(200);
   painel().innerHTML = tabela(['Usuário', 'Jogo', 'Nota', 'Comentário', 'Status', ''], rs.map((r) => `<tr>
     <td>${esc(r.profiles?.username)}</td><td>${esc(r.games?.title)}</td><td>${r.rating}★</td><td>${corta(r.body, 120)}</td>
     <td>${r.status === 'published' ? 'visível' : '<span class="tag">oculta</span>'}</td>

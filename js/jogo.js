@@ -13,7 +13,7 @@ async function carregar() {
   document.title = `${g.title} | Control Critic`;
   const u = await usuario();
   const [{ data: reviews }, { data: deals }, { data: comms }] = await Promise.all([
-    sb.from('reviews').select('*, profiles(username,avatar_url,equipped_frame)').eq('game_id', g.id).eq('status', 'published')
+    sb.from('reviews').select('*, profiles!reviews_user_id_fkey(username,avatar_url,equipped_frame)').eq('game_id', g.id).eq('status', 'published')
       .order('helpful_count', { ascending: false }).order('created_at', { ascending: false }),
     sb.from('deals').select('*').eq('game_id', g.id).order('discount_pct', { ascending: false }),
     sb.from('communities').select('id,name,members_count').eq('game_id', g.id).limit(5),
