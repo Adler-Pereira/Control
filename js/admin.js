@@ -7,7 +7,7 @@ const main = $('#conteudo');
 let P;
 
 const ABAS = [
-  ['geral', 'Visão geral'], ['problemas', 'Problemas 🐞'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'],
+  ['geral', 'Visão geral'], ['problemas', 'Problemas 🐞'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'], ['memes', 'Memes 😂'],
   ['reviews', 'Avaliações'], ['posts', 'Posts'], ['comunidades', 'Comunidades'], ['mensagens', 'Mensagens'],
   ['usuarios', 'Usuários'], ['cargos', 'Cargos', true], ['itens', 'Itens', true], ['desafios', 'Desafios', true], ['registro', 'Registro'], ['site', 'Site', true], ['auto', 'Automação', true],
 ];
@@ -25,7 +25,7 @@ function iniciar() {
 }
 
 const painel = () => $('#painel');
-const VIEWS = { geral, problemas, denuncias, jogos, noticias, promos, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, desafios, registro, site, auto };
+const VIEWS = { geral, problemas, denuncias, jogos, noticias, promos, memes, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, desafios, registro, site, auto };
 function abrir(k) { painel().innerHTML = '<p class="muted">Carregando...</p>'; VIEWS[k]().catch(falha); }
 
 // Campo de busca de jogo com sugestões (o catálogo tem milhares de jogos)
@@ -222,9 +222,9 @@ async function noticias() {
   const igStatus = (n) => n.instagram_at ? `<a class="tag" href="${urlSegura(n.instagram_url || 'https://www.instagram.com/control.critic/')}" target="_blank" rel="noopener">📸 no Instagram</a>`
     : n.instagram_status === 'urgente' ? '<span class="tag amarela">📸 publicando…</span>' : n.instagram_status === 'erro' ? '<span class="tag" style="background:#e5484d;color:#fff">📸 falhou</span>' : '';
   painel().innerHTML = `<div class="cartao" style="margin-bottom:12px"><strong>📸 Instagram</strong>
-      <p class="muted" style="font-size:.88rem;margin-top:4px">Todo dia às 18h50 o robô publica o <strong>resumo do dia</strong> (ou a notícia do dia; sem notícia, a promoção do dia).
+      <p class="muted" style="font-size:.88rem;margin-top:4px">Todo dia às 12h50 sai um <strong>meme</strong> aprovado (aba Memes) ou uma enquete, e às 18h50 o <strong>resumo do dia</strong> (ou a notícia do dia; sem notícia, a promoção do dia).
         Para algo urgente, use <strong>📸 Postar agora</strong> na notícia: sai em 1 a 2 minutos com a etiqueta "URGENTE".</p>
-      ${ultimo ? `<p style="font-size:.88rem;margin-top:6px">Último post: ${esc({ resumo: 'resumo do dia', noticia: 'notícia do dia', promocao: 'promoção do dia', urgente: 'notícia urgente' }[ultimo.tipo] || ultimo.tipo)} em ${new Date(ultimo.em).toLocaleString('pt-BR')}
+      ${ultimo ? `<p style="font-size:.88rem;margin-top:6px">Último post: ${esc({ resumo: 'resumo do dia', noticia: 'notícia do dia', promocao: 'promoção do dia', urgente: 'notícia urgente', meme: 'meme', versus: 'enquete' }[ultimo.tipo] || ultimo.tipo)} em ${new Date(ultimo.em).toLocaleString('pt-BR')}
         ${ultimo.url ? ` · <a href="${urlSegura(ultimo.url)}" target="_blank" rel="noopener">ver post</a>` : ''}</p>` : '<p class="muted" style="font-size:.85rem;margin-top:6px">Ainda nenhum post (configure o robô: scripts/instagram/LEIA-ME.md).</p>'}</div>
     <div class="controles" style="margin-bottom:12px"><button class="btn" data-acao="novo">+ Escrever notícia</button></div>
     ${tabela(['Título', 'Fonte', 'Data', 'Status', ''], ns.map((n) => `<tr>
@@ -257,6 +257,31 @@ async function noticias() {
       toast(d.aviso || '📸 Enviado! O post aparece no Instagram em 1 a 2 minutos.'); noticias();
     },
     excluir: async (id) => { if (!confirm('Excluir notícia?')) return; const { error } = await sb.from('news').delete().eq('id', id); if (error) throw error; noticias(); },
+  });
+}
+
+// ---------------- Memes para o Instagram ----------------
+// O autor marca "é meme" ao postar; aqui a equipe aprova. Às 12h50 o robô posta o aprovado mais antigo, com crédito.
+async function memes() {
+  const { data: ms, error } = await sb.from('posts').select('id,body,image_url,created_at,ig_aprovado,ig_recusado,instagram_at,instagram_url,profiles!posts_user_id_fkey(username)')
+    .eq('ig_ok', true).eq('status', 'published').order('created_at', { ascending: false }).limit(100);
+  if (error) throw /ig_ok/.test(error.message) ? new Error('Rode o supabase/schema.sql de novo para ativar os memes.') : error;
+  const fila = ms.filter((m) => m.ig_aprovado && !m.instagram_at).length;
+  const situacao = (m) => m.instagram_at ? `<a class="tag amarela" href="${urlSegura(m.instagram_url || 'https://www.instagram.com/control.critic/')}" target="_blank" rel="noopener">📸 publicado</a>`
+    : m.ig_aprovado ? '<span class="tag amarela">na fila</span>' : m.ig_recusado ? '<span class="tag">recusado</span>' : '<span class="tag">aguardando</span>';
+  painel().innerHTML = `<div class="cartao" style="margin-bottom:12px"><strong>😂 Memes da comunidade</strong>
+      <p class="muted" style="font-size:.88rem;margin-top:4px">Todo dia às 12h50 o robô publica o meme aprovado mais antigo, com crédito ao autor. Na fila: <strong>${fila}</strong>.
+      Sem meme aprovado, ele posta uma enquete "Qual você prefere?" com dois jogos.<br>Aprove só o que é original ou de uso livre, sem ofensas e sem dados pessoais.</p></div>
+    ${ms.length ? tabela(['Meme', 'Autor', 'Legenda', 'Data', 'Situação', ''], ms.map((m) => `<tr>
+      <td><a href="${urlSegura(m.image_url)}" target="_blank" rel="noopener"><img src="${urlSegura(m.image_url)}" alt="" style="width:90px;height:90px;object-fit:cover;border-radius:8px"></a></td>
+      <td>@${esc(m.profiles?.username)}</td><td>${corta(m.body, 100)}</td><td>${data(m.created_at)}</td><td>${situacao(m)}</td>
+      <td class="controles">${m.instagram_at ? '' : `${m.ig_aprovado ? '' : `<button class="btn pequeno" data-acao="aprovar" data-id="${m.id}">✔ Aprovar</button>`}
+        ${m.ig_recusado ? '' : `<button class="btn sec pequeno" data-acao="recusar" data-id="${m.id}">✕ Recusar</button>`}`}</td></tr>`))
+    : '<p class="muted">Nenhum meme enviado ainda. Ao postar uma imagem, o usuário pode marcar "😂 É meme".</p>'}`;
+  const mudar = async (id, dados) => { const { error: e } = await sb.from('posts').update(dados).eq('id', id); if (e) throw e; memes(); };
+  acoes({
+    aprovar: (id) => mudar(id, { ig_aprovado: true, ig_recusado: false }),
+    recusar: (id) => mudar(id, { ig_aprovado: false, ig_recusado: true }),
   });
 }
 
