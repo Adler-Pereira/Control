@@ -1,4 +1,4 @@
-import { avatarHtml, cssDoItem } from './app.js';
+import { avatarHtml, cssDoItem, cssMolduraImagem } from './app.js';
 import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, data, toast, falha, urlSegura } from './app.js';
 
 await montarLayout();
@@ -241,21 +241,23 @@ async function denuncias() {
   const { data: rs } = await sb.from('reports').select('*, profiles!reports_reporter_id_fkey(username)').eq('status', filtro).order('created_at', { ascending: false }).limit(200);
   // Carrega o conteúdo denunciado para mostrar junto
   const ids = (t) => rs.filter((r) => r.target_type === t).map((r) => r.target_id);
-  const [rev, pos, pro, com, cmt] = await Promise.all([
+  const [rev, pos, pro, com, cmt, pcm] = await Promise.all([
     ids('review').length ? sb.from('reviews').select('id,body,status,user_id,games(slug,title),profiles!reviews_user_id_fkey(username)').in('id', ids('review')) : { data: [] },
-    ids('post').length ? sb.from('posts').select('id,body,status,user_id,community_id,profiles(username)').in('id', ids('post')) : { data: [] },
+    ids('post').length ? sb.from('posts').select('id,body,status,user_id,community_id,profiles!posts_user_id_fkey(username)').in('id', ids('post')) : { data: [] },
     ids('profile').length ? sb.from('profiles').select('id,username,bio,banned').in('id', ids('profile')) : { data: [] },
     ids('community').length ? sb.from('communities').select('id,name,description').in('id', ids('community')) : { data: [] },
     ids('comment').length ? sb.from('review_comments').select('id,body,status,profiles(username)').in('id', ids('comment')) : { data: [] },
+    ids('post_comment').length ? sb.from('post_comments').select('id,body,post_id,profiles(username)').in('id', ids('post_comment')) : { data: [] },
   ]);
   const alvo = { review: new Map((rev.data || []).map((x) => [String(x.id), x])), post: new Map((pos.data || []).map((x) => [String(x.id), x])),
     profile: new Map((pro.data || []).map((x) => [String(x.id), x])), community: new Map((com.data || []).map((x) => [String(x.id), x])),
-    comment: new Map((cmt.data || []).map((x) => [String(x.id), x])) };
+    comment: new Map((cmt.data || []).map((x) => [String(x.id), x])), post_comment: new Map((pcm.data || []).map((x) => [String(x.id), x])) };
   const descrever = (r) => {
     const x = alvo[r.target_type]?.get(String(r.target_id));
     if (!x) return '<span class="muted">(conteúdo já removido)</span>';
     if (r.target_type === 'review') return `Avaliação de <strong>${esc(x.profiles?.username)}</strong> em <a href="jogo.html?slug=${encodeURIComponent(x.games?.slug)}" target="_blank">${esc(x.games?.title)}</a>: “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculta</span>' : ''}`;
-    if (r.target_type === 'post') return `Post de <strong>${esc(x.profiles?.username)}</strong> (<a href="comunidade.html?id=${x.community_id}" target="_blank">comunidade</a>): “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculto</span>' : ''}`;
+    if (r.target_type === 'post_comment') return `Comentário de <strong>${esc(x.profiles?.username)}</strong> num <a href="index.html?post=${x.post_id}" target="_blank">post</a>: “${corta(x.body, 160)}”`;
+    if (r.target_type === 'post') return `Post de <strong>${esc(x.profiles?.username)}</strong> (<a href="${x.community_id ? 'comunidade.html?id=' + x.community_id : 'index.html?post=' + x.id}" target="_blank">${x.community_id ? 'comunidade' : 'feed'}</a>): “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculto</span>' : ''}`;
     if (r.target_type === 'profile') return `Perfil <a href="perfil.html?u=${encodeURIComponent(x.username)}" target="_blank">${esc(x.username)}</a> ${x.banned ? '<span class="tag">banido</span>' : ''}`;
     if (r.target_type === 'community') return `Comunidade <a href="comunidade.html?id=${x.id}" target="_blank">${esc(x.name)}</a>`;
     if (r.target_type === 'comment') return `Comentário de <strong>${esc(x.profiles?.username)}</strong>: “${corta(x.body, 160)}” ${x.status === 'hidden' ? '<span class="tag">oculto</span>' : ''}`;
@@ -266,6 +268,7 @@ async function denuncias() {
     if (!x) return '';
     if (['review', 'post', 'comment'].includes(r.target_type)) return x.status === 'hidden' ? '' : `<button class="btn perigo pequeno" data-acao="ocultar" data-id="${r.id}">Ocultar conteúdo</button>`;
     if (r.target_type === 'profile' && P.role === 'admin' && !x.banned) return `<button class="btn perigo pequeno" data-acao="banir" data-id="${r.id}">Banir usuário</button>`;
+    if (r.target_type === 'post_comment') return `<button class="btn perigo pequeno" data-acao="apagarPc" data-id="${r.id}">Apagar comentário</button>`;
     if (r.target_type === 'community') return `<button class="btn perigo pequeno" data-acao="excluirCom" data-id="${r.id}">Excluir comunidade</button>`;
     return '';
   };
@@ -285,6 +288,10 @@ async function denuncias() {
       const d = r(id), t = { review: 'reviews', post: 'posts', comment: 'review_comments' }[d.target_type];
       const { error } = await sb.from(t).update({ status: 'hidden' }).eq('id', d.target_id); if (error) throw error;
       await marcar(id, 'resolvida'); toast('Conteúdo ocultado.'); denuncias();
+    },
+    apagarPc: async (id) => {
+      const { error } = await sb.from('post_comments').delete().eq('id', r(id).target_id); if (error) throw error;
+      await marcar(id, 'resolvida'); toast('Comentário apagado.'); denuncias();
     },
     banir: async (id) => {
       if (!confirm('Banir este usuário? Ele não poderá mais publicar.')) return;
@@ -314,7 +321,7 @@ async function reviews() {
 }
 
 async function posts() {
-  const { data: ps } = await sb.from('posts').select('*, communities(name), profiles(username)').order('created_at', { ascending: false }).limit(200);
+  const { data: ps } = await sb.from('posts').select('*, communities(name), profiles!posts_user_id_fkey(username)').order('created_at', { ascending: false }).limit(200);
   painel().innerHTML = tabela(['Usuário', 'Comunidade', 'Post', 'Data', ''], ps.map((p) => `<tr>
     <td>${esc(p.profiles?.username)}</td><td><a href="comunidade.html?id=${p.community_id}" target="_blank">${esc(p.communities?.name)}</a></td>
     <td>${corta(p.body, 140)}</td><td>${data(p.created_at)}</td>
@@ -519,20 +526,26 @@ async function itens() {
       <button class="btn" data-acao="novo" data-id="banner">+ Novo banner</button><button class="btn" data-acao="novo" data-id="badge">+ Novo selo</button></div>
     ${tabela(['Prévia', 'Item', 'Como ganha', 'Pessoas', ''], cs.map((c) => `<tr>
       <td>${previaItem(c)}</td>
-      <td><strong>${esc(c.name)}</strong><br><span class="muted">${TIPO_ITEM[c.kind]} · <span class="r-${c.rarity}">${esc(c.rarity)}</span>${c.custom ? ' · criado no painel' : ''}</span><br><span class="muted" style="font-size:.82rem">${esc(c.description)}</span></td>
+      <td><strong>${esc(c.name)}</strong>${c.active === false ? ' <span class="tag">desativado</span>' : ''}<br><span class="muted">${TIPO_ITEM[c.kind]} · <span class="r-${c.rarity}">${esc(c.rarity)}</span>${c.custom ? ' · criado no painel' : ''}</span><br><span class="muted" style="font-size:.82rem">${esc(c.description)}</span></td>
       <td>${esc(comoGanha(c))}</td><td>${qtd(c.id)}</td>
       <td class="controles"><button class="btn sec pequeno" data-acao="editar" data-id="${esc(c.id)}">Editar</button>
-        ${c.custom ? `<button class="btn perigo pequeno" data-acao="excluir" data-id="${esc(c.id)}">Excluir</button>` : ''}</td></tr>`))}`;
+        ${c.active === false ? `<button class="btn sec pequeno" data-acao="reativar" data-id="${esc(c.id)}">Reativar</button>`
+          : `<button class="btn perigo pequeno" data-acao="excluir" data-id="${esc(c.id)}">Excluir</button>`}</td></tr>`))}`;
   acoes({
     novo: (tipo) => editorItem({ kind: tipo, custom: true, rarity: 'comum', style: tipo === 'badge' ? null : { cores: ['#ffd33c', '#ff6d00'], animado: tipo === 'frame' } }),
     editar: (id) => editorItem(cs.find((c) => c.id === id)),
-    excluir: async (id) => {
-      if (!confirm(`Excluir este item? Ele some de ${qtd(id)} pessoa(s) que o possuem.`)) return;
-      const { error: e } = await sb.from('cosmetics').delete().eq('id', id); if (e) throw e;
-      try { sessionStorage.removeItem('cc_itens'); } catch { /* ignora */ }
-      toast('Item excluído.'); itens();
-    },
+    excluir: (id) => excluirItem(cs.find((c) => c.id === id), qtd(id)),
+    reativar: async (id) => { const { error: e } = await sb.from('cosmetics').update({ active: true }).eq('id', id); if (e) throw e; toast('Item reativado.'); itens(); },
   });
+}
+
+// Personalizado: apaga de vez. Original do site: desativa (some da loja de conquistas e de quem estava usando).
+async function excluirItem(c, qtd) {
+  if (!confirm(`Excluir "${c.name}"? ${qtd == null ? 'Ele é removido de quem o possui' : qtd ? `Ele é removido de ${qtd} pessoa(s) que o possuem` : 'Ninguém tem este item ainda'}${c.custom ? '.' : ' (item original: fica desativado e pode ser reativado depois).'}`)) return;
+  const { error } = c.custom ? await sb.from('cosmetics').delete().eq('id', c.id) : await sb.from('cosmetics').update({ active: false }).eq('id', c.id);
+  if (error) return falha(/active/.test(error.message) ? { message: 'Banco desatualizado: rode de novo o supabase/schema.sql.' } : error);
+  try { sessionStorage.removeItem('cc_itens'); } catch { /* ignora */ }
+  toast('Item excluído.'); itens();
 }
 
 function editorItem(c) {
@@ -568,9 +581,11 @@ function editorItem(c) {
       <div><label for="it-seq">Com dias seguidos de login</label><input id="it-seq" type="number" min="1" max="3650" value="${c.unlock_streak ?? ''}" placeholder="—"></div>
     </div>
     <p class="muted" style="font-size:.82rem">Deixe em branco para só dar manualmente (ficha do usuário). Quem já cumpre a regra recebe na hora.</p>
-    <div class="controles" style="margin-top:16px"><button class="btn" value="ok">Salvar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div>
+    <div class="controles" style="margin-top:16px"><button class="btn" value="ok">Salvar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button>
+      ${novo ? '' : '<button type="button" class="btn perigo" id="it-excluir" style="margin-left:auto">🗑️ Excluir item</button>'}</div>
   </form>`;
   dlg.showModal();
+  $('#it-excluir')?.addEventListener('click', () => { dlg.close(); excluirItem(c, null); });
 
   let arquivo = null, urlTemp = null;
   const id = c.id || `${c.kind === 'frame' ? 'f' : c.kind === 'banner' ? 'b' : 's'}_c${Date.now().toString(36)}`;
@@ -585,7 +600,7 @@ function editorItem(c) {
     const previa = { ...c, id: 'previa_item', style: estilo, icon: $('#it-icone')?.value };
     // imagem ainda não enviada: mostra pela URL local
     let css = cssDoItem({ ...previa, style: { ...estilo, imagem: null } });
-    if (urlTemp) css += c.kind === 'frame' ? `.m-previa_item{--anel:url("${urlTemp}") center/100% 100% no-repeat;--anim:none}.m-previa_item.com{padding:7px}` : `.bn-previa_item{background:url("${urlTemp}") center/cover !important}`;
+    if (urlTemp) css += c.kind === 'frame' ? `.m-previa_item{--anel:url("${urlTemp}") center/100% 100% no-repeat;--anim:none}${cssMolduraImagem('previa_item')}` : `.bn-previa_item{background:url("${urlTemp}") center/cover !important}`;
     else if (estilo.imagem) css = cssDoItem(previa);
     let el = document.getElementById('estilos-editor');
     if (!el) { el = document.createElement('style'); el.id = 'estilos-editor'; document.head.append(el); }

@@ -20,6 +20,16 @@ async function servidoresIce() {
   return (iceCache = { lista: ICE_SERVERS, turn: false, expira: Date.now() + 600e3 });
 }
 
+// Preferências de áudio (salvas no aparelho): microfone, supressão de ruído, cancelamento de eco, ganho automático
+export function prefsAudio() {
+  try { return { ruido: true, eco: true, ganho: true, ...JSON.parse(localStorage.getItem('cc_audio') || '{}') }; } catch { return { ruido: true, eco: true, ganho: true }; }
+}
+const restricoesMic = (o) => ({
+  deviceId: o.mic ? { ideal: o.mic } : undefined,
+  noiseSuppression: o.ruido, echoCancellation: o.eco, autoGainControl: o.ganho,
+  voiceIsolation: o.ruido, // isolamento de voz (Chrome/Safari recentes): corta teclado, ventilador e vozes ao fundo
+});
+
 const ESTADOS = { new: 'conectando…', connecting: 'conectando…', connected: '', disconnected: 'reconectando…', failed: 'sem conexão', closed: '' };
 
 export class SalaVoz {
@@ -40,9 +50,7 @@ export class SalaVoz {
   }
 
   async entrar() {
-    this.local = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false,
-    });
+    this.local = await navigator.mediaDevices.getUserMedia({ audio: restricoesMic(prefsAudio()), video: false });
     this.ice = await servidoresIce();
     this.#tile(this.eu, this.nome + ' (você)', this.local, true);
 
@@ -114,6 +122,17 @@ export class SalaVoz {
     this.aoMudar();
   }
 
+  // Troca microfone/filtros sem sair da call
+  async configurarAudio(o) {
+    try { localStorage.setItem('cc_audio', JSON.stringify(o)); } catch { /* ignora */ }
+    if (!this.local) return;
+    const t = (await navigator.mediaDevices.getUserMedia({ audio: restricoesMic(o) })).getAudioTracks()[0];
+    t.enabled = !this.mudo;
+    for (const p of this.peers.values()) await p.micSender?.replaceTrack(t);
+    const velho = this.local.getAudioTracks()[0];
+    this.local.removeTrack(velho); velho.stop(); this.local.addTrack(t);
+  }
+
   async alternarCamera() {
     if (this.modoVideo === 'camera') return this.#pararVideo();
     const s = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
@@ -126,8 +145,10 @@ export class SalaVoz {
     const { altura = 1080, fps = 30, som = true, movimento = true } = opcoes;
     const s = await navigator.mediaDevices.getDisplayMedia({
       video: { height: { ideal: altura }, frameRate: { ideal: fps, max: fps } },
-      audio: som ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
+      // suppressLocalAudioPlayback: não toca o som da aba para você (evita eco); restrictOwnAudio: não captura o som do próprio site (vozes da call)
+      audio: som ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false, restrictOwnAudio: true } : false,
       systemAudio: som ? 'include' : 'exclude', selfBrowserSurface: 'exclude', surfaceSwitching: 'include',
+      windowAudio: som ? 'window' : 'exclude',
     });
     const track = s.getVideoTracks()[0];
     track.contentHint = movimento ? 'motion' : 'detail';
@@ -222,7 +243,7 @@ export class SalaVoz {
     const p = { pc, nome, polite: this.eu < id, makingOffer: false, ignoreOffer: false, pendentes: [], mudo: false, criado: Date.now(), visto: false };
     this.peers.set(id, p);
 
-    this.local.getAudioTracks().forEach((t) => pc.addTrack(t, this.local));
+    p.micSender = pc.addTrack(this.local.getAudioTracks()[0], this.local);
     p.videoSender = pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
     p.audioTelaSender = pc.addTransceiver('audio', { direction: 'sendrecv' }).sender;   // som da tela compartilhada
     if (this.videoTrack) { p.videoSender.replaceTrack(this.videoTrack); this.#configurarEnvio(p.videoSender); }

@@ -168,6 +168,7 @@ export async function montarLayout() {
       <button class="sino" id="sair-topo" title="Sair da conta" aria-label="Sair da conta" style="background:none;border:0;cursor:pointer">⎋</button>`;
     $('#sair-topo', topo).onclick = () => { if (confirm('Sair da sua conta?')) sair(); };
     contarNotificacoes(p.id);
+    if (!p.onboarded && p.onboarded !== undefined) import('./boas-vindas.js').then((m) => m.boasVindas(p)).catch(() => {});
     loginDiario();
     entrarOnline(p);
     // Atualiza o sino em tempo real
@@ -187,10 +188,47 @@ export function cardJogo(g) {
   return `<a class="jogo-card" href="jogo.html?slug=${encodeURIComponent(g.slug)}">
     <img src="${urlSegura(g.cover_url) || 'img/Control.png'}" alt="" loading="lazy">
     <div class="info">
-      <span class="titulo">${esc(g.title)}</span>
+      <span class="titulo" title="${esc(g.title)}">${esc(g.title)}</span>
       ${g.categories ? `<span><span class="tag">${esc(g.categories.name)}</span></span>` : ''}
       <span>${estrelas(g.avg_rating)} <span class="muted">(${g.reviews_count})</span></span>
     </div></a>`;
+}
+
+// Esqueletos de carregamento (enquanto os dados chegam)
+export const esqueletoCards = (n = 4) => Array.from({ length: n }, () => '<div class="jogo-card esqueleto"><div class="esq-img"></div><div class="info"><span class="esq-linha"></span><span class="esq-linha curta"></span></div></div>').join('');
+export const esqueletoLista = (n = 3) => Array.from({ length: n }, () => '<div class="cartao esqueleto"><span class="esq-linha"></span><span class="esq-linha curta"></span></div>').join('');
+
+// Carrossel horizontal com setas (rolagem por toque no celular)
+export function carrossel(itensHtml, vazio = '') {
+  if (!itensHtml) return vazio ? `<p class="vazio">${vazio}</p>` : '';
+  return `<div class="carrossel"><button class="car-seta esq" aria-label="Anterior">‹</button><div class="car-trilho">${itensHtml}</div><button class="car-seta dir" aria-label="Próximo">›</button></div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.car-seta');
+  if (!b) return;
+  const t = b.parentElement.querySelector('.car-trilho');
+  t.scrollBy({ left: (b.classList.contains('esq') ? -1 : 1) * t.clientWidth * 0.85, behavior: 'smooth' });
+});
+
+// Imagem do IGDB a partir do código (t_screenshot_big, t_1080p, t_thumb...)
+export const imgIgdb = (id, tam = 't_screenshot_big') => /^[a-z0-9]{4,40}$/.test(id || '') ? `https://images.igdb.com/igdb/image/upload/${tam}/${id}.jpg` : '';
+
+// Envia uma imagem para o Storage (pasta da própria pessoa) e devolve a URL pública
+export async function enviarImagem(uid, prefixo, arq, limiteMb = 3) {
+  if (!arq.type.startsWith('image/')) throw new Error('Escolha um arquivo de imagem.');
+  if (arq.size > limiteMb * 1024 * 1024) throw new Error(`A imagem deve ter no máximo ${limiteMb} MB.`);
+  const ext = (arq.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+  const caminho = `avatars/${uid}/${prefixo}-${Date.now()}.${ext}`;
+  const { error } = await sb.storage.from('media').upload(caminho, arq, { contentType: arq.type });
+  if (error) throw new Error(`Não foi possível enviar a imagem (${error.message}).`);
+  return sb.storage.from('media').getPublicUrl(caminho).data.publicUrl;
+}
+
+// "Jogando agora" na Steam: { steamid: { jogo, online } } (cache de 1 min no servidor)
+export async function steamAgora(ids) {
+  const v = [...new Set(ids.filter((x) => /^\d{17}$/.test(x || '')))];
+  if (!v.length) return {};
+  try { const r = await fetch('/.netlify/functions/steam-agora?ids=' + v.join(',')); return r.ok ? await r.json() : {}; } catch { return {}; }
 }
 
 async function contarNotificacoes(uid) {
@@ -317,6 +355,8 @@ async function mostrarAvisoGlobal() {
 // ---------- Itens criados no painel (molduras e banners personalizados) ----------
 // Gera o CSS de cada item a partir do banco. Só valores validados entram no CSS.
 const COR = /^#[0-9a-fA-F]{6}$/, ID = /^[a-z0-9_]+$/, IMG = /^https:\/\/[A-Za-z0-9.-]+\.supabase\.co\/storage\/v1\/object\/public\/media\/[A-Za-z0-9/_.-]+$/;
+// Moldura com imagem: a arte inteira fica por cima da foto, maior que ela (o que passa da borda aparece)
+export const cssMolduraImagem = (id) => `.m-${id}.com::before{inset:-40%;border-radius:0;z-index:2;pointer-events:none;animation:none}.m-${id}.com{padding:0}.m-${id}.com>img{border:0!important}`;
 export function cssDoItem(c) {
   const st = c.style || {};
   if (!ID.test(c.id)) return '';
@@ -327,7 +367,7 @@ export function cssDoItem(c) {
   if (c.kind === 'frame') {
     const anel = img ? `url("${img}") center/100% 100% no-repeat` : cores.length > 1 ? `conic-gradient(${[...cores, cores[0]].join(',')})` : cores[0] || '#ffd33c';
     return `.m-${c.id}{--anel:${anel};${st.animado && !img ? `--anim:girar ${vel}s linear infinite;` : ''}}`
-      + (img ? `.m-${c.id}.com::before{inset:-40%;border-radius:0;z-index:2;pointer-events:none}.m-${c.id}.com{padding:0}.m-${c.id}.com>img{border:0!important}` : '') + (st.brilho ? `.m-${c.id}.com{box-shadow:0 0 14px 2px ${cores[0] || '#ffd33c'}88}` : '')
+      + (img ? cssMolduraImagem(c.id) : '') + (st.brilho ? `.m-${c.id}.com{box-shadow:0 0 14px 2px ${cores[0] || '#ffd33c'}88}` : '')
       + (emoji ? `.m-${c.id}::after{${emoji}}` : '');
   }
   if (c.kind === 'banner') {

@@ -1977,3 +1977,236 @@ exception when others then null; end $$;
 -- Denúncias também de comentários
 alter table public.reports drop constraint if exists reports_target_type_check;
 alter table public.reports add constraint reports_target_type_check check (target_type in ('review','post','profile','community','event','comment'));
+
+-- =====================================================================
+-- ENGAJAMENTO: feed de posts com imagem e curtidas, vitrine do perfil,
+-- Steam "jogando agora", configurações e moderadores de comunidade,
+-- integração inicial (onboarding) e exclusão de itens originais
+-- =====================================================================
+
+-- ---------- Itens: originais podem ser "excluídos" (desativados) pelo admin ----------
+alter table public.cosmetics add column if not exists active boolean not null default true;
+create or replace function public.cosmetic_after_update() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if old.active and not new.active then
+    perform set_config('cc.sistema', 'on', true);
+    update profiles set equipped_frame = null where equipped_frame = new.id;
+    update profiles set equipped_banner = null where equipped_banner = new.id;
+    perform set_config('cc.sistema', 'off', true);
+  end if;
+  return null;
+end $$;
+drop trigger if exists cosmetics_au on public.cosmetics;
+create trigger cosmetics_au after update of active on public.cosmetics for each row execute function public.cosmetic_after_update();
+
+-- ---------- Perfil: vitrine de jogos, Steam e onboarding ----------
+alter table public.profiles add column if not exists showcase_games bigint[] not null default '{}';
+alter table public.profiles add column if not exists steam_id text;
+alter table public.profiles add column if not exists onboarded boolean not null default false;
+do $$ begin
+  alter table public.profiles add constraint profiles_showcase_max check (cardinality(showcase_games) <= 6);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.profiles add constraint profiles_steam_id_fmt check (steam_id is null or steam_id ~ '^\d{17}$');
+exception when duplicate_object then null; end $$;
+-- Quem já usa o site não precisa ver o tutorial
+update public.profiles set onboarded = true where not onboarded and created_at < now() - interval '1 day';
+
+-- steam_id só é gravado pelo servidor (importação da Steam): impede alguém de se passar por outra conta
+create or replace function public.protect_profile_fields() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if auth.uid() is not null and not is_admin() and coalesce(current_setting('cc.sistema', true), '') <> 'on' then
+    new.role := old.role; new.xp := old.xp; new.banned := old.banned;
+    new.banned_until := old.banned_until; new.ban_reason := old.ban_reason; new.titles := old.titles;
+    new.streak_current := old.streak_current; new.streak_best := old.streak_best; new.last_checkin := old.last_checkin;
+    new.equipped_frame := old.equipped_frame; new.equipped_banner := old.equipped_banner;
+    new.steam_id := old.steam_id;
+  end if;
+  return new;
+end $$;
+
+alter table public.user_games add column if not exists last_played timestamptz;
+alter table public.user_games add column if not exists hours_2weeks numeric;
+
+-- ---------- Comunidades: banner, ícone e moderadores ----------
+alter table public.communities add column if not exists banner_url text;
+alter table public.communities add column if not exists icon_url text;
+do $$ begin
+  alter table public.communities add constraint communities_imgs_fmt check (
+    (banner_url is null or banner_url ~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/')
+    and (icon_url is null or icon_url ~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/'));
+exception when duplicate_object then null; end $$;
+alter table public.community_members add column if not exists role text not null default 'member';
+do $$ begin
+  alter table public.community_members add constraint community_members_role_chk check (role in ('member','mod'));
+exception when duplicate_object then null; end $$;
+
+create or replace function public.is_comm_mod(cid bigint) returns boolean
+language sql stable security definer set search_path = public as $$
+  select is_staff()
+      or exists (select 1 from communities where id = cid and owner_id = auth.uid())
+      or exists (select 1 from community_members where community_id = cid and user_id = auth.uid() and role = 'mod');
+$$;
+
+-- Só o dono (ou a equipe) promove/rebaixa moderadores e remove membros
+create or replace function public.set_community_role(cid bigint, uid uuid, papel text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not (is_staff() or exists (select 1 from communities where id = cid and owner_id = auth.uid())) then
+    raise exception 'Só o dono da comunidade pode fazer isso.';
+  end if;
+  if papel = 'remover' then
+    delete from community_members where community_id = cid and user_id = uid
+      and uid <> (select owner_id from communities where id = cid);
+  elsif papel in ('member','mod') then
+    update community_members set role = papel where community_id = cid and user_id = uid;
+  else raise exception 'Cargo inválido.';
+  end if;
+end $$;
+revoke execute on function public.set_community_role(bigint,uuid,text) from public, anon;
+grant execute on function public.set_community_role(bigint,uuid,text) to authenticated;
+
+-- ---------- Posts: perfil/feed (sem comunidade), imagem, jogo marcado, curtidas e comentários ----------
+alter table public.posts alter column community_id drop not null;
+alter table public.posts add column if not exists image_url text;
+alter table public.posts add column if not exists game_id bigint references public.games(id) on delete set null;
+alter table public.posts add column if not exists likes_count integer not null default 0;
+alter table public.posts add column if not exists comments_count integer not null default 0;
+do $$ begin
+  alter table public.posts add constraint posts_image_fmt check (image_url is null or image_url ~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/');
+exception when duplicate_object then null; end $$;
+create index if not exists posts_feed_idx on public.posts(created_at desc) where status = 'published';
+create index if not exists posts_user_idx on public.posts(user_id, created_at desc);
+
+drop policy if exists posts_read on public.posts;
+create policy posts_read on public.posts for select using (
+  (status = 'published' and (community_id is null or can_see_community(community_id))) or user_id = auth.uid() or is_staff());
+drop policy if exists posts_insert on public.posts;
+create policy posts_insert on public.posts for insert with check (
+  user_id = auth.uid() and is_active_user() and status = 'published'
+  and (community_id is null or exists (select 1 from community_members m where m.community_id = posts.community_id and m.user_id = auth.uid())));
+drop policy if exists posts_delete on public.posts;
+create policy posts_delete on public.posts for delete using (user_id = auth.uid() or is_staff() or (community_id is not null and is_comm_mod(community_id)));
+
+-- XP por post: no máximo 5 posts por dia contam (evita farmar XP)
+create or replace function public.posts_after_insert() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from posts where user_id = new.user_id and created_at > now() - interval '1 day') <= 5 then
+    perform add_xp(new.user_id, 5, 'post');
+  end if;
+  return null;
+end $$;
+
+create table if not exists public.post_likes (
+  post_id    bigint not null references public.posts(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+create table if not exists public.post_comments (
+  id         bigserial primary key,
+  post_id    bigint not null references public.posts(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  body       text not null check (char_length(body) between 1 and 1000),
+  created_at timestamptz not null default now()
+);
+create index if not exists post_comments_idx on public.post_comments(post_id, created_at);
+alter table public.post_likes enable row level security;
+alter table public.post_comments enable row level security;
+
+drop policy if exists pl_read on public.post_likes;
+create policy pl_read on public.post_likes for select using (exists (select 1 from posts p where p.id = post_id));
+drop policy if exists pl_ins on public.post_likes;
+create policy pl_ins on public.post_likes for insert with check (user_id = auth.uid() and is_active_user() and exists (select 1 from posts p where p.id = post_id));
+drop policy if exists pl_del on public.post_likes;
+create policy pl_del on public.post_likes for delete using (user_id = auth.uid());
+
+drop policy if exists pc_read on public.post_comments;
+create policy pc_read on public.post_comments for select using (exists (select 1 from posts p where p.id = post_id));
+drop policy if exists pc_ins on public.post_comments;
+create policy pc_ins on public.post_comments for insert with check (user_id = auth.uid() and is_active_user() and exists (select 1 from posts p where p.id = post_id));
+drop policy if exists pc_del on public.post_comments;
+create policy pc_del on public.post_comments for delete using (
+  user_id = auth.uid() or is_staff()
+  or exists (select 1 from posts p where p.id = post_id and (p.user_id = auth.uid() or (p.community_id is not null and is_comm_mod(p.community_id)))));
+
+-- Contadores + aviso para o autor
+create or replace function public.post_counters() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare pid bigint := coalesce(new.post_id, old.post_id); autor uuid; quem text; titulo text; texto text;
+begin
+  -- Ramos separados: NEW de post_likes não tem "body" (um CASE daria erro)
+  if tg_table_name = 'post_likes' then
+    update posts set likes_count = (select count(*) from post_likes where post_id = pid) where id = pid returning user_id into autor;
+    titulo := ' curtiu seu post';
+  else
+    update posts set comments_count = (select count(*) from post_comments where post_id = pid) where id = pid returning user_id into autor;
+    titulo := ' comentou no seu post';
+    if tg_op = 'INSERT' then texto := left(new.body, 140); end if;
+  end if;
+  if tg_op = 'INSERT' and autor is not null and autor <> new.user_id then
+    select username into quem from profiles where id = new.user_id;
+    insert into notifications (user_id, type, title, body, link) values (autor, 'post', quem || titulo, texto, 'index.html?post=' || pid);
+  end if;
+  return null;
+end $$;
+drop trigger if exists post_likes_cnt on public.post_likes;
+create trigger post_likes_cnt after insert or delete on public.post_likes for each row execute function public.post_counters();
+drop trigger if exists post_comments_cnt on public.post_comments;
+create trigger post_comments_cnt after insert or delete on public.post_comments for each row execute function public.post_counters();
+
+alter table public.reports drop constraint if exists reports_target_type_check;
+alter table public.reports add constraint reports_target_type_check
+  check (target_type in ('review','post','community','profile','comment','post_comment'));
+
+-- Feed da página inicial: mistura recência com relevância.
+-- Pontos: curtidas e comentários, +amigos, +quem eu sigo, +minhas comunidades, +jogos da minha biblioteca;
+-- tudo dividido pela idade (o que é novo e relevante sobe). Respeita as permissões (RLS) de quem chama.
+create or replace function public.home_feed(lim int default 20, offs int default 0)
+returns setof public.posts language sql stable set search_path = public as $$
+  with eu as (select auth.uid() as id),
+  amigos as (select case when f.user_a = eu.id then f.user_b else f.user_a end as id
+             from friendships f, eu where f.status = 'aceita' and eu.id in (f.user_a, f.user_b)),
+  sigo as (select followed_id as id from follows, eu where follower_id = eu.id),
+  comms as (select community_id as id from community_members, eu where user_id = eu.id),
+  meus_jogos as (select game_id as id from user_games, eu where user_id = eu.id)
+  select p.* from posts p
+  where p.status = 'published' and p.created_at > now() - interval '30 days'
+  order by (
+      1 + p.likes_count * 2 + p.comments_count * 3
+      + case when p.user_id in (select id from amigos) then 12 else 0 end
+      + case when p.user_id in (select id from sigo) then 8 else 0 end
+      + case when p.community_id in (select id from comms) then 6 else 0 end
+      + case when p.game_id in (select id from meus_jogos) then 4 else 0 end
+      + case when p.image_url is not null then 2 else 0 end
+    ) / power(extract(epoch from (now() - p.created_at)) / 3600 + 2, 1.3) desc, p.id desc
+  limit least(lim, 50) offset offs;
+$$;
+grant execute on function public.home_feed(int,int) to anon, authenticated;
+
+-- Atividade de quem eu sigo e dos meus amigos (críticas e jogos na biblioteca), para a página inicial
+create or replace function public.friends_activity(lim int default 12)
+returns table (tipo text, quando timestamptz, user_id uuid, username text, avatar_url text, equipped_frame text,
+               game_slug text, game_title text, cover_url text, nota int, status text)
+language sql stable security definer set search_path = public as $$
+  with eu as (select auth.uid() as id),
+  gente as (
+    select followed_id as id from follows, eu where follower_id = eu.id
+    union select case when f.user_a = eu.id then f.user_b else f.user_a end from friendships f, eu where f.status = 'aceita' and eu.id in (f.user_a, f.user_b))
+  (select 'review', r.created_at, pr.id, pr.username, pr.avatar_url, pr.equipped_frame, g.slug, g.title, g.cover_url, r.rating, null::text
+     from reviews r join profiles pr on pr.id = r.user_id join games g on g.id = r.game_id
+    where r.user_id in (select id from gente) and r.status = 'published' and r.created_at > now() - interval '14 days')
+  union all
+  (select 'jogo', ug.updated_at, pr.id, pr.username, pr.avatar_url, pr.equipped_frame, g.slug, g.title, g.cover_url, null, ug.status
+     from user_games ug join profiles pr on pr.id = ug.user_id join games g on g.id = ug.game_id
+    where ug.user_id in (select id from gente) and ug.status in ('jogando','zerado') and ug.updated_at > now() - interval '14 days')
+  order by 2 desc limit least(lim, 30);
+$$;
+revoke execute on function public.friends_activity(int) from public, anon;
+grant execute on function public.friends_activity(int) to authenticated;
+
+-- Capturas de tela do IGDB (só o código da imagem) para o carrossel da página do jogo
+alter table public.games add column if not exists screenshots text[] not null default '{}';

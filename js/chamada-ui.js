@@ -1,8 +1,8 @@
 // Interface da call (usada nas comunidades e na call entre amigos)
 import { $, esc, falha, toast } from './app.js';
-import { SalaVoz } from './voz.js';
+import { SalaVoz, prefsAudio } from './voz.js';
 
-export function montarCall(box, { salaId, u, p, descricao = '' }) {
+export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call', janela = false }) {
   box.innerHTML = `
     ${descricao ? `<p class="muted">${descricao}</p>` : ''}
     <div class="controles" style="margin:12px 0">
@@ -11,7 +11,17 @@ export function montarCall(box, { salaId, u, p, descricao = '' }) {
       <button class="btn sec hidden" data-v="cam">📷 Câmera</button>
       <button class="btn sec hidden" data-v="tela">🖥️ Compartilhar tela</button>
       <button class="btn sec hidden" data-v="som">🔈 Ativar som</button>
+      <button class="btn sec" data-v="cfg-audio" title="Microfone, supressão de ruído e eco">⚙️ Áudio</button>
+      ${janela ? '' : '<button class="btn sec" data-v="popout" title="Abre a call numa janela separada: você continua navegando pelo site sem cair">🗗 Abrir em janela</button>'}
       <button class="btn perigo hidden" data-v="sair">Sair da call</button>
+    </div>
+    <div class="opcoes-tela cartao hidden" data-v="audio">
+      <strong>Áudio</strong>
+      <label>Microfone <select data-v="a-mic"><option value="">Padrão do sistema</option></select></label>
+      ${[['ruido', '🎧 Supressão de ruído e isolamento de voz (remove teclado, ventilador e sons de fundo)'], ['eco', '🔁 Cancelamento de eco (use se estiver sem fone)'], ['ganho', '📶 Ajuste automático de volume do microfone']]
+        .map(([k, t]) => `<label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" data-a="${k}" style="width:auto"> ${t}</label>`).join('')}
+      <p class="muted" style="font-size:.82rem;margin-top:6px">💡 Para não duplicar vozes: não fique na call do site e na do Discord ao mesmo tempo, e ao compartilhar a tela com som prefira uma <strong>aba</strong> ou a <strong>janela do jogo</strong> (a tela inteira captura também o som do Discord).</p>
+      <div class="controles" style="margin-top:8px"><button class="btn pequeno" data-v="a-ok">Aplicar</button><button class="btn sec pequeno" data-v="a-fechar">Fechar</button></div>
     </div>
     <div class="opcoes-tela cartao hidden" data-v="opcoes">
       <strong>Compartilhar tela</strong>
@@ -25,7 +35,8 @@ export function montarCall(box, { salaId, u, p, descricao = '' }) {
     </div>
     <div class="controles" style="align-items:center;justify-content:space-between">
       <p class="muted" data-v="info"></p>
-      <span class="controles hidden" data-v="layout"><button class="chip ativo" data-l="grade">▦ Grade</button><button class="chip" data-l="destaque">⬛ Destaque</button></span>
+      <span class="controles hidden" data-v="layout"><button class="chip ativo" data-l="grade">▦ Grade</button><button class="chip" data-l="destaque">⬛ Destaque</button>
+        <span class="muted" style="font-size:.8rem">Clique nos vídeos para fixar (até 4 lado a lado)</span></span>
     </div>
     <div class="aviso hidden" data-v="aviso"></div>
     <div class="call-layout">
@@ -97,22 +108,74 @@ export function montarCall(box, { salaId, u, p, descricao = '' }) {
   };
   // Layout: grade (todos iguais) ou destaque (um grande + miniaturas). Clique num vídeo para destacá-lo.
   const salaEl = el('sala');
-  const destacar = (tile) => {
-    salaEl.querySelectorAll('.participante').forEach((t) => t.classList.toggle('foco', t === tile));
-    salaEl.classList.toggle('destaque', !!tile);
-    box.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('ativo', b.dataset.l === (tile ? 'destaque' : 'grade')));
+  // Várias transmissões fixadas ao mesmo tempo dividem a linha de cima; as demais viram miniaturas
+  const aplicarFoco = () => {
+    const fixos = salaEl.querySelectorAll('.participante.foco');
+    salaEl.classList.toggle('destaque', fixos.length > 0);
+    salaEl.style.setProperty('--span', String(12 / Math.min(fixos.length || 1, 4) | 0 || 12));
+    if (fixos.length === 4) salaEl.style.setProperty('--span', '6'); // 2x2
+    box.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('ativo', b.dataset.l === (fixos.length ? 'destaque' : 'grade')));
   };
   salaEl.addEventListener('click', (e) => {
     const t = e.target.closest('.participante');
     if (!t || e.target.closest('button')) return;
-    destacar(t.classList.contains('foco') ? null : t);
+    if (!t.classList.contains('foco') && salaEl.querySelectorAll('.participante.foco').length >= 4) return toast('Máximo de 4 vídeos fixados.');
+    t.classList.toggle('foco'); aplicarFoco();
   });
   box.querySelectorAll('[data-l]').forEach((b) => b.onclick = () => {
-    if (b.dataset.l === 'grade') return destacar(null);
-    // destaque: escolhe quem está transmitindo vídeo (ou o primeiro)
-    const comVideo = [...salaEl.querySelectorAll('.participante')].find((t) => t.querySelector('video.v').style.display !== 'none');
-    destacar(comVideo || salaEl.querySelector('.participante'));
+    salaEl.querySelectorAll('.participante').forEach((t) => t.classList.remove('foco'));
+    if (b.dataset.l === 'destaque') {
+      // destaque: fixa quem está transmitindo vídeo (ou o primeiro)
+      const comVideo = [...salaEl.querySelectorAll('.participante')].filter((t) => t.querySelector('video.v')?.style.display !== 'none').slice(0, 4);
+      (comVideo.length ? comVideo : [salaEl.querySelector('.participante')]).forEach((t) => t?.classList.add('foco'));
+    }
+    aplicarFoco();
   });
+
+  // Configurações de áudio
+  const prefs = prefsAudio();
+  box.querySelectorAll('[data-a]').forEach((c) => (c.checked = prefs[c.dataset.a] !== false));
+  el('cfg-audio').onclick = async () => {
+    el('audio').classList.toggle('hidden');
+    try {
+      const mics = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId);
+      el('a-mic').innerHTML = '<option value="">Padrão do sistema</option>' + mics.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === prefs.mic ? 'selected' : ''}>${esc(d.label || 'Microfone ' + (i + 1))}</option>`).join('');
+    } catch { /* sem permissão ainda */ }
+  };
+  el('a-fechar').onclick = () => el('audio').classList.add('hidden');
+  el('a-ok').onclick = async () => {
+    const o = { mic: el('a-mic').value || null };
+    box.querySelectorAll('[data-a]').forEach((c) => (o[c.dataset.a] = c.checked));
+    Object.assign(prefs, o);
+    try { if (sala) await sala.configurarAudio(o); else localStorage.setItem('cc_audio', JSON.stringify(o)); toast('Áudio atualizado.'); el('audio').classList.add('hidden'); } catch (e) { falha(e); }
+  };
+
+  // Abrir em janela separada (continua na call enquanto navega pelo site)
+  el('popout')?.addEventListener('click', async () => {
+    const url = `chamada.html?sala=${encodeURIComponent(salaId)}&titulo=${encodeURIComponent(titulo)}`;
+    const w = window.open(url, 'cc-call', 'popup,width=960,height=640');
+    if (!w) return toast('O navegador bloqueou a janela. Permita pop-ups para este site.', true);
+    if (sala?.local) { await sala.sair(); toast('A call continua na janela nova.'); }
+  });
+
+  // Mini player: quando a call sai da tela (rolou a página ou trocou de aba da comunidade)
+  document.querySelector('.call-flutuante')?.remove();
+  const mini = document.createElement('div');
+  mini.className = 'call-flutuante hidden';
+  mini.innerHTML = `<span>🔊 Em call · <strong>${esc(titulo)}</strong></span><button class="btn sec pequeno" data-m="mudo">🎤</button><button class="btn pequeno" data-m="ir">Voltar</button><button class="btn perigo pequeno" data-m="sair">Sair</button>`;
+  document.body.append(mini);
+  mini.querySelector('[data-m="ir"]').onclick = () => { const aba = document.querySelector('.aba[data-a="call"]'); aba?.click(); box.scrollIntoView({ behavior: 'smooth' }); };
+  mini.querySelector('[data-m="mudo"]').onclick = () => { sala?.alternarMudo(); mini.querySelector('[data-m="mudo"]').textContent = sala?.mudo ? '🔇' : '🎤'; };
+  mini.querySelector('[data-m="sair"]').onclick = () => sala?.sair();
+  const atualizarMini = () => {
+    const r = box.getBoundingClientRect();
+    const visivel = box.offsetParent !== null && r.bottom > 80 && r.top < innerHeight - 80;
+    mini.classList.toggle('hidden', !sala?.local || visivel);
+  };
+  addEventListener('scroll', atualizarMini, { passive: true });
+  document.addEventListener('click', () => setTimeout(atualizarMini, 50));
+  setInterval(atualizarMini, 1500);
+
   el('form-chat').onsubmit = (e) => { e.preventDefault(); const t = el('txt').value.trim(); if (t) { sala.enviarChat(t); el('txt').value = ''; } };
   window.addEventListener('beforeunload', () => sala?.sair());
   return { sair: () => sala?.sair() };

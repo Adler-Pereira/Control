@@ -1,4 +1,5 @@
-import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador, carrossel, imgIgdb } from './app.js';
+import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor, verImagem } from './posts.js';
 
 await montarLayout();
 const main = $('#conteudo');
@@ -56,8 +57,14 @@ async function carregar() {
       </aside>
     </div>
 
-    ${(g.videos || []).filter((v) => /^[A-Za-z0-9_-]{6,20}$/.test(v)).length ? `<h2>Trailers</h2><div class="trailers">${g.videos.filter((v) => /^[A-Za-z0-9_-]{6,20}$/.test(v)).slice(0, 3).map((v) => `
-      <div class="trailer" data-video="${v}"><img src="https://i.ytimg.com/vi/${v}/hqdefault.jpg" alt="Trailer" loading="lazy"><span>▶</span></div>`).join('')}</div>` : ''}
+    ${(() => {
+      // Carrossel de mídia: trailers primeiro, depois capturas de tela
+      const vids = (g.videos || []).filter((v) => /^[A-Za-z0-9_-]{6,20}$/.test(v)).slice(0, 3);
+      const fotos = (g.screenshots || []).map((x) => imgIgdb(x)).filter(Boolean).slice(0, 8);
+      if (!vids.length && !fotos.length) return '';
+      return `<h2>Trailers e imagens</h2>${carrossel(vids.map((v) => `<div class="trailer" data-video="${v}"><img src="https://i.ytimg.com/vi/${v}/hqdefault.jpg" alt="Trailer" loading="lazy"><span>▶</span></div>`).join('')
+        + fotos.map((f) => `<img class="midia" src="${f}" data-grande="${f.replace('t_screenshot_big', 't_1080p')}" alt="Imagem de ${esc(g.title)}" loading="lazy">`).join(''))}`.replace('class="car-trilho"', 'class="car-trilho largo"');
+    })()}
 
     ${precos?.menor ? `<div class="cartao" style="margin-top:14px"><h3>📉 Histórico de preço</h3>
       <p>Menor preço já visto aqui: <strong>${reais(precos.menor.preco)}</strong> na ${esc(precos.menor.loja)} em ${new Date(precos.menor.quando).toLocaleDateString('pt-BR')}
@@ -109,7 +116,22 @@ async function carregar() {
           <button class="chip" data-coment="${r.id}">💬 ${r.comments_count || 0} comentário(s)</button>
         </div>
         <div class="comentarios hidden" data-lista-coment="${r.id}"></div></article>`).join('') || '<p class="vazio">Seja o primeiro a avaliar!</p>'}
-    </div>`;
+    </div>
+
+    <h2>Posts sobre o jogo</h2>
+    ${u ? compositorHtml(`Compartilhe um print, uma dica ou uma conquista de ${g.title}...`) : ''}
+    <div class="lista" id="posts-jogo" style="margin-top:12px"></div>
+`;
+
+  // Imagens do carrossel abrem em tela cheia; posts do jogo
+  main.querySelectorAll('img.midia').forEach((i) => i.onclick = () => verImagem(i.dataset.grande));
+  const carregarPostsJogo = async () => {
+    const { data: ps } = await sb.from('posts').select(COLUNAS_POST).eq('game_id', g.id).eq('status', 'published').order('created_at', { ascending: false }).limit(20);
+    $('#posts-jogo').innerHTML = (ps || []).map((x) => postHtml(x, { u })).join('') || '<p class="muted">Nenhum post sobre este jogo ainda.</p>';
+    ligarPosts($('#posts-jogo'), { u });
+  };
+  if ($('#compositor')) ligarCompositor($('#compositor'), { u, jogo: { id: g.id, title: g.title }, aoPublicar: carregarPostsJogo });
+  carregarPostsJogo();
 
   main.querySelectorAll('[data-den]').forEach((b) => b.onclick = () => denunciar('review', b.dataset.den));
   // Trailers: carrega o player só ao clicar (mais leve e sem rastreamento antes do clique)

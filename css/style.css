@@ -94,7 +94,7 @@ label { display: block; font-weight: 600; margin: 12px 0 6px; font-size: .9rem; 
 .jogo-card:hover { transform: translateY(-4px); box-shadow: var(--sombra); text-decoration: none; }
 .jogo-card img { aspect-ratio: 5/3; object-fit: cover; width: 100%; background: var(--cartao-2); }
 .jogo-card .info { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-.jogo-card .titulo { font-size: 1.15rem; }
+.jogo-card .titulo { font-size: 1.05rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .tag { display: inline-block; background: var(--cartao-2); color: var(--texto-2); border-radius: 999px; padding: 2px 10px; font-size: .78rem; font-weight: 600; }
 .tag.amarela { background: var(--amarelo); color: var(--preto); }
 
@@ -345,3 +345,69 @@ a.usuario { color: var(--texto); font-weight: 700; }
 :root[data-tema="claro"] .estrelas .vazia { color: #c9c9d4; }
 :root[data-tema="claro"] main a.cartao { color: var(--texto); }
 :root[data-tema="claro"] .topo .sino { color: #f2f2f5; }
+
+/* ---------- Carregamento (esqueletos) ---------- */
+.esqueleto { pointer-events: none; }
+.esqueleto .esq-img { aspect-ratio: 5/3; }
+.esqueleto .esq-img, .esqueleto .esq-linha { background: linear-gradient(90deg, var(--cartao-2) 25%, var(--borda) 50%, var(--cartao-2) 75%); background-size: 200% 100%; animation: brilhar 1.2s linear infinite; border-radius: 6px; }
+.esqueleto .esq-linha { display: block; height: 12px; margin: 6px 0; }
+.esqueleto .esq-linha.curta { width: 55%; }
+@keyframes brilhar { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* ---------- Carrossel ---------- */
+.carrossel { position: relative; }
+.car-trilho { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(210px, 250px); gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 2px 12px; scrollbar-width: thin; }
+.car-trilho > * { scroll-snap-align: start; }
+.car-trilho.largo { grid-auto-columns: minmax(280px, 520px); }
+.car-seta { position: absolute; top: 40%; z-index: 3; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); font-size: 1.5rem; line-height: 1; cursor: pointer; box-shadow: var(--sombra); }
+.car-seta.esq { left: -12px; } .car-seta.dir { right: -12px; }
+@media (hover: none), (max-width: 640px) { .car-seta { display: none; } }
+.noticia-card { display: flex; flex-direction: column; gap: 6px; background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); padding: 14px; color: var(--texto); min-height: 150px; }
+.noticia-card:hover { text-decoration: none; border-color: var(--amarelo); }
+.noticia-card strong { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- Mídia do jogo ---------- */
+.midia { aspect-ratio: 16/9; width: 100%; border-radius: 12px; object-fit: cover; background: #000; cursor: zoom-in; border: 0; }
+dialog.visor { background: transparent; border: 0; padding: 0; max-width: 96vw; max-height: 94vh; }
+dialog.visor img { max-width: 96vw; max-height: 90vh; border-radius: 10px; display: block; }
+dialog.visor button { position: absolute; top: 8px; right: 8px; }
+dialog.visor::backdrop { background: rgba(0,0,0,.85); }
+
+/* ---------- Posts / feed ---------- */
+.compositor textarea { resize: vertical; }
+.cp-previa { margin-top: 8px; display: flex; gap: 10px; align-items: flex-start; }
+.cp-previa img { max-height: 160px; max-width: 70%; border-radius: 8px; }
+.post-img { display: block; width: 100%; max-height: 560px; object-fit: contain; background: #000; border-radius: 10px; margin-top: 10px; cursor: zoom-in; }
+.post-acoes { display: flex; gap: 6px; margin-top: 10px; border-top: 1px solid var(--borda); padding-top: 8px; }
+.bt-acao { background: none; border: 0; color: var(--texto-2); cursor: pointer; padding: 6px 10px; border-radius: 8px; font: inherit; }
+.bt-acao:hover:not(:disabled) { background: var(--cartao-2); color: var(--texto); }
+.bt-acao.ativo { color: #ff5c7a; }
+.post-coments { margin-top: 8px; }
+.atividade { display: flex; gap: 10px; align-items: center; padding: 10px; background: var(--cartao); border: 1px solid var(--borda); border-radius: 12px; }
+.atividade img.capa { width: 64px; height: 38px; object-fit: cover; border-radius: 6px; }
+
+/* ---------- Perfil ---------- */
+/* Banner da loja de conquistas: vira o fundo da página do perfil */
+.perfil-fundo { position: fixed; inset: 0; z-index: -1; opacity: .28; background-size: cover !important; background-position: center !important; pointer-events: none; }
+.perfil-fundo::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 40%, var(--fundo)); }
+.jogando-agora { display: inline-flex; gap: 6px; align-items: center; background: #1b2838; color: #c7d5e0; border-radius: 999px; padding: 3px 10px; font-size: .85rem; margin-top: 6px; }
+.jogando-agora::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #90ba3c; }
+.vitrine-jogos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.vitrine-jogos a { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--borda); color: #fff; }
+.vitrine-jogos img { width: 100%; aspect-ratio: 5/3; object-fit: cover; display: block; }
+.vitrine-jogos span { position: absolute; inset: auto 0 0 0; padding: 18px 8px 6px; background: linear-gradient(transparent, rgba(0,0,0,.85)); font-weight: 700; font-size: .85rem; }
+.escolha-jogos { max-height: 320px; overflow: auto; display: grid; gap: 4px; margin-top: 8px; }
+.escolha-jogos label { display: flex; gap: 8px; align-items: center; font-weight: 400; }
+
+/* ---------- Comunidade ---------- */
+.com-capa { height: clamp(110px, 20vw, 200px); border-radius: 14px 14px 0 0; background: linear-gradient(135deg, #2a2410, #000 60%, #3a2f00) center/cover; margin: -20px -20px 0; }
+.com-icone { width: 72px; height: 72px; border-radius: 18px; object-fit: cover; border: 3px solid var(--cartao); background: var(--cartao-2); margin-top: -36px; }
+
+/* ---------- Call: mini player flutuante ---------- */
+.call-flutuante { position: fixed; right: 16px; bottom: 16px; z-index: 60; background: var(--cartao); border: 1px solid var(--amarelo); border-radius: 14px; box-shadow: var(--sombra); padding: 8px 12px; display: flex; gap: 8px; align-items: center; }
+/* Destaque com várias transmissões: as fixadas dividem a linha de cima; as outras viram miniaturas */
+.sala.destaque { grid-template-columns: repeat(12, 1fr); }
+.sala.destaque .participante { grid-column: span 3; }
+.sala.destaque .participante.foco { grid-column: span var(--span, 12); max-height: none; }
+@media (max-width: 700px) { .sala.destaque .participante { grid-column: span 6; } .sala.destaque .participante.foco { grid-column: 1 / -1; } }
+.janela-call { padding: 12px; max-width: none; }
