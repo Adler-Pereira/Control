@@ -360,7 +360,7 @@ export async function denunciar(tipo, id) {
 }
 
 // ---------- Reportar problema / sugestão (vai para o painel do admin) ----------
-export async function reportarProblema() {
+export async function reportarProblema(textoInicial = '') {
   if (!sb) return;
   let dlg = $('#dlg-reportar');
   if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'dlg-reportar'; document.body.append(dlg); }
@@ -369,6 +369,7 @@ export async function reportarProblema() {
     <label for="rp-tipo">Tipo</label><select id="rp-tipo"><option value="bug">Algo não funciona</option><option value="sugestao">Sugestão</option></select>
     <label for="rp-msg">Mensagem</label><textarea id="rp-msg" rows="4" maxlength="2000" required placeholder="Ex.: Ao clicar em Publicar no celular, nada acontece."></textarea>
     <div class="controles" style="margin-top:14px"><button class="btn" value="ok">Enviar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div></form>`;
+  if (textoInicial) $('#rp-msg', dlg).value = textoInicial;
   dlg.showModal();
   dlg.addEventListener('close', async () => {
     if (dlg.returnValue !== 'ok') return;

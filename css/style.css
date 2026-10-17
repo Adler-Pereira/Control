@@ -477,3 +477,4 @@ dialog.visor::backdrop { background: rgba(0,0,0,.85); }
 .medidor .limite { position: absolute; top: -2px; bottom: -2px; width: 3px; background: var(--amarelo); }
 .sens input[type=range] { width: 100%; accent-color: var(--amarelo); padding: 0; }
 .jogo-card .tags-cat { display: flex; flex-wrap: wrap; gap: 4px; }
+.bt-link { background: none; border: 0; padding: 0; color: var(--muted, #9a9aa5); cursor: pointer; font: inherit; text-decoration: underline; margin-left: 10px; }

@@ -11,6 +11,7 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
       <button class="btn sec hidden" data-v="mudo">🎤 Silenciar</button>
       <button class="btn sec hidden" data-v="cam">📷 Câmera</button>
       <button class="btn sec hidden" data-v="tela">🖥️ Compartilhar tela</button>
+      <button class="btn sec hidden" data-v="musica" title="Toca para todos o som de uma aba do navegador (ex.: Spotify em open.spotify.com), junto com a tela do jogo">🎵 Tocar música</button>
       <button class="btn sec hidden" data-v="som">🔈 Ativar som</button>
       <button class="btn sec" data-v="cfg-audio" title="Microfone, supressão de ruído e eco">⚙️ Áudio</button>
       ${janela ? '' : '<button class="btn sec" data-v="popout" title="Abre a call numa janela separada: você continua navegando pelo site sem cair">🗗 Abrir em janela</button>'}
@@ -73,12 +74,15 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     const dentro = !!sala?.local;
     el('entrar').classList.toggle('hidden', dentro);
     ['mudo', 'cam', 'tela', 'sair', 'layout'].forEach((k) => el(k).classList.toggle('hidden', !dentro));
+    el('musica').classList.toggle('hidden', !dentro || !navigator.mediaDevices?.getDisplayMedia);
     el('chat').classList.toggle('hidden', !dentro);
     if (!dentro) { el('info').textContent = ''; el('aviso').classList.add('hidden'); el('som').classList.add('hidden'); el('opcoes').classList.add('hidden'); return; }
     el('mudo').textContent = sala.mudo ? '🔇 Ativar microfone' : sala.prefs?.ptt ? (sala.falandoPtt ? '🎙️ Falando...' : `🎤 Segure ${(sala.prefs.tecla || 'KeyV').replace(/^Key|^Digit/, '')} para falar`) : '🎤 Silenciar';
     el('cam').classList.toggle('ligado', sala.modoVideo === 'camera');
     el('tela').classList.toggle('ligado', sala.modoVideo === 'tela');
     el('tela').textContent = sala.modoVideo === 'tela' ? '🖥️ Parar compartilhamento' : '🖥️ Compartilhar tela';
+    el('musica').classList.toggle('ligado', sala.musicaAtiva);
+    el('musica').textContent = sala.musicaAtiva ? '🎵 Parar música' : '🎵 Tocar música';
     const outros = sala.participantes - 1;
     el('info').textContent = outros ? `${sala.participantes} pessoas na call · ${sala.conectados} de ${outros} conectada(s)` : 'Você está na call. Aguardando outras pessoas...';
   };
@@ -117,6 +121,11 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
   el('tela').onclick = () => {
     if (sala.modoVideo === 'tela') return sala.alternarTela();
     el('opcoes').classList.toggle('hidden');
+  };
+  el('musica').onclick = async () => {
+    if (!sala.musicaAtiva) toast('Escolha a aba do Spotify (open.spotify.com) em "Guia do Chrome" e deixe ligado "Compartilhar áudio da guia".');
+    try { if (await sala.alternarMusica()) toast('🎵 Música tocando para a call. Cada pessoa ajusta no volume 🖥️ Tela do seu quadro.'); }
+    catch (e) { if (e.name !== 'NotAllowedError') falha(e); }
   };
   el('o-cancelar').onclick = () => el('opcoes').classList.add('hidden');
   el('o-ok').onclick = async () => {

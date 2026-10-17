@@ -50,6 +50,23 @@ async function carregar(p, meu, u) {
   const recentes = lista.filter((x) => x.status || x.hours).slice().sort((a, b) => new Date(b.last_played || b.updated_at) - new Date(a.last_played || a.updated_at)).slice(0, 4);
   const vitrine = (p.showcase_games || []).map((gid) => lista.find((x) => x.game_id === gid)?.games).filter(Boolean);
   const desejos = lista.filter((x) => x.wishlist);
+  // Resumo de horas (vem da importação da Steam e fica sempre no perfil)
+  const comHoras = lista.filter((x) => Number(x.hours) > 0).sort((a, b) => b.hours - a.hours);
+  const totalHoras = comHoras.reduce((t, x) => t + Number(x.hours), 0);
+  const horas2sem = lista.reduce((t, x) => t + (Number(x.hours_2weeks) || 0), 0);
+  const fmtH = (h) => Math.round(h).toLocaleString('pt-BR') + ' h';
+  const resumo = comHoras.length ? `<div class="cartao resumo-horas" style="margin-bottom:14px">
+      <div class="controles" style="gap:22px;align-items:flex-end">
+        <div><div class="nota-grande" style="font-size:2rem">${fmtH(totalHoras)}</div><span class="muted">jogadas no total</span></div>
+        <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status || Number(x.hours) > 0 || !x.wishlist).length}</div><span class="muted">jogos</span></div>
+        ${horas2sem ? `<div><div class="nota-grande" style="font-size:2rem">${fmtH(horas2sem)}</div><span class="muted">nas últimas 2 semanas</span></div>` : ''}
+        <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status === 'zerado').length}</div><span class="muted">zerados</span></div>
+      </div>
+      <h3 style="margin-top:12px">⏱️ Mais jogados</h3>
+      <div class="lista">${comHoras.slice(0, 5).map((x) => `<a href="jogo.html?slug=${encodeURIComponent(x.games.slug)}" style="display:flex;gap:10px;align-items:center;color:var(--texto);text-decoration:none">
+        <span style="flex:1;min-width:0"><strong>${esc(x.games.title)}</strong></span>
+        <span style="flex:2;height:8px;background:var(--borda,#2a2a31);border-radius:6px;overflow:hidden"><span style="display:block;height:100%;width:${Math.max(3, Math.round(x.hours / comHoras[0].hours * 100))}%;background:var(--amarelo,#ffd33c)"></span></span>
+        <span class="muted" style="min-width:64px;text-align:right">${fmtH(Number(x.hours))}</span></a>`).join('')}</div></div>` : '';
   const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const itemBib = (x) => {
     const d = (x.games.deals || []).filter((k) => k.discount_pct > 0).sort((a, b) => b.discount_pct - a.discount_pct)[0];
@@ -94,7 +111,7 @@ async function carregar(p, meu, u) {
           <div class="barra-xp" style="margin-top:10px;max-width:360px" title="${p.xp} XP"><div style="width:${n.pct}%"></div></div>
           <p class="muted" style="font-size:.85rem">${p.xp} XP · próximo nível em ${n.prox} XP</p>
           <p style="margin-top:6px"><strong id="n-seguidores">${seguidores ?? 0}</strong> seguidores · <strong>${seguindo ?? 0}</strong> seguindo ·
-            <strong>${lista.filter((x) => x.status).length}</strong> jogos na biblioteca</p>
+            <strong>${lista.filter((x) => x.status || Number(x.hours) > 0 || !x.wishlist).length}</strong> jogos na biblioteca${totalHoras ? ` · <strong>${fmtH(totalHoras)}</strong> jogadas` : ''}</p>
         </div>
         ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>
           <button class="btn sec" id="amizade">${amizade?.status === 'aceita' ? '🤝 Amigos' : amizade ? (amizade.requester === u.id ? '⏳ Pedido enviado' : '✓ Aceitar amizade') : '👥 Adicionar amigo'}</button>` : ''}
@@ -109,9 +126,11 @@ async function carregar(p, meu, u) {
       <div class="grade">${(rec.data || []).map(cardJogo).join('') || '<p class="vazio">Escolha categorias favoritas em "Editar perfil" ou avalie jogos para receber recomendações.</p>'}</div>` : ''}
 
     <h2>Biblioteca</h2>
+    ${resumo}
     ${meu ? `<div class="cartao" style="margin-bottom:12px"><div class="controles" style="align-items:center">
       <span style="flex:1">Importe seus jogos e horas jogadas da <strong>Steam</strong> (seu perfil e a lista de jogos precisam estar públicos).</span>
-      <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button></div>
+      <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button>
+      ${p.steam_id || lista.some((x) => x.hours != null) ? '<button class="btn perigo pequeno" id="desfazer-steam" title="Remove os jogos e horas trazidos da Steam (ex.: importou o perfil errado)">↩️ Desfazer importação</button>' : ''}</div>
       <p class="muted" style="font-size:.82rem;margin-top:6px">PlayStation e Xbox não oferecem importação oficial: adicione esses jogos pela página de cada jogo.</p></div>` : ''}
     ${vitrine.length || meu ? `<h2>🏆 Vitrine</h2>${vitrine.length ? `<div class="vitrine-jogos">${vitrine.map((g) => `<a href="jogo.html?slug=${encodeURIComponent(g.slug)}"><img ${srcCapa(g.cover_url, 320)} alt="" loading="lazy"><span>${esc(g.title)}</span></a>`).join('')}</div>`
       : '<p class="muted">Escolha até 6 jogos favoritos para exibir aqui em "✏️ Editar perfil".</p>'}` : ''}
@@ -220,6 +239,7 @@ async function carregar(p, meu, u) {
   }
 
   $('#importar-steam').onclick = () => importarSteam(p);
+  $('#desfazer-steam')?.addEventListener('click', () => desfazerSteam(p));
   // Notificações no celular
   const atualizarPush = async () => {
     const st = await estadoPush(), bt = $('#push-bt');
@@ -433,6 +453,19 @@ async function exportarDados(p) {
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `control-critic-${p.username}.json` });
   a.click(); URL.revokeObjectURL(a.href);
+}
+
+// Desfaz a importação: apaga os jogos que vieram só da Steam e tira as horas dos que a pessoa também marcou (status/desejo)
+async function desfazerSteam(p) {
+  if (!confirm('Remover a importação da Steam?\n\nOs jogos trazidos da Steam saem da sua biblioteca e as horas são apagadas. Jogos que você marcou (jogando, zerado, lista de desejos) continuam, só sem as horas.\n\nDepois você pode importar o perfil certo.')) return;
+  try {
+    const { error: e1 } = await sb.from('user_games').delete().eq('user_id', p.id).not('hours', 'is', null).is('status', null).eq('wishlist', false);
+    if (e1) throw e1;
+    const { error: e2 } = await sb.from('user_games').update({ hours: null, hours_2weeks: null, last_played: null }).eq('user_id', p.id).not('hours', 'is', null);
+    if (e2) throw e2;
+    await sb.from('profiles').update({ steam_id: null, steam_profile: null }).eq('id', p.id);
+    toast('Importação removida.'); location.reload();
+  } catch (e) { falha(e); }
 }
 
 // Importa jogos e horas da Steam (via função no servidor, que guarda a chave da Steam)
