@@ -505,8 +505,14 @@ async function usuarios() {
       <select id="u-papel"><option value="">Todas as permissões</option>${Object.entries(PERMISSAO).map(([v, t]) => `<option value="${v}" ${f.papel === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       <select id="u-sit"><option value="">Todas as situações</option><option value="suspensos" ${f.situacao ? 'selected' : ''}>Suspensos</option></select>
     </div>
-    <p class="muted" style="margin-bottom:8px">${(count ?? 0).toLocaleString('pt-BR')} usuário(s). Clique em um usuário para gerenciar.</p>
-    ${tabela(['Usuário', 'Permissão', 'Cargos', 'XP', 'Situação', 'Desde'], us.map((u) => `<tr class="linha-usuario" data-id="${u.id}" style="cursor:pointer">
+    <p class="muted" style="margin-bottom:8px">${(count ?? 0).toLocaleString('pt-BR')} usuário(s). Clique em um usuário para gerenciar, ou marque vários para agir em lote.</p>
+    ${P.role === 'admin' ? `<div class="cartao controles lote-barra" style="margin-bottom:10px;align-items:center;gap:8px">
+      <label style="display:flex;gap:6px;align-items:center;font-weight:400;margin:0"><input type="checkbox" id="u-todos" style="width:auto"> Marcar todos da página</label>
+      <span class="muted" id="u-sel">0 selecionado(s)</span>
+      <button class="btn pequeno" id="u-lote-itens" disabled>🎁 Dar/tirar itens</button><button class="btn sec pequeno" id="u-lote-xp" disabled>⭐ Dar XP</button>
+      <button class="btn sec pequeno" id="u-lote-geral" title="Dar itens para todos os usuários do site">🌍 Itens para todos</button></div>` : ''}
+    ${tabela(['', 'Usuário', 'Permissão', 'Cargos', 'XP', 'Situação', 'Desde'], us.map((u) => `<tr class="linha-usuario" data-id="${u.id}" style="cursor:pointer">
+      <td>${P.role === 'admin' ? `<input type="checkbox" class="u-marca" value="${u.id}" style="width:18px;height:18px" aria-label="Selecionar ${esc(u.username)}">` : ''}</td>
       <td><span class="controles" style="align-items:center;flex-wrap:nowrap">${avatarHtml(u)} <strong>${esc(u.username)}</strong>${u.id === P.id ? ' <span class="muted">(você)</span>' : ''}</span></td>
       <td>${PERMISSAO[u.role]}</td>
       <td>${(u.titles || []).map((t) => T.get(t)).filter(Boolean).map((t) => `<span class="tag" style="background:${esc(t.color)};color:#000">${esc(t.icon || '')} ${esc(t.name)}</span>`).join(' ')}</td>
@@ -523,12 +529,78 @@ async function usuarios() {
   $('#u-sit').onchange = (e) => { f.situacao = e.target.value; f.pagina = 0; usuarios(); };
   $('#u-ant')?.addEventListener('click', () => { f.pagina--; usuarios(); });
   $('#u-prox')?.addEventListener('click', () => { f.pagina++; usuarios(); });
-  painel().querySelectorAll('.linha-usuario').forEach((tr) => tr.onclick = () => fichaUsuario(tr.dataset.id, T));
+  painel().querySelectorAll('.linha-usuario').forEach((tr) => tr.onclick = (e) => { if (!e.target.closest('.u-marca')) fichaUsuario(tr.dataset.id, T); });
+  // Ações em lote
+  const marcados = () => [...painel().querySelectorAll('.u-marca:checked')].map((c) => c.value);
+  const contar = () => { const n = marcados().length; $('#u-sel') && ($('#u-sel').textContent = `${n} selecionado(s)`); ['u-lote-itens', 'u-lote-xp'].forEach((k) => { if ($('#' + k)) $('#' + k).disabled = !n; }); };
+  painel().querySelectorAll('.u-marca').forEach((c) => c.onchange = contar);
+  $('#u-todos')?.addEventListener('change', (e) => { painel().querySelectorAll('.u-marca').forEach((c) => { c.checked = e.target.checked; }); contar(); });
+  $('#u-lote-itens')?.addEventListener('click', () => darEmLote({ uids: marcados() }));
+  $('#u-lote-geral')?.addEventListener('click', () => darEmLote({ todos: true }));
+  $('#u-lote-xp')?.addEventListener('click', async () => {
+    const uids = marcados(), q = Number(prompt(`Quanto de XP dar para ${uids.length} pessoa(s)? (negativo para tirar)`, '100'));
+    if (!q) return;
+    const motivo = prompt('Motivo (aparece no histórico):', 'Evento da comunidade') || null;
+    const { error: e } = await sb.rpc('admin_xp_lote', { uids, quantidade: q, motivo });
+    if (e) return falha(e);
+    toast(`⭐ ${q} XP para ${uids.length} pessoa(s).`); usuarios();
+  });
+}
+
+// Dar/tirar itens para várias pessoas (ou todo mundo): escolhe os itens numa grade e confirma
+async function darEmLote({ uids = [], todos = false, itensIniciais = [] } = {}) {
+  const { data: itens } = await sb.from('cosmetics').select('id,name,kind,icon,rarity').order('kind').order('sort');
+  const dlg = $('#dlg');
+  let alvos = [...uids];
+  dlg.innerHTML = `<h2 style="margin-top:0">🎁 Itens em lote</h2>
+    ${todos ? '<p class="aviso">Vai valer para <strong>todos os usuários</strong> do site (menos os suspensos).</p>' : `
+      <p class="muted">Para: <strong id="l-alvos">${alvos.length}</strong> pessoa(s). ${uids.length ? '' : 'Busque e adicione abaixo.'}</p>
+      <div class="busca-jogo"><input id="l-busca" type="search" placeholder="Adicionar pessoa pelo nome..." autocomplete="off"><span class="sugestoes hidden" id="l-sug"></span></div>
+      <div class="controles" id="l-chips" style="margin:6px 0;gap:4px"></div>`}
+    <p class="muted" style="font-size:.82rem">Marque os itens. Escolha se é para <strong>dar</strong> ou <strong>tirar</strong>.</p>
+    <div id="l-itens"></div>
+    <div class="controles" style="margin-top:12px"><button class="btn" id="l-dar">🎁 Dar marcados</button><button class="btn perigo" id="l-tirar">Tirar marcados</button><button class="btn sec" id="l-fechar">Fechar</button></div>`;
+  dlg.showModal();
+  const sel = seletorItens($('#l-itens'), itens || [], new Set());
+  itensIniciais.forEach((id) => dlg.querySelector(`.item-opcao[data-id="${CSS.escape(id)}"]`)?.click());
+  $('#l-fechar').onclick = () => dlg.close();
+  const desenharAlvos = async () => {
+    if (todos || !$('#l-chips')) return;
+    $('#l-alvos').textContent = alvos.length;
+    const { data: ps } = alvos.length ? await sb.from('profiles').select('id,username').in('id', alvos) : { data: [] };
+    $('#l-chips').innerHTML = (ps || []).map((p) => `<span class="tag">@${esc(p.username)} <button type="button" data-tirar-alvo="${p.id}" style="background:none;border:0;color:inherit;cursor:pointer">✕</button></span>`).join('');
+    $('#l-chips').querySelectorAll('[data-tirar-alvo]').forEach((b) => b.onclick = () => { alvos = alvos.filter((x) => x !== b.dataset.tirarAlvo); desenharAlvos(); });
+  };
+  desenharAlvos();
+  let t;
+  $('#l-busca')?.addEventListener('input', (e) => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const q = e.target.value.trim().replace(/[%,()]/g, ''), sug = $('#l-sug');
+      if (q.length < 2) return sug.classList.add('hidden');
+      const { data } = await sb.from('profiles').select('id,username').ilike('username', `%${q}%`).limit(8);
+      sug.innerHTML = (data || []).map((p) => `<button type="button" data-id="${p.id}">@${esc(p.username)}</button>`).join('');
+      sug.classList.remove('hidden');
+      sug.querySelectorAll('[data-id]').forEach((b) => b.onclick = () => { if (!alvos.includes(b.dataset.id)) alvos.push(b.dataset.id); sug.classList.add('hidden'); $('#l-busca').value = ''; desenharAlvos(); });
+    }, 250);
+  });
+  const enviar = async (dar) => {
+    const ids = sel.marcados();
+    if (!ids.length) return toast('Marque pelo menos um item.', true);
+    if (!todos && !alvos.length) return toast('Adicione pelo menos uma pessoa.', true);
+    if (!confirm(`${dar ? 'Dar' : 'Tirar'} ${ids.length} item(ns) ${todos ? 'de TODOS os usuários' : `de ${alvos.length} pessoa(s)`}?`)) return;
+    const { data: n, error: e } = await sb.rpc('admin_cosmetics_lote', { uids: todos ? [] : alvos, dar: dar ? ids : [], tirar: dar ? [] : ids, todos });
+    if (e) return falha(e);
+    try { sessionStorage.removeItem('cc_itens'); } catch { /* ignora */ }
+    dlg.close(); toast(`${dar ? '🎁 Entregue' : 'Removido'} para ${n} pessoa(s).`);
+  };
+  $('#l-dar').onclick = () => enviar(true);
+  $('#l-tirar').onclick = () => enviar(false);
 }
 
 // Ficha completa de um usuário, com todas as ações da equipe
 async function fichaUsuario(uid, T) {
-  const [{ data: d, error }, { data: itens }] = await Promise.all([sb.rpc('admin_user_detail', { uid }), sb.from('cosmetics').select('id,name,kind').order('kind').order('sort')]);
+  const [{ data: d, error }, { data: itens }] = await Promise.all([sb.rpc('admin_user_detail', { uid }), sb.from('cosmetics').select('id,name,kind,icon,rarity').order('kind').order('sort')]);
   if (error) return falha(error);
   const u = d.profile, eu = u.id === P.id, admin = P.role === 'admin';
   const dlg = $('#dlg');
@@ -567,8 +639,9 @@ async function fichaUsuario(uid, T) {
       <button class="btn pequeno" id="f-dar-xp">Aplicar</button></div>
 
       <h3 style="margin-top:14px">Itens (molduras, banners e selos)</h3>
-      <div class="controles"><select id="f-item" style="width:auto">${(itens || []).map((i) => `<option value="${i.id}">${i.kind === 'frame' ? 'Moldura' : i.kind === 'banner' ? 'Banner' : 'Selo'}: ${esc(i.name)}${d.cosmetics.includes(i.id) ? ' ✓' : ''}</option>`).join('')}</select>
-      <button class="btn pequeno" id="f-dar-item">Dar</button><button class="btn sec pequeno" id="f-tirar-item">Remover</button></div>` : ''}
+      <p class="muted" style="font-size:.82rem">Clique nos itens para marcar ou desmarcar (✓ = a pessoa tem) e depois em <strong>Salvar itens</strong>.</p>
+      <div id="f-itens"></div>
+      <button class="btn pequeno" id="f-salvar-itens" style="margin-top:8px">Salvar itens</button>` : ''}
 
     <h3 style="margin-top:14px">Histórico da equipe</h3>
     <div class="lista" style="max-height:180px;overflow:auto">${d.history.map((h) => `<div class="muted" style="font-size:.85rem">${new Date(h.created_at).toLocaleString('pt-BR')} · <strong>${esc(h.action)}</strong>${h.por ? ' por ' + esc(h.por) : ''}${h.details?.motivo ? ' · ' + esc(h.details.motivo) : ''}</div>`).join('') || '<span class="muted">Nenhuma ação registrada.</span>'}</div>
@@ -597,8 +670,14 @@ async function fichaUsuario(uid, T) {
     if (!quantidade) return toast('Informe a quantidade de XP.', true);
     rpc('admin_adjust_xp', { uid, quantidade, motivo: $('#f-xp-motivo').value.trim() || null }, 'XP ajustado.');
   });
-  $('#f-dar-item')?.addEventListener('click', () => rpc('admin_cosmetic', { uid, cid: $('#f-item').value, dar: true }, 'Item concedido.'));
-  $('#f-tirar-item')?.addEventListener('click', () => rpc('admin_cosmetic', { uid, cid: $('#f-item').value, dar: false }, 'Item removido.'));
+  if ($('#f-itens')) {
+    const sel = seletorItens($('#f-itens'), itens || [], new Set(d.cosmetics));
+    $('#f-salvar-itens').onclick = () => {
+      const { dar, tirar } = sel.diferenca();
+      if (!dar.length && !tirar.length) return toast('Nada mudou.');
+      rpc('admin_cosmetics_lote', { uids: [uid], dar, tirar }, `Itens salvos (+${dar.length} / −${tirar.length}).`);
+    };
+  }
 }
 
 // ---------------- Cargos personalizados (somente admin) ----------------
@@ -637,6 +716,33 @@ function aplicarEstilosPrevia(lista) {
   if (!el) { el = document.createElement('style'); el.id = 'estilos-previa'; document.head.append(el); }
   el.textContent = lista.map(cssDoItem).join('\n');
 }
+// Grade de itens com filtro e busca; clique marca/desmarca. diferenca() diz o que dar e o que tirar.
+function seletorItens(box, itens, tem = new Set()) {
+  const marcado = new Set(tem); let filtro = '', busca = '';
+  const TIPO = { frame: '🖼️ Molduras', banner: '🎨 Banners', badge: '🏅 Selos' };
+  box.innerHTML = `<div class="controles" style="gap:6px;margin-bottom:8px">
+      <button type="button" class="chip ativo" data-f="">Todos</button>${Object.entries(TIPO).map(([k, t]) => `<button type="button" class="chip" data-f="${k}">${t}</button>`).join('')}
+      <input type="search" placeholder="Buscar item..." style="flex:1;min-width:140px" data-busca>
+      <button type="button" class="btn sec pequeno" data-todos>Marcar visíveis</button><button type="button" class="btn sec pequeno" data-nenhum>Desmarcar visíveis</button></div>
+    <div class="grade-itens"></div><p class="muted" data-resumo style="font-size:.82rem;margin-top:6px"></p>`;
+  const grade = box.querySelector('.grade-itens');
+  const visiveis = () => itens.filter((i) => (!filtro || i.kind === filtro) && (!busca || i.name.toLowerCase().includes(busca)));
+  const desenhar = () => {
+    grade.innerHTML = visiveis().map((i) => `<button type="button" class="item-opcao ${marcado.has(i.id) ? 'marcado' : ''}" data-id="${esc(i.id)}" title="${esc(i.name)}">
+      <span class="item-previa">${previaItem(i)}</span><span class="item-nome">${esc(i.name)}</span><span class="item-check">✓</span></button>`).join('') || '<p class="muted">Nenhum item.</p>';
+    grade.querySelectorAll('[data-id]').forEach((b) => b.onclick = () => { marcado.has(b.dataset.id) ? marcado.delete(b.dataset.id) : marcado.add(b.dataset.id); b.classList.toggle('marcado'); resumo(); });
+    resumo();
+  };
+  const resumo = () => { const { dar, tirar } = diferenca(); box.querySelector('[data-resumo]').textContent = dar.length || tirar.length ? `Alterações: +${dar.length} para dar, −${tirar.length} para tirar.` : ''; };
+  const diferenca = () => ({ dar: [...marcado].filter((x) => !tem.has(x)), tirar: [...tem].filter((x) => !marcado.has(x)) });
+  box.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { filtro = b.dataset.f; box.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('ativo', x === b)); desenhar(); });
+  box.querySelector('[data-busca]').oninput = (e) => { busca = e.target.value.trim().toLowerCase(); desenhar(); };
+  box.querySelector('[data-todos]').onclick = () => { visiveis().forEach((i) => marcado.add(i.id)); desenhar(); };
+  box.querySelector('[data-nenhum]').onclick = () => { visiveis().forEach((i) => marcado.delete(i.id)); desenhar(); };
+  desenhar();
+  return { diferenca, marcados: () => [...marcado] };
+}
+
 const previaItem = (c) => c.kind === 'frame' ? avatarHtml({ ...P, equipped_frame: c.id }, 'grande')
   : c.kind === 'banner' ? `<div class="amostra-banner bn-${esc(c.id)}" style="width:180px"></div>` : `<span style="font-size:2rem">${esc(c.icon || '🏅')}</span>`;
 const comoGanha = (c) => [c.unlock_level ? `nível ${c.unlock_level}` : '', c.unlock_streak ? `${c.unlock_streak} dias seguidos` : ''].filter(Boolean).join(' ou ') || (c.custom ? 'dado pela equipe' : 'regra do site');
@@ -649,16 +755,19 @@ async function itens() {
   aplicarEstilosPrevia(cs.filter((c) => c.custom));
   painel().innerHTML = `<p class="muted">Crie molduras, banners e selos. Eles podem ser dados manualmente (ficha do usuário) ou liberados
       automaticamente por nível ou por dias seguidos de login. Itens originais do site podem ter nome e descrição editados, mas não ser excluídos.</p>
-    <div class="controles" style="margin:12px 0"><button class="btn" data-acao="novo" data-id="frame">+ Nova moldura</button>
+    <div class="controles" style="margin:12px 0"><button class="btn sec" data-acao="lote" data-id="x">🎁 Dar vários itens</button><button class="btn" data-acao="novo" data-id="frame">+ Nova moldura</button>
       <button class="btn" data-acao="novo" data-id="banner">+ Novo banner</button><button class="btn" data-acao="novo" data-id="badge">+ Novo selo</button></div>
     ${tabela(['Prévia', 'Item', 'Como ganha', 'Pessoas', ''], cs.map((c) => `<tr>
       <td>${previaItem(c)}</td>
       <td><strong>${esc(c.name)}</strong>${c.active === false ? ' <span class="tag">desativado</span>' : ''}<br><span class="muted">${TIPO_ITEM[c.kind]} · <span class="r-${c.rarity}">${esc(c.rarity)}</span>${c.custom ? ' · criado no painel' : ''}</span><br><span class="muted" style="font-size:.82rem">${esc(c.description)}</span></td>
       <td>${esc(comoGanha(c))}</td><td>${qtd(c.id)}</td>
-      <td class="controles"><button class="btn sec pequeno" data-acao="editar" data-id="${esc(c.id)}">Editar</button>
+      <td class="controles"><button class="btn pequeno" data-acao="dar" data-id="${esc(c.id)}" title="Dar este item para várias pessoas ou para todos">🎁 Dar</button>
+        <button class="btn sec pequeno" data-acao="editar" data-id="${esc(c.id)}">Editar</button>
         ${c.active === false ? `<button class="btn sec pequeno" data-acao="reativar" data-id="${esc(c.id)}">Reativar</button>`
           : `<button class="btn perigo pequeno" data-acao="excluir" data-id="${esc(c.id)}">Excluir</button>`}</td></tr>`))}`;
   acoes({
+    dar: (id) => darEmLote({ itensIniciais: [id] }),
+    lote: () => darEmLote({}),
     novo: (tipo) => editorItem({ kind: tipo, custom: true, rarity: 'comum', style: tipo === 'badge' ? null : { cores: ['#ffd33c', '#ff6d00'], animado: tipo === 'frame' } }),
     editar: (id) => editorItem(cs.find((c) => c.id === id)),
     excluir: (id) => excluirItem(cs.find((c) => c.id === id), qtd(id)),
