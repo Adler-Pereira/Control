@@ -1,5 +1,5 @@
 // Interface da call (usada nas comunidades e na call entre amigos)
-import { $, esc, falha, toast, statusCall } from './app.js';
+import { sb, $, esc, falha, toast, statusCall } from './app.js';
 import { SalaVoz } from './voz.js';
 import { prefsAudio, salvarPrefsAudio, processarMic, restricoesMic, definirSaida } from './audio-mic.js';
 
@@ -68,7 +68,7 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
       </aside>
     </div>`;
   const el = (k) => box.querySelector(`[data-v="${k}"]`);
-  let sala = null, emCall = false;
+  let sala = null, emCall = false, relogioCall = null;
 
   const atualizar = () => {
     const dentro = !!sala?.local;
@@ -76,7 +76,8 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     ['mudo', 'cam', 'tela', 'sair', 'layout'].forEach((k) => el(k).classList.toggle('hidden', !dentro));
     el('musica').classList.toggle('hidden', !dentro || !navigator.mediaDevices?.getDisplayMedia);
     el('chat').classList.toggle('hidden', !dentro);
-    if (!dentro && emCall) { emCall = false; statusCall(null); }
+    if (!dentro && emCall) { emCall = false; statusCall(null); clearInterval(relogioCall); }
+    if (dentro && !emCall) relogioCall = setInterval(() => sb.rpc('registrar_call').then(() => {}), 60000);   // conta minutos em call (conquistas)
     if (dentro) emCall = true;
     if (!dentro) { el('info').textContent = ''; el('aviso').classList.add('hidden'); el('som').classList.add('hidden'); el('opcoes').classList.add('hidden'); return; }
     el('mudo').textContent = sala.mudo ? '🔇 Ativar microfone' : sala.prefs?.ptt ? (sala.falandoPtt ? '🎙️ Falando...' : `🎤 Segure ${(sala.prefs.tecla || 'KeyV').replace(/^Key|^Digit/, '')} para falar`) : '🎤 Silenciar';
