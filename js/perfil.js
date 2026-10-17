@@ -58,15 +58,20 @@ async function carregar(p, meu, u) {
   const resumo = comHoras.length ? `<div class="cartao resumo-horas" style="margin-bottom:14px">
       <div class="controles" style="gap:22px;align-items:flex-end">
         <div><div class="nota-grande" style="font-size:2rem">${fmtH(totalHoras)}</div><span class="muted">jogadas no total</span></div>
+        ${p.steam_conquistas?.total ? `<div><div class="nota-grande" style="font-size:2rem">${Number(p.steam_conquistas.total).toLocaleString('pt-BR')}</div><span class="muted" title="Conquistas da Steam nos ${p.steam_conquistas.jogos} jogos mais jogados">🏆 conquistas</span></div>` : ''}
         <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status || Number(x.hours) > 0 || !x.wishlist).length}</div><span class="muted">jogos</span></div>
         ${horas2sem ? `<div><div class="nota-grande" style="font-size:2rem">${fmtH(horas2sem)}</div><span class="muted">nas últimas 2 semanas</span></div>` : ''}
         <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status === 'zerado').length}</div><span class="muted">zerados</span></div>
       </div>
+      ${p.steam_conquistas?.raras?.length ? `<h3 style="margin-top:12px">💎 Conquistas mais raras</h3>
+        <div class="conq-raras">${p.steam_conquistas.raras.map((a) => `<div class="conq-rara" title="${esc(a.nome)} · ${esc(a.jogo)}">
+          ${/^https:\/\//.test(a.icone || '') ? `<img src="${esc(a.icone)}" alt="" loading="lazy">` : '<span class="conq-sem">🏆</span>'}
+          <span><strong>${esc(a.nome)}</strong><br><span class="muted">${esc(a.jogo)}</span><br><span class="tag amarela">${String(a.pct).replace('.', ',')}% dos jogadores</span></span></div>`).join('')}</div>` : ''}
       <h3 style="margin-top:12px">⏱️ Mais jogados</h3>
       <div class="lista">${comHoras.slice(0, 5).map((x) => `<a href="jogo.html?slug=${encodeURIComponent(x.games.slug)}" style="display:flex;gap:10px;align-items:center;color:var(--texto);text-decoration:none">
         <span style="flex:1;min-width:0"><strong>${esc(x.games.title)}</strong></span>
         <span style="flex:2;height:8px;background:var(--borda,#2a2a31);border-radius:6px;overflow:hidden"><span style="display:block;height:100%;width:${Math.max(3, Math.round(x.hours / comHoras[0].hours * 100))}%;background:var(--amarelo,#ffd33c)"></span></span>
-        <span class="muted" style="min-width:64px;text-align:right">${fmtH(Number(x.hours))}</span></a>`).join('')}</div></div>` : '';
+        <span class="muted" style="min-width:64px;text-align:right">${fmtH(Number(x.hours))}${x.ach_total ? `<br><span style="font-size:.75rem">🏆 ${x.ach_done}/${x.ach_total}</span>` : ''}</span></a>`).join('')}</div></div>` : '';
   const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const itemBib = (x) => {
     const d = (x.games.deals || []).filter((k) => k.discount_pct > 0).sort((a, b) => b.discount_pct - a.discount_pct)[0];
@@ -469,7 +474,8 @@ async function importarSteam(p) {
     if (!r.ok) throw new Error(d.erro || 'Não foi possível importar.');
     alert(`Importação concluída!\n\n${d.importados} jogo(s) adicionados ou atualizados na sua biblioteca` +
       (d.novos_no_catalogo ? `\n${d.novos_no_catalogo} jogo(s) novos entraram no catálogo do site` : '') +
-      (d.ignorados ? `\n${d.ignorados} item(ns) ignorados (ferramentas, softwares etc.)` : ''));
+      (d.ignorados ? `\n${d.ignorados} item(ns) ignorados (ferramentas, softwares etc.)` : '') +
+      (d.conquistas ? `\n🏆 ${d.conquistas} conquistas nos seus jogos mais jogados` : ''));
     location.reload();
   } catch (e) { falha(e); bt.disabled = false; bt.textContent = '🖥️ Importar da Steam'; }
 }

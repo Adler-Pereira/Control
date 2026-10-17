@@ -2584,3 +2584,20 @@ begin
   perform check_achievements_extra(uid);
   return null;
 end $$;
+
+-- =====================================================================
+-- CONQUISTAS DA STEAM (gravadas só pelo servidor na importação)
+-- =====================================================================
+alter table public.user_games add column if not exists ach_done integer;
+alter table public.user_games add column if not exists ach_total integer;
+alter table public.profiles add column if not exists steam_conquistas jsonb;   -- { total, jogos, raras: [{jogo,nome,icone,pct}], em }
+create or replace function public.protect_steam_conquistas() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  -- o usuário pode apagar (desfazer importação), mas não inventar conquistas
+  if auth.uid() is not null and not is_admin() and new.steam_conquistas is not null then new.steam_conquistas := old.steam_conquistas; end if;
+  return new;
+end $$;
+drop trigger if exists profiles_steam_conq on public.profiles;
+create trigger profiles_steam_conq before update of steam_conquistas on public.profiles
+  for each row execute function public.protect_steam_conquistas();
