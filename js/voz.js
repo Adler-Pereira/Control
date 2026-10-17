@@ -99,7 +99,7 @@ export class SalaVoz {
     this.local?.getTracks().forEach((t) => t.stop());
     this.#pararPtt();
     this.videoTrack?.stop();
-    this.audioTela?.stop();
+    this.somJogo?.stop(); this.somMusica?.stop(); this.mixCtx?.close(); this.mixCtx = null;
     if (this.canal) { await this.canal.untrack().catch(() => {}); await sb.removeChannel(this.canal); }
     this.audioCtx?.close();
     this.container.innerHTML = '';
@@ -198,12 +198,46 @@ export class SalaVoz {
     const track = s.getVideoTracks()[0];
     track.contentHint = movimento ? 'motion' : 'detail';
     track.onended = () => { if (this.videoTrack === track) this.#pararVideo(); }; // usuário clicou em "parar" no navegador
-    this.audioTela?.stop();
-    this.audioTela = s.getAudioTracks()[0] || null;                      // som do jogo/aba (quando o navegador permite)
-    for (const p of this.peers.values()) await p.audioTelaSender.replaceTrack(this.audioTela);
+    this.somJogo?.stop();
+    this.somJogo = s.getAudioTracks()[0] || null;                        // som do jogo/aba (quando o navegador permite)
+    await this.#enviarSomTela();
     this.qualidade = { altura, fps, movimento };
     await this.#usarVideo(track, 'tela');
-    return { comSom: !!this.audioTela };
+    return { comSom: !!this.somJogo };
+  }
+
+  // Música/som de uma aba (ex.: Spotify no navegador) separado da tela: dá para mostrar a janela do jogo e tocar a música junto
+  get musicaAtiva() { return !!this.somMusica && this.somMusica.readyState === 'live'; }
+  async alternarMusica() {
+    if (this.musicaAtiva) { this.somMusica.stop(); this.somMusica = null; await this.#enviarSomTela(); this.aoMudar(); return false; }
+    const s = await navigator.mediaDevices.getDisplayMedia({
+      video: true,   // o navegador exige vídeo no pedido; ele é descartado logo abaixo
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false, restrictOwnAudio: true },
+      preferCurrentTab: false, selfBrowserSurface: 'exclude', systemAudio: 'exclude', surfaceSwitching: 'include', monitorTypeSurfaces: 'exclude',
+    });
+    s.getVideoTracks().forEach((t) => t.stop());
+    const a = s.getAudioTracks()[0];
+    if (!a) throw new Error('Nenhum som foi compartilhado. Escolha a aba do Spotify (open.spotify.com) em "Guia do Chrome" e deixe ligado "Compartilhar áudio da guia".');
+    a.onended = () => { if (this.somMusica === a) { this.somMusica = null; this.#enviarSomTela(); this.aoMudar(); } };
+    this.somMusica = a;
+    await this.#enviarSomTela();
+    this.aoMudar();
+    return true;
+  }
+
+  // Junta o som do jogo e a música numa trilha só (o 2º canal de áudio que todo mundo já recebe)
+  async #enviarSomTela() {
+    const fontes = [this.somJogo, this.somMusica].filter((t) => t && t.readyState === 'live');
+    this.mixCtx?.close(); this.mixCtx = null;
+    let saida = fontes[0] || null;
+    if (fontes.length > 1) {
+      this.mixCtx = new AudioContext({ sampleRate: 48000 });
+      const dest = this.mixCtx.createMediaStreamDestination();
+      for (const t of fontes) this.mixCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
+      saida = dest.stream.getAudioTracks()[0];
+    }
+    this.audioTela = saida;
+    for (const p of this.peers.values()) await p.audioTelaSender.replaceTrack(saida);
   }
 
   // Áudio com mais qualidade que o padrão do navegador (32 kbps): voz 64 kbps, som da tela 128 kbps, prioridade alta na rede
@@ -247,8 +281,9 @@ export class SalaVoz {
     this.videoTrack?.stop();
     this.videoTrack = null;
     this.modoVideo = null;
-    this.audioTela?.stop(); this.audioTela = null;
-    for (const p of this.peers.values()) { await p.videoSender.replaceTrack(null); await p.audioTelaSender.replaceTrack(null); }
+    this.somJogo?.stop(); this.somJogo = null;
+    for (const p of this.peers.values()) await p.videoSender.replaceTrack(null);
+    await this.#enviarSomTela();   // a música (se houver) continua tocando para todos
     this.#mostrarVideo(this.eu, null);
     this.#enviarEstado();
     this.aoMudar();
