@@ -65,8 +65,9 @@ export function nivel(xp) {
 // Isso evita bloqueios do navegador a sites externos e deixa a página mais leve. Se falhar, tenta o
 // endereço original e, por fim, a imagem padrão (ver o tratador de erro logo abaixo).
 const CDN_OK = !/^(localhost|127\.|\[)/.test(location.hostname); // em teste local não existe o CDN
-const EXTERNA = /^https:\/\/(images\.igdb\.com|i\.ytimg\.com|[a-z0-9.-]*steamstatic\.com|[a-z0-9-]+\.supabase\.co)\//;
-export const urlCdn = (url, largura = 480) => CDN_OK && EXTERNA.test(url || '') ? `/.netlify/images?url=${encodeURIComponent(url)}&w=${largura}&fm=webp&q=75` : url;
+// Imagens do próprio site (img/...) também passam pelo CDN: as capas locais têm 1 a 2 MB em PNG
+const EXTERNA = /^(https:\/\/(images\.igdb\.com|i\.ytimg\.com|[a-z0-9.-]*steamstatic\.com|[a-z0-9-]+\.supabase\.co)\/|\/?img\/[\w./-]+\.(png|jpe?g)$)/;
+export const urlCdn = (url, largura = 480) => CDN_OK && EXTERNA.test(url || '') ? `/.netlify/images?url=${encodeURIComponent(/^img\//.test(url) ? '/' + url : url)}&w=${largura}&fm=webp&q=75` : url;
 export function srcCapa(url, largura = 480) {
   const u = urlSegura(url);
   if (!u) return 'src="img/Control.png"';
