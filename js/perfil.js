@@ -58,7 +58,7 @@ async function carregar(p, meu, u) {
   const resumo = comHoras.length ? `<div class="cartao resumo-horas" style="margin-bottom:14px">
       <div class="controles" style="gap:22px;align-items:flex-end">
         <div><div class="nota-grande" style="font-size:2rem">${fmtH(totalHoras)}</div><span class="muted">jogadas no total</span></div>
-        <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status || Number(x.hours) > 0).length}</div><span class="muted">jogos</span></div>
+        <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status || Number(x.hours) > 0 || !x.wishlist).length}</div><span class="muted">jogos</span></div>
         ${horas2sem ? `<div><div class="nota-grande" style="font-size:2rem">${fmtH(horas2sem)}</div><span class="muted">nas últimas 2 semanas</span></div>` : ''}
         <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status === 'zerado').length}</div><span class="muted">zerados</span></div>
       </div>
@@ -111,7 +111,7 @@ async function carregar(p, meu, u) {
           <div class="barra-xp" style="margin-top:10px;max-width:360px" title="${p.xp} XP"><div style="width:${n.pct}%"></div></div>
           <p class="muted" style="font-size:.85rem">${p.xp} XP · próximo nível em ${n.prox} XP</p>
           <p style="margin-top:6px"><strong id="n-seguidores">${seguidores ?? 0}</strong> seguidores · <strong>${seguindo ?? 0}</strong> seguindo ·
-            <strong>${lista.filter((x) => x.status || Number(x.hours) > 0).length}</strong> jogos na biblioteca${totalHoras ? ` · <strong>${fmtH(totalHoras)}</strong> jogadas` : ''}</p>
+            <strong>${lista.filter((x) => x.status || Number(x.hours) > 0 || !x.wishlist).length}</strong> jogos na biblioteca${totalHoras ? ` · <strong>${fmtH(totalHoras)}</strong> jogadas` : ''}</p>
         </div>
         ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>
           <button class="btn sec" id="amizade">${amizade?.status === 'aceita' ? '🤝 Amigos' : amizade ? (amizade.requester === u.id ? '⏳ Pedido enviado' : '✓ Aceitar amizade') : '👥 Adicionar amigo'}</button>` : ''}
