@@ -42,6 +42,20 @@ function ligarCapa(g) {
   });
 }
 
+// Melhor preço agora e menor preço histórico em todas as lojas (IsThereAnyDeal)
+async function carregarPrecosLojas(g) {
+  const qs = g.steam_appid ? `appid=${g.steam_appid}` : `titulo=${encodeURIComponent(g.title)}`;
+  const d = await fetch(`/.netlify/functions/precos-lojas?${qs}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  if (!d.atual && !d.menor) return;
+  const dinheiro = (x) => Number(x.preco).toLocaleString('pt-BR', { style: 'currency', currency: x.moeda || 'BRL' });
+  $('#precos-lojas').innerHTML = `<div class="cartao" style="margin-top:14px"><h3>💸 Preço em todas as lojas</h3><div class="controles" style="gap:22px;align-items:flex-end">
+    ${d.atual ? `<div><div class="nota-grande" style="font-size:1.8rem">${dinheiro(d.atual)}</div><span class="muted">melhor preço agora${d.atual.loja ? ` na ${esc(d.atual.loja)}` : ''}${d.atual.desconto ? ` (-${d.atual.desconto}%)` : ''}</span>
+      ${d.atual.url ? `<br><a class="btn pequeno" href="${urlSegura(d.atual.url)}" target="_blank" rel="noopener sponsored" style="margin-top:6px">Ver oferta</a>` : ''}</div>` : ''}
+    ${d.menor ? `<div><div class="nota-grande" style="font-size:1.8rem;color:var(--ok,#22c55e)">${dinheiro(d.menor)}</div><span class="muted">menor preço da história${d.menor.loja ? ` (${esc(d.menor.loja)}` : ''}${d.menor.quando ? `, ${new Date(d.menor.quando).toLocaleDateString('pt-BR')}` : ''}${d.menor.loja ? ')' : ''}</span></div>` : ''}
+    ${d.atual && d.menor && Number(d.atual.preco) <= Number(d.menor.preco) ? '<p style="color:var(--ok,#22c55e);margin:0">✅ Está no menor preço da história agora!</p>' : ''}
+    </div>${d.link ? `<p class="muted" style="font-size:.8rem;margin-top:8px">Dados: <a href="${urlSegura(d.link)}" target="_blank" rel="noopener">IsThereAnyDeal</a></p>` : ''}</div>`;
+}
+
 async function carregar() {
   const [{ data: g }, { data: listaCats }] = await Promise.all([
     sb.from('games').select('*, categories(name,id)').eq('slug', param('slug')).maybeSingle(),
@@ -127,7 +141,7 @@ async function carregar() {
         g.steam_appid && [`https://www.protondb.com/app/${g.steam_appid}`, '🐧 Roda no Steam Deck/Linux? (ProtonDB)'],
         [`https://www.youtube.com/results?search_query=${q}+gameplay+pt-br`, '▶️ Gameplay no YouTube'],
       ].filter(Boolean);
-      return `<div class="cartao links-uteis" style="margin-top:14px"><h3>🔗 Mais sobre o jogo</h3><div class="controles">${links.map(([u, t]) =>
+      return `<div id="precos-lojas"></div><div class="cartao links-uteis" style="margin-top:14px"><h3>🔗 Mais sobre o jogo</h3><div class="controles">${links.map(([u, t]) =>
         `<a class="btn sec pequeno" href="${u}" target="_blank" rel="noopener">${t}</a>`).join('')}</div></div>`;
     })()}
     ${precos?.menor ? `<div class="cartao" style="margin-top:14px"><h3>📉 Histórico de preço</h3>
@@ -198,6 +212,7 @@ async function carregar() {
     ligarPosts($('#posts-jogo'), { u });
   };
   ligarCapa(g);
+  carregarPrecosLojas(g);
   if ($('#compositor')) ligarCompositor($('#compositor'), { u, jogo: { id: g.id, title: g.title }, aoPublicar: carregarPostsJogo });
   carregarPostsJogo();
 
