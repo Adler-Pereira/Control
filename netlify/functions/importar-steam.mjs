@@ -87,7 +87,8 @@ export default async (req) => {
 
     const conquistas = await importarConquistas(sid, jogos, porAppid, uid, api).catch((e) => { console.error('conquistas:', e); return null; });
 
-    return json(200, { importados: linhas.length, novos_no_catalogo: novos, ignorados: jogos.length - linhas.length, conquistas: conquistas?.total ?? null });
+    return json(200, { importados: linhas.length, novos_no_catalogo: novos, ignorados: jogos.length - linhas.length, conquistas: conquistas?.total ?? null,
+      conquistas_proximo: conquistas?.proximo ?? null, conquistas_jogos: conquistas?.jogos ?? 0 });
   } catch (e) {
     console.error(e);
     return json(e.status || 502, { erro: e.status ? e.message : 'Falha ao falar com a Steam. Tente de novo em instantes.' });

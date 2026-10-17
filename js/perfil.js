@@ -548,10 +548,19 @@ async function importarSteam(p) {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.erro || 'Não foi possível importar.');
+    // Continua lendo as conquistas de todos os jogos jogados, de 12 em 12, mostrando o progresso
+    let total = d.conquistas, off = d.conquistas_proximo;
+    while (off != null) {
+      bt.textContent = `🏆 Lendo conquistas... ${off} de ${d.conquistas_jogos} jogos`;
+      const r2 = await fetch('/.netlify/functions/conquistas-steam', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY }, body: JSON.stringify({ offset: off }) });
+      const d2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) break;   // o que já foi lido fica salvo; o robô semanal completa o resto
+      total = d2.total; off = d2.proximo;
+    }
     alert(`Importação concluída!\n\n${d.importados} jogo(s) adicionados ou atualizados na sua biblioteca` +
       (d.novos_no_catalogo ? `\n${d.novos_no_catalogo} jogo(s) novos entraram no catálogo do site` : '') +
       (d.ignorados ? `\n${d.ignorados} item(ns) ignorados (ferramentas, softwares etc.)` : '') +
-      (d.conquistas ? `\n🏆 ${d.conquistas} conquistas nos seus jogos mais jogados` : ''));
+      (total ? `\n🏆 ${total} conquistas da Steam em ${d.conquistas_jogos} jogos` : ''));
     location.reload();
   } catch (e) { falha(e); bt.disabled = false; bt.textContent = '🖥️ Importar da Steam'; }
 }
