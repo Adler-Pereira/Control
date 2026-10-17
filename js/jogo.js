@@ -16,12 +16,19 @@ async function carregar() {
   if (!g) { main.innerHTML += '<p class="vazio">Jogo não encontrado.</p>'; return; }
   document.title = `${g.title} | Control Critic`;
   const u = await usuario();
-  const [{ data: reviews }, { data: deals }, { data: comms }] = await Promise.all([
+  // Outras versões do mesmo jogo (original x remake/remaster): mesmo nome sem "Remake", "HD", ano etc.
+  const baseTitulo = (t) => String(t).toLowerCase().replace(/\(.*?\)/g, ' ')
+    .replace(/\b(remake|remastered|remaster|hd|definitive edition|director'?s cut|classic|reimagined|enhanced edition|game of the year edition|goty)\b/g, ' ')
+    .replace(/\b(19|20)\d\d\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+  const prefixo = baseTitulo(g.title).split(' ').slice(0, 4).join('%');
+  const [{ data: reviews }, { data: deals }, { data: comms }, { data: parecidos }] = await Promise.all([
     sb.from('reviews').select('*, profiles!reviews_user_id_fkey(username,avatar_url,equipped_frame)').eq('game_id', g.id).eq('status', 'published')
       .order('helpful_count', { ascending: false }).order('created_at', { ascending: false }),
     sb.from('deals').select('*').eq('game_id', g.id).order('discount_pct', { ascending: false }),
     sb.from('communities').select('id,name,members_count').eq('game_id', g.id).limit(5),
+    prefixo ? sb.from('games').select('id,slug,title,release_year').ilike('title', `${prefixo}%`).neq('id', g.id).order('igdb_rating_count', { ascending: false }).limit(20) : { data: [] },
   ]);
+  const versoes = (parecidos || []).filter((x) => baseTitulo(x.title) === baseTitulo(g.title)).slice(0, 5);
   const [{ data: meusVotos }, { data: precos }, { data: minhasListas }] = await Promise.all([
     u ? sb.from('review_votes').select('review_id').eq('user_id', u.id).in('review_id', reviews.map((r) => r.id).slice(0, 200)) : Promise.resolve({ data: [] }),
     sb.rpc('price_summary', { gid: g.id }),
@@ -59,6 +66,8 @@ async function carregar() {
           ${d.original_cents ? `<s class="muted">${reais(d.original_cents)}</s>` : ''}
           ${d.url ? ` · <a href="${urlSegura(d.url)}" target="_blank" rel="noopener">ver oferta</a>` : ''}</p>`).join('')}
         </div>
+        ${versoes.length ? `<div class="cartao"><h3>🔁 Outras versões</h3>${versoes.map((v) => `<p><a href="jogo.html?slug=${encodeURIComponent(v.slug)}">${esc(v.title)}</a>
+          <span class="muted">${v.release_year ? `· ${v.release_year}` : ''}${v.release_year && g.release_year ? (v.release_year > g.release_year ? ' (mais nova)' : v.release_year < g.release_year ? ' (original)' : '') : ''}</span></p>`).join('')}</div>` : ''}
         ${comms?.length ? `<div class="cartao"><h3>Comunidades</h3>${comms.map((c) => `<p><a href="comunidade.html?id=${c.id}">${esc(c.name)}</a> <span class="muted">· ${c.members_count} membros</span></p>`).join('')}</div>` : ''}
       </aside>
     </div>

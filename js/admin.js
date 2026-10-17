@@ -734,8 +734,10 @@ function editorItem(c) {
 async function desafios() {
   const [{ data: chs, error }, { data: itensRec }] = await Promise.all([
     sb.from('challenges').select('*, cosmetics(name)').order('starts_at', { ascending: false }).limit(50),
-    sb.from('cosmetics').select('id,name,kind').neq('kind', 'badge').order('name'),
+    sb.from('cosmetics').select('id,name,kind').order('name'),
   ]);
+  const TIPO = { frame: 'Moldura', banner: 'Banner', badge: 'Selo' };
+  const nomeItem = Object.fromEntries((itensRec || []).map((i) => [i.id, `${TIPO[i.kind]}: ${i.name}`]));
   if (error) throw /challenges/.test(error.message) ? new Error('Banco desatualizado: rode de novo o supabase/schema.sql.') : error;
   const agora = new Date();
   const estado = (c) => new Date(c.starts_at) > agora ? 'agendado' : new Date(c.ends_at) > agora ? '🟢 aberto' : 'encerrado';
@@ -744,7 +746,7 @@ async function desafios() {
     <div class="controles" style="margin:12px 0"><button class="btn" data-acao="novo">+ Novo desafio</button></div>
     ${tabela(['Desafio', 'Período', 'Prêmio', 'Situação', ''], (chs || []).map((c) => `<tr>
       <td><strong>${esc(c.title)}</strong><br><span class="muted" style="font-size:.82rem">${esc((c.description || '').slice(0, 100))}</span></td>
-      <td>${data(c.starts_at)} → ${data(c.ends_at)}</td><td>${c.cosmetics ? esc(c.cosmetics.name) + ' + ' : ''}${c.reward_xp} XP</td>
+      <td>${data(c.starts_at)} → ${data(c.ends_at)}</td><td>${[c.reward_cosmetic, ...(c.reward_extras || [])].filter(Boolean).map((id) => esc(nomeItem[id] || id)).join('<br>')}${c.reward_cosmetic || c.reward_extras?.length ? '<br>' : ''}+ ${c.reward_xp} XP</td>
       <td>${estado(c)}${c.winners?.length ? `<br><span class="muted">${c.winners.length} premiado(s)</span>` : ''}</td>
       <td class="controles"><button class="btn sec pequeno" data-acao="ver" data-id="${c.id}">Participações</button>
         <button class="btn sec pequeno" data-acao="editar" data-id="${c.id}">Editar</button><button class="btn perigo pequeno" data-acao="excluir" data-id="${c.id}">Excluir</button></td></tr>`))}
@@ -758,16 +760,21 @@ async function desafios() {
       <div class="form-linha">
         <div><label for="d-i">Começa</label><input id="d-i" type="datetime-local" required value="${local(c.starts_at || Date.now())}"></div>
         <div><label for="d-f">Termina</label><input id="d-f" type="datetime-local" required value="${local(c.ends_at || Date.now() + 7 * 864e5)}"></div>
-        <div><label for="d-r">Item de prêmio</label><select id="d-r"><option value="">Nenhum</option>${(itensRec || []).map((i) => `<option value="${esc(i.id)}" ${i.id === c.reward_cosmetic ? 'selected' : ''}>${i.kind === 'frame' ? 'Moldura' : 'Banner'}: ${esc(i.name)}</option>`).join('')}</select></div>
+        <div><label for="d-r">Item de prêmio</label><select id="d-r"><option value="">Nenhum</option>${(itensRec || []).filter((i) => i.kind !== 'badge').map((i) => `<option value="${esc(i.id)}" ${i.id === c.reward_cosmetic ? 'selected' : ''}>${esc(nomeItem[i.id])}</option>`).join('')}</select></div>
         <div><label for="d-x">XP de prêmio</label><input id="d-x" type="number" min="0" max="5000" value="${c.reward_xp ?? 200}"></div>
       </div>
-      <p class="muted" style="font-size:.82rem">Dica: crie antes uma moldura exclusiva em Itens (sem desbloqueio automático) para ser o prêmio.</p>
+      <details style="margin-top:8px"><summary style="cursor:pointer">🎁 Prêmios extras (molduras, banners e selos a mais)</summary>
+        <div style="max-height:200px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px;margin-top:6px">
+        ${(itensRec || []).map((i) => `<label style="display:flex;gap:6px;align-items:center;font-weight:400;font-size:.85rem"><input type="checkbox" class="d-extra" value="${esc(i.id)}" style="width:auto" ${(c.reward_extras || []).includes(i.id) ? 'checked' : ''}> ${esc(nomeItem[i.id])}</label>`).join('')}
+        </div></details>
+      <p class="muted" style="font-size:.82rem">Dica: crie antes uma moldura exclusiva em Itens (sem desbloqueio automático) para ser o prêmio. Dá para premiar com moldura + banner + selo juntos.</p>
       <div class="controles" style="margin-top:14px"><button class="btn" value="ok">Salvar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div></form>`;
     dlg.showModal();
     dlg.addEventListener('close', async () => {
       if (dlg.returnValue !== 'ok') return;
       const linha = { title: $('#d-t').value.trim(), description: $('#d-d').value.trim() || null, starts_at: new Date($('#d-i').value).toISOString(),
-        ends_at: new Date($('#d-f').value).toISOString(), reward_cosmetic: $('#d-r').value || null, reward_xp: Number($('#d-x').value) || 0 };
+        ends_at: new Date($('#d-f').value).toISOString(), reward_cosmetic: $('#d-r').value || null, reward_xp: Number($('#d-x').value) || 0,
+        reward_extras: [...dlg.querySelectorAll('.d-extra:checked')].map((x) => x.value).filter((x) => x !== $('#d-r').value) };
       const { error: e } = c.id ? await sb.from('challenges').update(linha).eq('id', c.id) : await sb.from('challenges').insert({ ...linha, created_by: P.id });
       if (e) return falha(/check/.test(e.message) ? { message: 'O fim precisa ser depois do começo.' } : e);
       toast('Desafio salvo.'); desafios();

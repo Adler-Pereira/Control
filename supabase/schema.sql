@@ -2510,3 +2510,77 @@ end $$;
 drop trigger if exists games_cat_ids_trg on public.games;
 create trigger games_cat_ids_trg before insert or update of category_id, category_ids on public.games
   for each row execute function public.games_cat_ids();
+
+-- =====================================================================
+-- MAIS RECOMPENSAS: desafios com vários prêmios e conquistas novas com moldura/banner
+-- =====================================================================
+alter table public.challenges add column if not exists reward_extras text[] not null default '{}';  -- prêmios a mais (moldura, banner, selo)
+
+create or replace function public.award_challenge(chid bigint, vencedores uuid[]) returns void
+language plpgsql security definer set search_path = public as $$
+declare ch challenges; v uuid; extra text;
+begin
+  if not is_admin() then raise exception 'Somente administradores.'; end if;
+  select * into ch from challenges where id = chid;
+  if ch.id is null then raise exception 'Desafio não encontrado.'; end if;
+  foreach v in array vencedores loop
+    continue when v = any(ch.winners);
+    if ch.reward_cosmetic is not null then perform grant_cosmetic(v, ch.reward_cosmetic); end if;
+    foreach extra in array coalesce(ch.reward_extras, '{}') loop perform grant_cosmetic(v, extra); end loop;
+    if ch.reward_xp > 0 then perform add_xp(v, ch.reward_xp, 'desafio'); end if;
+    insert into notifications (user_id, type, title, body, link)
+    values (v, 'desafio', '🏆 Você venceu o desafio "' || ch.title || '"!', 'Seus prêmios já estão na sua conta.', 'conquistas.html');
+  end loop;
+  update challenges set winners = (select array_agg(distinct x) from unnest(winners || vencedores) x) where id = chid;
+end $$;
+
+insert into public.cosmetics (id, kind, name, description, rarity, icon, sort, custom, style) values
+  ('s_cacador',   'badge',  'Caçador de Ofertas', 'Tenha 10 jogos na lista de desejos', 'comum', '🎯', 1100, false, null),
+  ('f_cacador',   'frame',  'Caçador de Ofertas', 'Tenha 30 jogos na lista de desejos', 'rara', null, 1101, true,
+     '{"cores":["#00e676","#ffd33c"],"animado":true,"velocidade":6,"emoji":"💸"}'),
+  ('s_ecletico',  'badge',  'Eclético', 'Avalie jogos de 5 categorias diferentes', 'rara', '🎨', 1102, false, null),
+  ('b_ecletico',  'banner', 'Eclético', 'Avalie jogos de 8 categorias diferentes', 'epica', null, 1103, true,
+     '{"cores":["#ff4081","#7c4dff","#00b0ff","#00e676"]}'),
+  ('f_maratona',  'frame',  'Maratonista', 'Marque 25 jogos como zerados', 'epica', null, 1104, true,
+     '{"cores":["#ff6d00","#ffd33c","#ff1744"],"animado":true,"brilho":true,"velocidade":3,"emoji":"🏁"}'),
+  ('b_maratona',  'banner', 'Maratonista Lendário', 'Marque 100 jogos como zerados', 'lendaria', null, 1105, true,
+     '{"cores":["#0b0b0d","#ff6d00","#ffd33c"]}'),
+  ('f_popular',   'frame',  'Estrela da Comunidade', 'Receba 50 curtidas nos seus posts', 'epica', null, 1106, true,
+     '{"cores":["#ff4081","#ffd33c","#ff4081"],"animado":true,"brilho":true,"velocidade":5,"emoji":"💖"}')
+on conflict (id) do nothing;
+
+create or replace function public.check_achievements_extra(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if uid is null then return; end if;
+  select count(*) into n from user_games where user_id = uid and wishlist;
+  if n >= 10 then perform grant_cosmetic(uid, 's_cacador'); end if;
+  if n >= 30 then perform grant_cosmetic(uid, 'f_cacador'); end if;
+  select count(distinct c) into n from reviews r join games g on g.id = r.game_id, unnest(case when g.category_ids = '{}' then array[g.category_id] else g.category_ids end) c
+   where r.user_id = uid and c is not null;
+  if n >= 5 then perform grant_cosmetic(uid, 's_ecletico'); end if;
+  if n >= 8 then perform grant_cosmetic(uid, 'b_ecletico'); end if;
+  select count(*) into n from user_games where user_id = uid and status = 'zerado';
+  if n >= 25 then perform grant_cosmetic(uid, 'f_maratona'); end if;
+  if n >= 100 then perform grant_cosmetic(uid, 'b_maratona'); end if;
+  select coalesce(sum(likes_count), 0) into n from posts where user_id = uid;
+  if n >= 50 then perform grant_cosmetic(uid, 'f_popular'); end if;
+exception when others then null;   -- conquista nunca pode atrapalhar a ação da pessoa
+end $$;
+revoke execute on function public.check_achievements_extra(uuid) from public, anon, authenticated;
+
+create or replace function public.achievements_trigger() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare uid uuid;
+begin
+  -- IF em vez de CASE: o CASE avalia campos que não existem em NEW de outras tabelas
+  if tg_table_name = 'follows' then uid := new.followed_id;
+  elsif tg_table_name = 'events' then uid := new.creator_id;
+  elsif tg_table_name = 'communities' then uid := new.owner_id;
+  else uid := new.user_id;
+  end if;
+  perform check_achievements(uid);
+  perform check_achievements_extra(uid);
+  return null;
+end $$;
