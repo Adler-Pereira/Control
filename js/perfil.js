@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, testarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel, spotifyId, spotifyPlayer, notaAtiva } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, testarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel, spotifyId, spotifyPlayer, notaAtiva, aoMudarOnline, estadoOnline } from './app.js';
 import { destaquesPerfil, editarNota, criarStory } from './stories.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
@@ -112,7 +112,7 @@ async function carregar(p, meu, u) {
             ${(titulos || []).filter((t) => (p.titles || []).includes(t.id)).map((t) => `<span class="tag" style="background:${esc(t.color)};color:#000">${esc(t.icon || '')} ${esc(t.name)}</span>`).join(' ')}</p>
           ${notaAtiva(p) ? `<p style="margin-top:6px"><span class="tag" style="font-size:.85rem">💭 ${esc(notaAtiva(p))}</span></p>` : ''}
           ${p.bio ? `<p class="quebra" style="margin-top:6px">${esc(p.bio)}</p>` : meu ? '<p class="muted" style="margin-top:6px">Adicione uma bio contando o que você joga.</p>' : ''}
-          <span id="steam-agora"></span>
+          <span id="status-agora"></span> <span id="steam-agora"></span>
           ${contas ? `<div class="contas-jogo">${contas}</div>` : ''}
           ${(() => { const s = (selos || []).filter((x) => x.cosmetics?.kind === 'badge').sort((a, b) => a.cosmetics.sort - b.cosmetics.sort);
             return s.length || p.streak_current ? `<div class="vitrine">${p.streak_current ? `<span title="Dias seguidos">🔥 ${p.streak_current} dias</span>` : ''}
@@ -203,6 +203,13 @@ async function carregar(p, meu, u) {
 
   // Biblioteca completa (janela com abas e busca)
   destaquesPerfil($('#destaques-perfil'), p, u);
+  // Online agora / na call (presença em tempo real)
+  if (u && !meu) aoMudarOnline((online) => {
+    const c = estadoOnline().get(p.id)?.call, alvo = $('#status-agora');
+    if (!alvo) return;
+    alvo.innerHTML = c ? `<span class="tag na-call-tag">🔊 Na call: ${esc(c.titulo)}</span>${c.cid ? ` <a class="btn pequeno" href="comunidade.html?id=${Number(c.cid)}">Entrar na call</a>` : ''}`
+      : online.has(p.id) ? '<span class="tag" style="background:#1b3a1f;color:#7ee787">🟢 Online no site</span>' : '';
+  });
   let grupoAtual = null;
   const mostrarGrupo = (k) => {
     grupoAtual = k;

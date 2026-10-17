@@ -531,3 +531,9 @@ iframe.spotify { width: 100%; border: 0; border-radius: 12px; }
 .post-video { position: relative; margin-top: 8px; }
 .post-video video { width: 100%; max-height: 70vh; border-radius: 12px; background: #000; display: block; cursor: pointer; }
 .video-som { position: absolute; right: 10px; bottom: 10px; background: #000b; color: #fff; border: 0; border-radius: 999px; width: 40px; height: 40px; font-size: 1.1rem; cursor: pointer; }
+.tag.na-call-tag { background: #2a1f4a; color: #c9b6ff; font-size: .75rem; }
+.story-img video { width: 100%; max-height: 62vh; border-radius: 12px; background: #000; display: block; }
+.story-reacoes { display: flex; gap: 6px; justify-content: center; }
+.story-reacoes button { background: #ffffff12; border: 0; border-radius: 999px; font-size: 1.4rem; width: 44px; height: 44px; cursor: pointer; transition: transform .1s; }
+.story-reacoes button:hover, .story-reacoes button.ativo { transform: scale(1.2); background: #ffd33c33; }
+.story-bola video.story-mini { width: 66px; height: 66px; border-radius: 50%; object-fit: cover; border: 3px solid var(--fundo, #0b0b0d); outline: 3px solid #8a8a95; }

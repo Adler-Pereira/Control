@@ -1,4 +1,4 @@
-name: Robô semanal (Steam e desafio)
+name: Robô semanal (Steam, desafio e limpeza)
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
       parte:
         description: 'O que rodar'
         type: choice
-        options: [tudo, steam, desafio]
+        options: [tudo, steam, desafio, limpeza]
         default: tudo
 
 jobs:
