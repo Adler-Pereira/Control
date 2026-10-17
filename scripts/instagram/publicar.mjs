@@ -4,7 +4,10 @@
 //   node scripts/instagram/publicar.mjs urgente [id]    -> notícias marcadas como urgentes no painel (ou a de id informado)
 //   TESTE=1 ...                                        -> só gera as artes e a legenda (pasta saida-instagram/), sem publicar
 // Variáveis: SUPABASE_URL, SUPABASE_SERVICE_KEY, IG_USER_ID, IG_TOKEN (o token é renovado sozinho e guardado no banco)
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { supabaseRest } from '../../lib/igdb.mjs';
 import { arteNoticia, arteResumo, artePromo, arteMeme, arteVersus, arteStory } from './arte.mjs';
 
@@ -60,22 +63,61 @@ async function ig(caminho, params, token, metodo = 'POST') {
 }
 
 // O Instagram baixa a imagem de uma URL pública: guardamos no armazenamento do Supabase
-async function hospedar(jpeg, nome) {
-  const caminho = `instagram/${new Date().toISOString().slice(0, 10)}/${nome}-${Date.now()}.jpg`;
+async function hospedar(jpeg, nome, tipo = 'image/jpeg', ext = 'jpg') {
+  const caminho = `instagram/${new Date().toISOString().slice(0, 10)}/${nome}-${Date.now()}.${ext}`;
   const auth = CHAVE.startsWith('eyJ') ? { Authorization: `Bearer ${CHAVE}` } : {};
-  const r = await fetch(`${BASE}/storage/v1/object/media/${caminho}`, { method: 'POST', headers: { apikey: CHAVE, ...auth, 'Content-Type': 'image/jpeg', 'x-upsert': 'true' }, body: jpeg });
+  const r = await fetch(`${BASE}/storage/v1/object/media/${caminho}`, { method: 'POST', headers: { apikey: CHAVE, ...auth, 'Content-Type': tipo, 'x-upsert': 'true' }, body: jpeg });
   if (!r.ok) throw new Error(`Não consegui guardar a imagem (${r.status} ${(await r.text()).slice(0, 200)})`);
   return `${BASE}/storage/v1/object/public/media/${caminho}`;
 }
 
-async function aguardarPronto(id, token) {
-  for (let i = 0; i < 30; i++) {
+async function aguardarPronto(id, token, tentativas = 30) {
+  for (let i = 0; i < tentativas; i++) {
     const d = await ig(id, { fields: 'status_code' }, token, 'GET');
     if (d.status_code === 'FINISHED') return;
     if (d.status_code === 'ERROR' || d.status_code === 'EXPIRED') throw new Error(`Instagram recusou a imagem (${d.status_code}).`);
     await espera(3000);
   }
   throw new Error('Instagram demorou demais para processar a imagem.');
+}
+
+// ---------- Reels com música ----------
+// Músicas livres de direitos ficam em scripts/instagram/musicas/*.mp3 (veja o LEIA-ME). Sem música ou sem ffmpeg, não faz Reels.
+const PASTA_MUSICAS = new URL('./musicas/', import.meta.url);
+function musicas() { try { return readdirSync(PASTA_MUSICAS).filter((f) => /\.mp3$/i.test(f)); } catch { return []; } }
+function temFfmpeg() { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } }
+export const reelsDisponivel = () => env('REELS') !== '0' && musicas().length > 0 && temFfmpeg();
+
+// Monta um vídeo vertical (1080x1920) com as artes (4 s cada, transição suave) e uma música sorteada com fade no fim
+async function montarReel(imagens) {
+  const dir = join(tmpdir(), `reel-${Date.now()}`); mkdirSync(dir, { recursive: true });
+  const quadros = [];
+  for (const [i, im] of imagens.entries()) { const f = join(dir, `q${i}.jpg`); writeFileSync(f, await arteStory(im.jpeg, chamadaDe(im.nome))); quadros.push(f); }
+  const lista = musicas(); const musica = new URL(lista[Math.floor(Math.random() * lista.length)], PASTA_MUSICAS).pathname;
+  const dur = 4, total = quadros.length * dur, saida = join(dir, 'reel.mp4');
+  const entradas = quadros.flatMap((q) => ['-loop', '1', '-t', String(dur + 0.5), '-i', q]);
+  // transição "fade" entre os quadros
+  let filtro = '', anterior = '[0:v]';
+  for (let i = 1; i < quadros.length; i++) { const rot = i === quadros.length - 1 ? '[v]' : `[x${i}]`; filtro += `${anterior}[${i}:v]xfade=transition=fade:duration=0.5:offset=${i * dur}${rot};`; anterior = rot; }
+  if (quadros.length === 1) filtro = '[0:v]null[v];';
+  execFileSync('ffmpeg', ['-y', ...entradas, '-i', musica, '-filter_complex', `${filtro}[${quadros.length}:a]afade=t=out:st=${Math.max(0, total - 2.5)}:d=2.5[a]`,
+    '-map', '[v]', '-map', '[a]', '-t', String(total), '-r', '30', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '23',
+    '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', saida], { stdio: 'ignore' });
+  const mp4 = readFileSync(saida); rmSync(dir, { recursive: true, force: true });
+  return mp4;
+}
+
+async function publicarReel(imagens, legenda) {
+  const mp4 = await montarReel(imagens);
+  if (TESTE) { mkdirSync('saida-instagram', { recursive: true }); writeFileSync('saida-instagram/reel.mp4', mp4); writeFileSync('saida-instagram/legenda.txt', legenda); aviso('TESTE: Reels salvo em saida-instagram/reel.mp4 (nada foi publicado).'); return { url: null }; }
+  const token = await tokenInstagram();
+  const url = await hospedar(mp4, 'reel', 'video/mp4', 'mp4');
+  const c = await ig(`${env('IG_USER_ID')}/media`, { media_type: 'REELS', video_url: url, caption: legenda, share_to_feed: 'true' }, token);
+  await aguardarPronto(c.id, token, 100);   // vídeo demora mais para processar (até ~5 min)
+  const post = await ig(`${env('IG_USER_ID')}/media_publish`, { creation_id: c.id }, token);
+  const info = await ig(post.id, { fields: 'permalink' }, token, 'GET').catch(() => ({}));
+  await publicarStory(imagens[0].jpeg, imagens[0].nome, token);
+  return { id: post.id, url: info.permalink || null };
 }
 
 // imagens: [{ jpeg, nome }]; uma imagem = post simples; várias = carrossel
@@ -154,7 +196,8 @@ async function diario() {
   if (ns.length >= 2) {
     const imagens = [{ jpeg: await arteResumo({ data: hoje(), titulos: ns.map((n) => n.title) }), nome: 'resumo' }];
     for (const [i, n] of ns.entries()) imagens.push({ jpeg: await arteNoticia({ titulo: n.title, fonte: n.source || 'Control Critic', data: dataCurta(n.created_at), capa: n.cover_url, numero: i + 1, tema: n.games?.categories?.slug }), nome: `noticia-${n.id}` });
-    const r = await publicar(imagens, legendaResumo(ns));
+    // Com música disponível, o resumo vira Reels (mais alcance); senão, carrossel
+    const r = reelsDisponivel() ? await publicarReel(imagens, legendaResumo(ns).replace('👉 Arraste para ver cada notícia', '🎬 Assista até o fim')) : await publicar(imagens, legendaResumo(ns));
     if (!TESTE) { await marcar(ns, r); await registrar({ tipo: 'resumo', noticias: ns.length, url: r.url }); }
     return aviso(`Instagram: resumo do dia com ${ns.length} notícias ${TESTE ? 'gerado (teste)' : 'publicado'} ${r.url || ''}`);
   }

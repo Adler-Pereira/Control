@@ -219,7 +219,7 @@ async function carregar() {
   });
 
   // Mural
-  if ($('#compositor')) ligarCompositor($('#compositor'), { u, comunidade: id, jogo: c.games ? { id: c.game_id, title: c.games.title } : null, aoPublicar: () => carregarPosts(u, moderador) });
+  if ($('#compositor')) ligarCompositor($('#compositor'), { u, comunidade: id, jogo: c.games ? { id: c.game_id, title: c.games.title } : null, aoPublicar: () => carregarPosts(u, moderador), moderador });
   carregarPosts(u, moderador);
   sb.channel('posts:' + id)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `community_id=eq.${id}` }, () => carregarPosts(u, moderador))
@@ -235,7 +235,7 @@ async function carregar() {
 
 async function carregarPosts(u, moderador) {
   const { data: posts } = await sb.from('posts').select(COLUNAS_POST).eq('community_id', id).eq('status', 'published')
-    .order('created_at', { ascending: false }).limit(60);
+    .order('aviso', { ascending: false }).order('created_at', { ascending: false }).limit(60);
   const box = $('#posts');
   box.innerHTML = (posts || []).map((x) => postHtml(x, { u, moderar: moderador, mostrarComunidade: false })).join('') || '<p class="vazio">Nenhum post ainda. Seja o primeiro!</p>';
   ligarPosts(box, { u });

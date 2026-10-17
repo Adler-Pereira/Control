@@ -1,5 +1,6 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, testarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, testarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel, spotifyId, spotifyPlayer, notaAtiva } from './app.js';
+import { destaquesPerfil, editarNota, criarStory } from './stories.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 await montarLayout();
@@ -106,6 +107,7 @@ async function carregar(p, meu, u) {
           <p><span class="tag amarela">Nível ${n.lv} · ${n.titulo}</span>
             ${p.role === 'admin' ? '<span class="tag">🛡️ Administrador</span>' : p.role === 'moderator' ? '<span class="tag">🛡️ Moderador</span>' : ''}
             ${(titulos || []).filter((t) => (p.titles || []).includes(t.id)).map((t) => `<span class="tag" style="background:${esc(t.color)};color:#000">${esc(t.icon || '')} ${esc(t.name)}</span>`).join(' ')}</p>
+          ${notaAtiva(p) ? `<p style="margin-top:6px"><span class="tag" style="font-size:.85rem">💭 ${esc(notaAtiva(p))}</span></p>` : ''}
           ${p.bio ? `<p class="quebra" style="margin-top:6px">${esc(p.bio)}</p>` : meu ? '<p class="muted" style="margin-top:6px">Adicione uma bio contando o que você joga.</p>' : ''}
           <span id="steam-agora"></span>
           ${contas ? `<div class="contas-jogo">${contas}</div>` : ''}
@@ -120,11 +122,15 @@ async function carregar(p, meu, u) {
         </div>
         ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>
           <button class="btn sec" id="amizade">${amizade?.status === 'aceita' ? '🤝 Amigos' : amizade ? (amizade.requester === u.id ? '⏳ Pedido enviado' : '✓ Aceitar amizade') : '👥 Adicionar amigo'}</button>` : ''}
+          ${amizade?.status === 'aceita' ? '<button class="btn sec" id="melhor-amigo" title="Quem é melhor amigo vê seus stories marcados como 💚">💚 Melhores amigos</button>' : ''}
           ${u ? '<button class="bt-denunciar" id="den-perfil">🚩 Denunciar perfil</button>' : ''}</div>` : ''}
         ${meu ? `<div class="controles"><button class="btn" id="editar">✏️ Editar perfil</button>
+          <button class="btn sec" id="novo-story">📸 Story</button><button class="btn sec" id="nota">💭 Nota</button>
           <a class="btn sec" href="conquistas.html">🏆 Conquistas</a><button class="btn sec" id="compartilhar">🔗 Copiar link</button><button class="btn sec" id="logout">Sair</button></div>` : ''}
       </div>
     </section>
+    <div id="destaques-perfil"></div>
+    ${p.musica ? `<div style="margin-top:12px">${spotifyPlayer(p.musica)}</div>` : ''}
 
     ${meu ? `<h2>Recomendados para você</h2>
       <p class="muted" style="margin-bottom:12px">Com base nas suas categorias favoritas e nos jogos que você avaliou bem.</p>
@@ -193,6 +199,7 @@ async function carregar(p, meu, u) {
   if (p.twitch_user) aoVivo([p.twitch_user]).then((m) => { const s = m.get(p.twitch_user.toLowerCase()); if (s) $('.nome-bloco h1')?.insertAdjacentHTML('afterend', seloAoVivo(s, p.twitch_user)); });
 
   // Biblioteca completa (janela com abas e busca)
+  destaquesPerfil($('#destaques-perfil'), p, u);
   let grupoAtual = null;
   const mostrarGrupo = (k) => {
     grupoAtual = k;
@@ -223,6 +230,17 @@ async function carregar(p, meu, u) {
 
   if (!meu) {
     $('#den-perfil')?.addEventListener('click', () => denunciar('profile', p.id));
+    if ($('#melhor-amigo')) {
+      const { data: cf } = await sb.from('close_friends').select('friend_id').eq('owner_id', u.id).eq('friend_id', p.id).maybeSingle();
+      const bt = $('#melhor-amigo'); let sou = !!cf;
+      const pintar = () => { bt.textContent = sou ? '💚 É melhor amigo' : '🤍 Adicionar aos melhores amigos'; bt.classList.toggle('ligado', sou); };
+      pintar();
+      bt.onclick = async () => {
+        const { error } = sou ? await sb.from('close_friends').delete().eq('owner_id', u.id).eq('friend_id', p.id) : await sb.from('close_friends').insert({ owner_id: u.id, friend_id: p.id });
+        if (error) return falha(error);
+        sou = !sou; pintar();
+      };
+    }
     $('#amizade')?.addEventListener('click', async (e) => {
       if (amizade?.status === 'aceita') return (location.href = 'amigos.html');
       if (amizade && amizade.requester === u.id) return;
@@ -244,6 +262,8 @@ async function carregar(p, meu, u) {
   }
 
   $('#importar-steam').onclick = () => importarSteam(p);
+  $('#novo-story')?.addEventListener('click', () => criarStory(u, () => location.reload()));
+  $('#nota')?.addEventListener('click', () => editarNota(u, p, () => location.reload()));
   $('#desfazer-steam')?.addEventListener('click', () => desfazerSteam(p));
   // Notificações no celular
   const atualizarPush = async () => {
@@ -333,6 +353,8 @@ async function abrirEditor(p) {
       <input id="username" value="${esc(p.username)}" minlength="3" maxlength="30" pattern="[A-Za-z0-9_]+" title="Use só letras, números e _" required>
       <label for="bio">Bio <span class="muted" id="bio-cont"></span></label>
       <textarea id="bio" rows="3" maxlength="300" placeholder="Ex.: Viciado em soulslike, jogo à noite no PS5.">${esc(p.bio || '')}</textarea>
+      <label for="musica">🎵 Música do perfil <span class="muted">(link do Spotify: Compartilhar → Copiar link)</span></label>
+      <input id="musica" type="url" placeholder="https://open.spotify.com/track/..." value="${p.musica ? `https://open.spotify.com/${esc(p.musica)}` : ''}">
     </div>
 
     <div class="secao-form"><h3>Contas de jogo</h3>
@@ -421,12 +443,15 @@ async function abrirEditor(p) {
     e.preventDefault();
     const steam = $('#steam').value.trim();
     if (steam && !/^https:\/\/steamcommunity\.com\/(id|profiles)\/[A-Za-z0-9_-]+\/?$/.test(steam)) return toast('Link da Steam inválido. Ex.: https://steamcommunity.com/id/seunome', true);
+    const musica = $('#musica').value.trim();
+    if (musica && !spotifyId(musica)) return toast('Link do Spotify inválido. No Spotify: Compartilhar → Copiar link da música.', true);
     const btn = $('#salvar'); btn.disabled = true; btn.textContent = 'Salvando...';
     try {
       const dados = {
         username: $('#username').value.trim(), bio: $('#bio').value.trim() || null,
         psn_id: $('#psn').value.trim() || null, xbox_gamertag: $('#xbox').value.trim() || null,
         discord_user: $('#discord').value.trim() || null, steam_profile: steam || null, twitch_user: $('#twitch').value.trim() || null,
+        musica: spotifyId(musica),
         fav_categories: [...dlg.querySelectorAll('#favs .chip.ativo')].map((b) => Number(b.dataset.id)),
       };
       if ('showcase_games' in p) dados.showcase_games = [...escolhidos];

@@ -2601,3 +2601,135 @@ end $$;
 drop trigger if exists profiles_steam_conq on public.profiles;
 create trigger profiles_steam_conq before update of steam_conquistas on public.profiles
   for each row execute function public.protect_steam_conquistas();
+
+-- =====================================================================
+-- SOCIAL INSPIRADO NO INSTAGRAM: stories (24 h, enquete, pergunta, música, melhores amigos, destaques),
+-- notas (status de 60 caracteres por 24 h), música do Spotify no perfil e nos posts, avisos de comunidade
+-- =====================================================================
+-- Música: guarda só "track/ID" (ou album/playlist) do Spotify; o site mostra o player oficial
+create or replace function public.spotify_ok(m text) returns boolean language sql immutable as $$
+  select m is null or m ~ '^(track|album|playlist|episode)/[A-Za-z0-9]{22}$'
+$$;
+alter table public.profiles add column if not exists nota text;
+alter table public.profiles add column if not exists nota_at timestamptz;
+alter table public.profiles add column if not exists musica text;
+alter table public.posts add column if not exists musica text;
+alter table public.posts add column if not exists aviso boolean not null default false;
+do $$ begin
+  alter table public.profiles add constraint profiles_nota_len check (nota is null or char_length(nota) <= 60);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.profiles add constraint profiles_musica_ok check (public.spotify_ok(musica));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.posts add constraint posts_musica_ok check (public.spotify_ok(musica));
+exception when duplicate_object then null; end $$;
+
+-- Aviso fixado na comunidade: só dono/moderador da comunidade pode marcar
+create or replace function public.posts_aviso_check() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.aviso and (new.community_id is null or not is_comm_mod(new.community_id)) then new.aviso := false; end if;
+  return new;
+end $$;
+drop trigger if exists posts_aviso_bi on public.posts;
+create trigger posts_aviso_bi before insert or update of aviso on public.posts for each row execute function public.posts_aviso_check();
+
+-- Melhores amigos (lista de quem vê os stories "só melhores amigos")
+create table if not exists public.close_friends (
+  owner_id  uuid not null references public.profiles(id) on delete cascade,
+  friend_id uuid not null references public.profiles(id) on delete cascade,
+  primary key (owner_id, friend_id),
+  check (owner_id <> friend_id)
+);
+alter table public.close_friends enable row level security;
+drop policy if exists cf_own on public.close_friends;
+create policy cf_own on public.close_friends for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+create or replace function public.is_close_friend(dono uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select dono = auth.uid() or exists (select 1 from close_friends where owner_id = dono and friend_id = auth.uid())
+$$;
+
+create table if not exists public.stories (
+  id            bigserial primary key,
+  user_id       uuid not null references public.profiles(id) on delete cascade,
+  image_url     text not null check (image_url ~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/[A-Za-z0-9/_.-]+$'),
+  caption       text check (char_length(caption) <= 200),
+  poll          jsonb check (poll is null or (jsonb_typeof(poll) = 'object' and char_length(poll->>'pergunta') between 1 and 80
+                 and char_length(poll->>'a') between 1 and 30 and char_length(poll->>'b') between 1 and 30)),
+  question      text check (char_length(question) <= 100),
+  musica        text check (public.spotify_ok(musica)),
+  close_friends boolean not null default false,
+  highlight     text check (char_length(highlight) between 1 and 30),   -- pasta de destaque no perfil (fica depois das 24 h)
+  created_at    timestamptz not null default now(),
+  expires_at    timestamptz not null default now() + interval '24 hours'
+);
+create index if not exists stories_user_idx on public.stories(user_id, created_at desc);
+create index if not exists stories_ativos_idx on public.stories(expires_at);
+alter table public.stories enable row level security;
+drop policy if exists st_read on public.stories;
+create policy st_read on public.stories for select using (
+  (expires_at > now() or highlight is not null or user_id = auth.uid()) and (not close_friends or is_close_friend(user_id)));
+drop policy if exists st_ins on public.stories;
+create policy st_ins on public.stories for insert with check (user_id = auth.uid() and is_active_user() and highlight is null);
+drop policy if exists st_upd on public.stories;
+create policy st_upd on public.stories for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists st_del on public.stories;
+create policy st_del on public.stories for delete using (user_id = auth.uid() or is_staff());
+
+create table if not exists public.story_views (
+  story_id bigint not null references public.stories(id) on delete cascade,
+  user_id  uuid not null references public.profiles(id) on delete cascade,
+  seen_at  timestamptz not null default now(),
+  primary key (story_id, user_id)
+);
+alter table public.story_views enable row level security;
+drop policy if exists sv_ins on public.story_views;
+create policy sv_ins on public.story_views for insert with check (user_id = auth.uid());
+drop policy if exists sv_read on public.story_views;
+create policy sv_read on public.story_views for select using (
+  user_id = auth.uid() or exists (select 1 from stories s where s.id = story_id and s.user_id = auth.uid()));
+
+create table if not exists public.story_votes (
+  story_id bigint not null references public.stories(id) on delete cascade,
+  user_id  uuid not null references public.profiles(id) on delete cascade,
+  choice   text not null check (choice in ('a','b')),
+  primary key (story_id, user_id)
+);
+alter table public.story_votes enable row level security;
+drop policy if exists svo_ins on public.story_votes;
+create policy svo_ins on public.story_votes for insert with check (user_id = auth.uid());
+drop policy if exists svo_read on public.story_votes;
+create policy svo_read on public.story_votes for select using (user_id = auth.uid());
+
+-- Resultado da enquete (contagem, sem expor quem votou em quê)
+create or replace function public.story_poll(sid bigint) returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object('a', count(*) filter (where choice = 'a'), 'b', count(*) filter (where choice = 'b'))
+  from story_votes where story_id = sid
+$$;
+grant execute on function public.story_poll(bigint) to anon, authenticated;
+
+-- Resposta à "caixinha de perguntas": chega como notificação para o dono do story
+create or replace function public.answer_story(sid bigint, texto text) returns void
+language plpgsql security definer set search_path = public as $$
+declare s stories; quem text;
+begin
+  if auth.uid() is null or not is_active_user() then raise exception 'Entre na sua conta.'; end if;
+  if char_length(coalesce(trim(texto), '')) not between 1 and 300 then raise exception 'Resposta de 1 a 300 caracteres.'; end if;
+  select * into s from stories where id = sid and expires_at > now();
+  if s.id is null or s.question is null then raise exception 'Story não encontrado.'; end if;
+  select username into quem from profiles where id = auth.uid();
+  insert into notifications (user_id, type, title, body, link)
+  values (s.user_id, 'story', '💬 @' || quem || ' respondeu: ' || left(s.question, 60), left(trim(texto), 300), 'perfil.html?u=' || quem);
+end $$;
+revoke execute on function public.answer_story(bigint, text) from public, anon;
+grant execute on function public.answer_story(bigint, text) to authenticated;
+
+-- Limpeza diária também apaga stories vencidos que não viraram destaque (a imagem fica no armazenamento)
+create or replace function public.cleanup_old() returns void language sql security definer set search_path = public as $$
+  delete from app_feedback where kind = 'erro' and created_at < now() - interval '60 days';
+  delete from notifications where read and created_at < now() - interval '90 days';
+  delete from stories where highlight is null and expires_at < now() - interval '2 days';
+$$;
+revoke execute on function public.cleanup_old() from public, anon, authenticated;

@@ -1,10 +1,12 @@
 import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha, carrossel, esqueletoCards, esqueletoLista, param, srcCapa } from './app.js';
+import { barraStories } from './stories.js';
 import { COLUNAS_POST_DESAFIO as COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 let compositor = null, paginaFeed = 0; // declarados antes do uso (o código abaixo roda já no carregamento)
 await montarLayout();
 const main = $('#conteudo');
 main.insertAdjacentHTML('beforeend', `
+  <section id="stories" aria-label="Stories"></section>
   <section class="hero">
     <div>
       <h1>Aqui, as novidades estão ao seu alcance!</h1>
@@ -70,6 +72,7 @@ if (configurado) {
     const { data: rec } = await sb.rpc('recommend_games', { lim: 12 }).select(COLUNAS_CARD);
     if (rec?.length) { $('#sec-rec').classList.remove('hidden'); $('#rec').innerHTML = carrossel(rec.map(cardJogo).join('')); }
     carregarAtividade();
+    barraStories($('#stories'), u);
     $('#compor').innerHTML = compositorHtml();
     compositor = ligarCompositor($('#compositor'), { u, aoPublicar: () => { carregarFeed(true); carregarDesafio(); } });
   }

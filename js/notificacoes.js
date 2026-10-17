@@ -2,7 +2,7 @@ import { sb, $, esc, montarLayout, configurado, exigirLogin, data, falha } from 
 
 await montarLayout();
 const main = $('#conteudo');
-const ICONES = { follow: '👤', deal: '💸', event: '📅', reminder: '⏰', report: '🚩', reward: '🏆', levelup: '⬆️', friend: '🤝', call: '📞', request: '🔒', post: '❤️', mencao: '💬', resumo: '📬', desafio: '🏆', dm: '✉️', lfg: '🎮' };
+const ICONES = { follow: '👤', deal: '💸', event: '📅', reminder: '⏰', report: '🚩', reward: '🏆', levelup: '⬆️', friend: '🤝', call: '📞', request: '🔒', post: '❤️', mencao: '💬', resumo: '📬', desafio: '🏆', dm: '✉️', lfg: '🎮', story: '💬' };
 
 if (configurado) {
   const u = await exigirLogin();
