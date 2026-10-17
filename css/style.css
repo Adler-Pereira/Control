@@ -553,3 +553,4 @@ iframe.spotify { width: 100%; border: 0; border-radius: 12px; }
 .item-opcao .item-nome { font-size: .75rem; text-align: center; line-height: 1.2; }
 .item-opcao .item-check { position: absolute; top: 6px; right: 8px; width: 20px; height: 20px; border-radius: 50%; background: var(--amarelo, #ffd33c); color: #000; font-weight: 800; font-size: .75rem; display: none; place-items: center; }
 .item-opcao.marcado .item-check { display: grid; }
+.destaques-conq .item { border: 1px solid var(--amarelo, #ffd33c); }

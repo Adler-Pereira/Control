@@ -27,8 +27,11 @@ async function carregar() {
   const total = itens.length, desbloqueados = itens.filter((i) => tenho.has(i.id)).length;
   const mes = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
 
+  const destaques = itens.filter((i) => i.destaque);
   main.innerHTML = `
     <h1>Conquistas</h1>
+    ${destaques.length ? `<h2>⭐ Em destaque</h2><p class="muted" style="margin-bottom:10px">Metas especiais escolhidas pela equipe. As de jogos conferem suas horas e conquistas da Steam (importe no seu perfil).</p>
+      <div class="itens destaques-conq" style="margin-bottom:18px">${destaques.map((i) => cartaoItem(i, tenho, p, i.kind)).join('')}</div>` : ''}
     ${p ? `<div class="grade" style="margin-bottom:18px">
       <div class="cartao" style="text-align:center"><div class="sequencia">🔥 ${p.streak_current}</div>
         <p>dia(s) seguidos</p><p class="muted" style="font-size:.85rem">Recorde: ${p.streak_best} · entre todo dia para ganhar mais XP e molduras de chama</p></div>

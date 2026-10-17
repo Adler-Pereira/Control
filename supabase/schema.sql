@@ -3257,3 +3257,48 @@ on conflict (id) do nothing;
 do $$ declare r record; begin
   for r in select distinct user_id from public.user_games loop perform public.check_regras(r.user_id); end loop;
 end $$;
+
+-- Metas prontas dos jogos mais populares (selos; algumas molduras) e itens em destaque
+alter table public.cosmetics add column if not exists destaque boolean not null default false;
+insert into public.cosmetics (id, kind, name, description, rarity, icon, sort, custom, style, regra, destaque) values
+  ('s_gta',       'badge', 'Rei de Los Santos',     'Jogue 100 horas de Grand Theft Auto (somando a série)', 'rara', '🚗', 1500, false, null, '{"tipo":"horas_serie","padrao":"grand theft auto","min":100}', false),
+  ('s_rdr',       'badge', 'Fora da Lei',           'Jogue 80 horas de Red Dead Redemption (somando a série)', 'rara', '🤠', 1501, false, null, '{"tipo":"horas_serie","padrao":"red dead redemption","min":80}', false),
+  ('s_skyrim',    'badge', 'Dovahkiin',             'Jogue 100 horas de The Elder Scrolls (somando a série)', 'rara', '🐲', 1502, false, null, '{"tipo":"horas_serie","padrao":"elder scrolls","min":100}', false),
+  ('s_fallout',   'badge', 'Morador do Vault',      'Jogue 100 horas de Fallout (somando a série)', 'rara', '☢️', 1503, false, null, '{"tipo":"horas_serie","padrao":"fallout","min":100}', false),
+  ('s_cs',        'badge', 'Headshot',              'Jogue 500 horas de Counter-Strike', 'epica', '🔫', 1504, false, null, '{"tipo":"horas_serie","padrao":"counter-strike","min":500}', false),
+  ('f_dota',      'frame', 'Ancião',                'Jogue 1.000 horas de Dota 2', 'lendaria', null, 1505, true,
+     '{"cores":["#b71c1c","#1b5e20","#b71c1c"],"animado":true,"velocidade":6,"emoji":"🛡️"}', '{"tipo":"horas_serie","padrao":"dota 2","min":1000}', false),
+  ('s_apex',      'badge', 'Campeão da Arena',      'Jogue 200 horas de Apex Legends', 'rara', '🏹', 1506, false, null, '{"tipo":"horas_serie","padrao":"apex legends","min":200}', false),
+  ('s_rust',      'badge', 'Sobrevivente Nato',     'Jogue 300 horas de Rust', 'epica', '🪓', 1507, false, null, '{"tipo":"horas_serie","padrao":"rust","min":300}', false),
+  ('s_cyber',     'badge', 'Mercenário de Night City','Jogue 80 horas de Cyberpunk 2077', 'rara', '🤖', 1508, false, null, '{"tipo":"horas_serie","padrao":"cyberpunk","min":80}', false),
+  ('s_bg3',       'badge', 'Rolou um 20',           'Jogue 100 horas de Baldur''s Gate', 'rara', '🎲', 1509, false, null, '{"tipo":"horas_serie","padrao":"baldur","min":100}', false),
+  ('f_re',        'frame', 'Agente da S.T.A.R.S.',  'Jogue 100 horas de Resident Evil (somando a série)', 'epica', null, 1510, true,
+     '{"cores":["#0d47a1","#b71c1c","#0d47a1"],"animado":true,"velocidade":5,"emoji":"🧟"}', '{"tipo":"horas_serie","padrao":"resident evil","min":100}', false),
+  ('s_hk',        'badge', 'Cavaleiro Oco',         'Platine Hollow Knight (100% das conquistas na Steam)', 'lendaria', '🪲', 1511, false, null, '{"tipo":"conquistas_serie","padrao":"hollow knight","pct":100}', false),
+  ('s_hades',     'badge', 'Fuga do Submundo',      'Jogue 60 horas de Hades', 'rara', '🔱', 1512, false, null, '{"tipo":"horas_serie","padrao":"hades","min":60}', false),
+  ('s_stardew',   'badge', 'Fazendeiro',            'Jogue 100 horas de Stardew Valley', 'rara', '🌱', 1513, false, null, '{"tipo":"horas_serie","padrao":"stardew","min":100}', false),
+  ('s_terraria',  'badge', 'Escavador',             'Jogue 100 horas de Terraria', 'rara', '⛏️', 1514, false, null, '{"tipo":"horas_serie","padrao":"terraria","min":100}', false),
+  ('s_rl',        'badge', 'Gol Aéreo',             'Jogue 200 horas de Rocket League', 'rara', '⚽', 1515, false, null, '{"tipo":"horas_serie","padrao":"rocket league","min":200}', false),
+  ('s_cod',       'badge', 'Soldado',               'Jogue 200 horas de Call of Duty (somando a série)', 'rara', '🪖', 1516, false, null, '{"tipo":"horas_serie","padrao":"call of duty","min":200}', false),
+  ('s_destiny',   'badge', 'Guardião',              'Jogue 300 horas de Destiny', 'epica', '🌌', 1517, false, null, '{"tipo":"horas_serie","padrao":"destiny","min":300}', false),
+  ('s_mh',        'badge', 'Caçador de Monstros',   'Jogue 150 horas de Monster Hunter (somando a série)', 'epica', '🐉', 1518, false, null, '{"tipo":"horas_serie","padrao":"monster hunter","min":150}', false),
+  ('s_gow',       'badge', 'Fantasma de Esparta',   'Jogue 50 horas de God of War (somando a série)', 'rara', '🪓', 1519, false, null, '{"tipo":"horas_serie","padrao":"god of war","min":50}', false),
+  ('s_sekiro',    'badge', 'Lobo de Um Braço',      'Platine Sekiro (100% das conquistas na Steam)', 'lendaria', '🗡️', 1520, false, null, '{"tipo":"conquistas_serie","padrao":"sekiro","pct":100}', false),
+  ('s_persona',   'badge', 'Fantasma Ladrão',       'Jogue 100 horas de Persona (somando a série)', 'rara', '🎭', 1521, false, null, '{"tipo":"horas_serie","padrao":"persona","min":100}', false),
+  ('s_ff',        'badge', 'Guerreiro da Luz',      'Jogue 150 horas de Final Fantasy (somando a série)', 'epica', '💎', 1522, false, null, '{"tipo":"horas_serie","padrao":"final fantasy","min":150}', false),
+  ('s_sf',        'badge', 'Hadouken',              'Jogue 100 horas de Street Fighter (somando a série)', 'rara', '👊', 1523, false, null, '{"tipo":"horas_serie","padrao":"street fighter","min":100}', false),
+  ('s_tekken',    'badge', 'Punho de Ferro',        'Jogue 100 horas de Tekken (somando a série)', 'rara', '🥋', 1524, false, null, '{"tipo":"horas_serie","padrao":"tekken","min":100}', false),
+  ('f_zomboid',   'frame', 'Assim Você Morreu',     'Jogue 200 horas de Project Zomboid', 'epica', null, 1525, true,
+     '{"cores":["#33691e","#0b0b0d","#8d6e63"],"animado":true,"velocidade":9,"emoji":"🧟"}', '{"tipo":"horas_serie","padrao":"zomboid","min":200}', false),
+  ('s_civ',       'badge', 'Só Mais Um Turno',      'Jogue 200 horas de Civilization (somando a série)', 'epica', '🏛️', 1526, false, null, '{"tipo":"horas_serie","padrao":"civilization","min":200}', false),
+  ('s_tlou',      'badge', 'Vagalume',              'Jogue 40 horas de The Last of Us', 'rara', '🦒', 1527, false, null, '{"tipo":"horas_serie","padrao":"last of us","min":40}', false),
+  ('s_mc',        'badge', 'Arquiteto de Blocos',   'Jogue 200 horas de Minecraft', 'rara', '🧱', 1528, false, null, '{"tipo":"horas_serie","padrao":"minecraft","min":200}', false),
+  ('s_poe',       'badge', 'Exilado',               'Jogue 300 horas de Path of Exile', 'epica', '💀', 1529, false, null, '{"tipo":"horas_serie","padrao":"path of exile","min":300}', false)
+on conflict (id) do nothing;
+-- Começam em destaque na página de Conquistas (dá para trocar em Admin → Itens → ⭐)
+update public.cosmetics set destaque = true where id in ('f_dmc','b_dmc','s_platina','f_10mil','f_re','f_zomboid') and not destaque
+  and not exists (select 1 from public.cosmetics where destaque and id not in ('f_dmc','b_dmc','s_platina','f_10mil','f_re','f_zomboid'));
+
+do $$ declare r record; begin
+  for r in select distinct user_id from public.user_games loop perform public.check_regras(r.user_id); end loop;
+end $$;

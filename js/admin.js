@@ -776,11 +776,13 @@ async function itens() {
       <td>${previaItem(c)}</td>
       <td><strong>${esc(c.name)}</strong>${c.active === false ? ' <span class="tag">desativado</span>' : ''}<br><span class="muted">${TIPO_ITEM[c.kind]} · <span class="r-${c.rarity}">${esc(c.rarity)}</span>${c.custom ? ' · criado no painel' : ''}</span><br><span class="muted" style="font-size:.82rem">${esc(c.description)}</span></td>
       <td>${esc(comoGanha(c))}</td><td>${qtd(c.id)}</td>
-      <td class="controles"><button class="btn pequeno" data-acao="dar" data-id="${esc(c.id)}" title="Dar este item para várias pessoas ou para todos">🎁 Dar</button>
+      <td class="controles"><button class="btn ${c.destaque ? '' : 'sec'} pequeno" data-acao="destacar" data-id="${esc(c.id)}" title="${c.destaque ? 'Tirar do destaque' : 'Mostrar em destaque no topo da página de Conquistas'}">${c.destaque ? '⭐' : '☆'}</button>
+        <button class="btn pequeno" data-acao="dar" data-id="${esc(c.id)}" title="Dar este item para várias pessoas ou para todos">🎁 Dar</button>
         <button class="btn sec pequeno" data-acao="editar" data-id="${esc(c.id)}">Editar</button>
         ${c.active === false ? `<button class="btn sec pequeno" data-acao="reativar" data-id="${esc(c.id)}">Reativar</button>`
           : `<button class="btn perigo pequeno" data-acao="excluir" data-id="${esc(c.id)}">Excluir</button>`}</td></tr>`))}`;
   acoes({
+    destacar: async (id) => { const c = cs.find((x) => x.id === id); const { error: e } = await sb.from('cosmetics').update({ destaque: !c.destaque }).eq('id', id); if (e) throw e; toast(c.destaque ? 'Tirado do destaque.' : '⭐ Em destaque na página de Conquistas.'); itens(); },
     metas: async () => { const { data: n, error: e } = await sb.rpc('admin_aplicar_regras'); if (e) throw e; toast(`🎮 Metas conferidas para ${n} pessoa(s).`); itens(); },
     dar: (id) => darEmLote({ itensIniciais: [id] }),
     lote: () => darEmLote({}),
