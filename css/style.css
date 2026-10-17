@@ -544,3 +544,12 @@ iframe.spotify { width: 100%; border: 0; border-radius: 12px; }
 .story-bola.em-call::after { content: "🔊"; background: #5865f2; width: 20px; height: 20px; font-size: .65rem; display: grid; place-items: center; top: 46px; }
 .online-chip { justify-content: center; }
 .online-chip .online-n { width: 66px; height: 66px; border-radius: 50%; display: grid; place-items: center; font: 800 1.6rem Anton, sans-serif; color: #22c55e; background: #22c55e1a; outline: 3px solid #22c55e; border: 3px solid var(--fundo, #0b0b0d); }
+.grade-itens { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; max-height: 340px; overflow: auto; padding: 2px; }
+.item-opcao { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; background: #ffffff08; border: 2px solid transparent; border-radius: 12px; color: var(--texto); cursor: pointer; font: inherit; }
+.item-opcao:hover { background: #ffffff12; }
+.item-opcao.marcado { border-color: var(--amarelo, #ffd33c); background: #ffd33c14; }
+.item-opcao .item-previa { min-height: 72px; display: grid; place-items: center; transform: scale(.75); }
+.item-opcao .item-previa .amostra-banner { width: 120px !important; height: 50px; border-radius: 8px; }
+.item-opcao .item-nome { font-size: .75rem; text-align: center; line-height: 1.2; }
+.item-opcao .item-check { position: absolute; top: 6px; right: 8px; width: 20px; height: 20px; border-radius: 50%; background: var(--amarelo, #ffd33c); color: #000; font-weight: 800; font-size: .75rem; display: none; place-items: center; }
+.item-opcao.marcado .item-check { display: grid; }

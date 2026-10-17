@@ -3112,3 +3112,41 @@ create trigger profiles_call_min before update of call_minutos, call_visto on pu
 do $$ declare r record; begin
   for r in select id from public.profiles loop perform public.check_achievements_mais(r.id); end loop;
 end $$;
+
+-- Dar/tirar VÁRIOS itens de VÁRIAS pessoas de uma vez (ou de todos os usuários). Só administradores.
+create or replace function public.admin_cosmetics_lote(uids uuid[], dar text[] default '{}', tirar text[] default '{}', todos boolean default false)
+returns integer language plpgsql security definer set search_path = public as $$
+declare alvo uuid; cid text; n integer := 0;
+begin
+  if not is_admin() then raise exception 'Só administradores podem dar itens.'; end if;
+  if todos then select array_agg(id) into uids from profiles where not banned; end if;
+  foreach alvo in array coalesce(uids, '{}') loop
+    foreach cid in array coalesce(dar, '{}') loop perform grant_cosmetic(alvo, cid); end loop;
+    if coalesce(array_length(tirar, 1), 0) > 0 then
+      delete from user_cosmetics where user_id = alvo and cosmetic_id = any(tirar);
+      perform set_config('cc.sistema', 'on', true);
+      update profiles set equipped_frame = case when equipped_frame = any(tirar) then null else equipped_frame end,
+                          equipped_banner = case when equipped_banner = any(tirar) then null else equipped_banner end where id = alvo;
+      perform set_config('cc.sistema', 'off', true);
+    end if;
+    n := n + 1;
+  end loop;
+  perform log_admin('itens em lote', 'user', case when todos then 'todos' else n::text || ' usuário(s)' end,
+    json_build_object('dar', dar, 'tirar', tirar)::jsonb);
+  return n;
+end $$;
+revoke execute on function public.admin_cosmetics_lote(uuid[], text[], text[], boolean) from public, anon;
+grant execute on function public.admin_cosmetics_lote(uuid[], text[], text[], boolean) to authenticated;
+
+-- XP para várias pessoas de uma vez (ex.: todos que participaram de um evento)
+create or replace function public.admin_xp_lote(uids uuid[], quantidade integer, motivo text default null) returns integer
+language plpgsql security definer set search_path = public as $$
+declare alvo uuid; n integer := 0;
+begin
+  if not is_admin() then raise exception 'Só administradores podem ajustar XP.'; end if;
+  if quantidade = 0 or abs(quantidade) > 100000 then raise exception 'Quantidade inválida.'; end if;
+  foreach alvo in array coalesce(uids, '{}') loop perform admin_adjust_xp(alvo, quantidade, motivo); n := n + 1; end loop;
+  return n;
+end $$;
+revoke execute on function public.admin_xp_lote(uuid[], integer, text) from public, anon;
+grant execute on function public.admin_xp_lote(uuid[], integer, text) to authenticated;
