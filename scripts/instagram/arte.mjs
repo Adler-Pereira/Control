@@ -57,8 +57,8 @@ async function fundo(url) {
   } catch { return null; }
 }
 
-async function renderizar(svg) {
-  const png = new Resvg(svg, { fitTo: { mode: 'width', value: W }, font: { fontFiles: FONTES, loadSystemFonts: false, defaultFontFamily: 'Inter' } }).render().asPng();
+async function renderizar(svg, largura = W) {
+  const png = new Resvg(svg, { fitTo: { mode: 'width', value: largura }, font: { fontFiles: FONTES, loadSystemFonts: false, defaultFontFamily: 'Inter' } }).render().asPng();
   return sharp(png).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
 }
 
@@ -180,4 +180,19 @@ export async function arteVersus({ a, b, categoria, tema = null }) {
     <text x="${W / 2}" y="${H - 96}" text-anchor="middle" font-family="Inter" font-size="32" font-weight="600" fill="${AMARELO}">Responda nos comentários: A ou B?</text>
     <image href="${mascote(tema, 'enquete')}" x="${W / 2 - 75}" y="${H - 300}" width="150" height="150" preserveAspectRatio="xMidYMid meet"/>`;
   return renderizar(base(conteudo, null));
+}
+
+// Story (1080×1920): a arte do post no centro, com o fundo desfocado dela mesma e um chamado para o perfil
+export async function arteStory(jpegPost, chamada = 'NOVO POST NO PERFIL') {
+  const SW = 1080, SH = 1920, cw = 940, ch = Math.round(cw * H / W);
+  const fundoDesfocado = await sharp(jpegPost).resize(SW, SH, { fit: 'cover' }).blur(40).modulate({ brightness: 0.45 }).jpeg({ quality: 80 }).toBuffer();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${SH}" viewBox="0 0 ${SW} ${SH}">
+    <image href="${b64(fundoDesfocado, 'image/jpeg')}" x="0" y="0" width="${SW}" height="${SH}"/>
+    <text x="${SW / 2}" y="250" text-anchor="middle" font-family="Anton" font-size="78" fill="${AMARELO}">${esc(chamada)}</text>
+    <rect x="${(SW - cw) / 2 - 8}" y="${(SH - ch) / 2 - 8 + 40}" width="${cw + 16}" height="${ch + 16}" rx="26" fill="${AMARELO}"/>
+    <image href="${b64(jpegPost, 'image/jpeg')}" x="${(SW - cw) / 2}" y="${(SH - ch) / 2 + 40}" width="${cw}" height="${ch}"/>
+    <text x="${SW / 2}" y="${SH - 150}" text-anchor="middle" font-family="Inter" font-size="40" font-weight="700" fill="#FFFFFF">Toque na foto do perfil e veja o post</text>
+    <text x="${SW / 2}" y="${SH - 95}" text-anchor="middle" font-family="Inter" font-size="30" fill="#c9c9d1">@control.critic</text>
+  </svg>`;
+  return renderizar(svg, SW);
 }

@@ -50,7 +50,8 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
         <label>Qualidade <select data-v="o-alt"><option value="720">720p</option><option value="1080" selected>1080p</option></select></label>
         <label>Quadros <select data-v="o-fps"><option value="30">30 fps</option><option value="60">60 fps</option></select></label>
       </div>
-      <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" data-v="o-som" checked style="width:auto"> Incluir o som (jogo/aba). No Chrome do Windows funciona com a tela inteira ou uma aba; em janelas avulsas o navegador não permite.</label>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" data-v="o-som" checked style="width:auto"> Incluir o som (jogo/aba). As vozes desta call nunca vão junto (Chrome 141 ou mais novo).</label>
+      <p class="muted" style="font-size:.78rem;margin:2px 0 0 24px">Tela inteira leva o som de tudo do PC, inclusive o Discord. Para mandar só o jogo: escolha <strong>Janela</strong> → janela do jogo (Chrome atualizado no Windows) ou feche o Discord e fale só por aqui (a ponte traz quem está lá).</p>
       <div class="controles" style="margin-top:8px"><button class="btn pequeno" data-v="o-ok">Escolher o que compartilhar</button><button class="btn sec pequeno" data-v="o-cancelar">Cancelar</button></div>
     </div>
     <div class="controles" style="align-items:center;justify-content:space-between">
