@@ -1,5 +1,5 @@
 // Interface da call (usada nas comunidades e na call entre amigos)
-import { $, esc, falha, toast } from './app.js';
+import { $, esc, falha, toast, statusCall } from './app.js';
 import { SalaVoz } from './voz.js';
 import { prefsAudio, salvarPrefsAudio, processarMic, restricoesMic, definirSaida } from './audio-mic.js';
 
@@ -68,7 +68,7 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
       </aside>
     </div>`;
   const el = (k) => box.querySelector(`[data-v="${k}"]`);
-  let sala = null;
+  let sala = null, emCall = false;
 
   const atualizar = () => {
     const dentro = !!sala?.local;
@@ -76,6 +76,8 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     ['mudo', 'cam', 'tela', 'sair', 'layout'].forEach((k) => el(k).classList.toggle('hidden', !dentro));
     el('musica').classList.toggle('hidden', !dentro || !navigator.mediaDevices?.getDisplayMedia);
     el('chat').classList.toggle('hidden', !dentro);
+    if (!dentro && emCall) { emCall = false; statusCall(null); }
+    if (dentro) emCall = true;
     if (!dentro) { el('info').textContent = ''; el('aviso').classList.add('hidden'); el('som').classList.add('hidden'); el('opcoes').classList.add('hidden'); return; }
     el('mudo').textContent = sala.mudo ? '🔇 Ativar microfone' : sala.prefs?.ptt ? (sala.falandoPtt ? '🎙️ Falando...' : `🎤 Segure ${(sala.prefs.tecla || 'KeyV').replace(/^Key|^Digit/, '')} para falar`) : '🎤 Silenciar';
     el('cam').classList.toggle('ligado', sala.modoVideo === 'camera');
@@ -107,13 +109,19 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
   el('entrar').onclick = async () => {
     el('entrar').disabled = true;
     sala = new SalaVoz({ salaId, eu: u.id, nome: p.username, container: el('sala'), aoMudar: atualizar, aoChat: mostrarMsg, aoAviso: avisar });
-    try { await sala.entrar(); } catch (e) {
+    try {
+      await sala.entrar();
+      // Avisa aos amigos que você está em call (comunidade: com link para entrar; privada: só "em call")
+      const cid = /^dm-/.test(salaId) ? null : Number(String(salaId).split('-')[0]) || null;
+      statusCall({ titulo: String(titulo).slice(0, 60), cid });
+    } catch (e) {
       sala = null;
       falha(e.name === 'NotAllowedError' ? { message: 'Permita o acesso ao microfone para entrar na call (ícone de cadeado na barra de endereço).' }
         : e.name === 'NotFoundError' ? { message: 'Nenhum microfone encontrado neste aparelho.' } : e);
     } finally { el('entrar').disabled = false; }
   };
-  el('sair').onclick = () => sala.sair();
+  el('sair').onclick = () => { statusCall(null); sala.sair(); };
+  addEventListener('pagehide', () => statusCall(null));
   el('mudo').onclick = () => sala.alternarMudo();
   el('som').onclick = async () => { await sala.ativarSom(); el('som').classList.add('hidden'); };
   el('cam').onclick = () => sala.alternarCamera().catch((e) => falha(e.name === 'NotAllowedError' ? { message: 'Permita o acesso à câmera.' } : e));

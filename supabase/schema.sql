@@ -2745,3 +2745,53 @@ alter table public.posts add column if not exists video_url text;
 do $$ begin
   alter table public.posts add constraint posts_video_ok check (video_url is null or video_url ~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/[A-Za-z0-9/_.-]+\.(mp4|webm|mov)$');
 exception when duplicate_object then null; end $$;
+
+-- Stories com vídeo (até ~60 s) e reações rápidas
+alter table public.stories alter column image_url drop not null;
+alter table public.stories add column if not exists video_url text;
+do $$ begin
+  alter table public.stories add constraint stories_video_ok check (video_url is null or video_url ~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/[A-Za-z0-9/_.-]+\.(mp4|webm|mov)$');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.stories add constraint stories_midia_ok check (image_url is not null or video_url is not null);
+exception when duplicate_object then null; end $$;
+
+create table if not exists public.story_reactions (
+  story_id bigint not null references public.stories(id) on delete cascade,
+  user_id  uuid not null references public.profiles(id) on delete cascade,
+  emoji    text not null check (emoji in ('🔥','😂','😮','😍','👏','💀')),
+  created_at timestamptz not null default now(),
+  primary key (story_id, user_id)
+);
+alter table public.story_reactions enable row level security;
+drop policy if exists sr_read on public.story_reactions;
+create policy sr_read on public.story_reactions for select using (
+  user_id = auth.uid() or exists (select 1 from stories s where s.id = story_id and s.user_id = auth.uid()));
+
+-- Reagir: grava (ou troca) a reação e avisa o dono só na primeira vez
+create or replace function public.react_story(sid bigint, e text) returns void
+language plpgsql security definer set search_path = public as $$
+declare s stories; quem text; novo boolean;
+begin
+  if auth.uid() is null or not is_active_user() then raise exception 'Entre na sua conta.'; end if;
+  select * into s from stories where id = sid and expires_at > now();
+  if s.id is null then raise exception 'Story não encontrado.'; end if;
+  if s.user_id = auth.uid() then return; end if;
+  novo := not exists (select 1 from story_reactions where story_id = sid and user_id = auth.uid());
+  insert into story_reactions (story_id, user_id, emoji) values (sid, auth.uid(), e)
+    on conflict (story_id, user_id) do update set emoji = excluded.emoji, created_at = now();
+  if novo then
+    select username into quem from profiles where id = auth.uid();
+    insert into notifications (user_id, type, title, body, link)
+    values (s.user_id, 'story', e || ' @' || quem || ' reagiu ao seu story', coalesce(left(s.caption, 80), ''), 'perfil.html?u=' || quem);
+  end if;
+end $$;
+revoke execute on function public.react_story(bigint, text) from public, anon;
+grant execute on function public.react_story(bigint, text) to authenticated;
+
+-- Os stories vencidos agora são apagados pelo robô semanal, que remove também a imagem/vídeo do armazenamento
+create or replace function public.cleanup_old() returns void language sql security definer set search_path = public as $$
+  delete from app_feedback where kind = 'erro' and created_at < now() - interval '60 days';
+  delete from notifications where read and created_at < now() - interval '90 days';
+$$;
+revoke execute on function public.cleanup_old() from public, anon, authenticated;

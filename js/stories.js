@@ -1,8 +1,8 @@
 // Stories (24 h), inspirados no Instagram: foto/print com legenda, enquete, caixinha de perguntas,
 // música do Spotify, "só melhores amigos" e destaques no perfil. Também mostra as Notas (status de 24 h).
-import { sb, $, esc, avatar, toast, falha, enviarImagem, spotifyId, spotifyPlayer, notaAtiva, srcCapa, playerSpotify, somLigado, definirSom, pararMusica, tocarSo } from './app.js';
+import { sb, $, esc, avatar, toast, falha, enviarImagem, spotifyId, spotifyPlayer, notaAtiva, srcCapa, playerSpotify, somLigado, definirSom, pararMusica, tocarSo, enviarVideo } from './app.js';
 
-const COLS = 'id,user_id,image_url,caption,poll,question,musica,close_friends,highlight,created_at,expires_at';
+const COLS = 'id,user_id,image_url,video_url,caption,poll,question,musica,close_friends,highlight,created_at,expires_at';
 const tempo = (d) => { const m = Math.round((Date.now() - new Date(d)) / 6e4); return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
 
 // Barra de bolinhas no topo da página inicial: você + quem você segue/amigos com story ativo
@@ -76,7 +76,8 @@ export function criarStory(u, depois) {
   let arquivo = null;
   dlg.innerHTML = `<form method="dialog" id="st-form"><h2 style="margin-top:0">Novo story <span class="muted" style="font-size:.8rem">(some em 24 h)</span></h2>
     <label class="zona-upload" style="min-height:180px;background-size:contain;background-repeat:no-repeat;background-position:center" id="st-zona">
-      <input type="file" id="st-img" accept="image/png,image/jpeg,image/webp,image/gif"><span class="dica">📷 Escolha uma foto ou print</span></label>
+      <input type="file" id="st-img" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime"><span class="dica">📷 Foto, print ou 🎬 vídeo (até 60 s)</span></label>
+    <video id="st-vid" class="hidden" muted playsinline controls style="width:100%;max-height:260px;border-radius:10px"></video>
     <label for="st-leg">Legenda</label><input id="st-leg" maxlength="200" placeholder="Ex.: Finalmente zerei!">
     <details><summary style="cursor:pointer">📊 Enquete</summary>
       <input id="st-pq" maxlength="80" placeholder="Pergunta (ex.: Qual chefe é pior?)" style="margin-top:6px">
@@ -86,7 +87,17 @@ export function criarStory(u, depois) {
     <label style="display:flex;gap:8px;align-items:center;font-weight:400;margin-top:8px"><input type="checkbox" id="st-cf" style="width:auto"> 💚 Só para melhores amigos</label>
     <div class="controles" style="margin-top:12px"><button class="btn" value="ok" id="st-ok">Publicar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button></div></form>`;
   dlg.showModal();
-  $('#st-img').onchange = (e) => { arquivo = e.target.files[0] || null; if (arquivo) $('#st-zona').style.backgroundImage = `url('${URL.createObjectURL(arquivo)}')`; };
+  $('#st-img').onchange = async (e) => {
+    arquivo = e.target.files[0] || null;
+    if (!arquivo) return;
+    const url = URL.createObjectURL(arquivo);
+    if (arquivo.type.startsWith('video/')) {
+      const v = $('#st-vid'); v.src = url; v.classList.remove('hidden'); $('#st-zona').style.backgroundImage = '';
+      await new Promise((ok) => { v.onloadedmetadata = ok; v.onerror = ok; });
+      if (v.duration > 61) { arquivo = null; v.classList.add('hidden'); e.target.value = ''; return toast('O vídeo do story pode ter no máximo 60 segundos.', true); }
+      if (arquivo.size > 30 * 1024 * 1024) { arquivo = null; v.classList.add('hidden'); e.target.value = ''; return toast('Vídeo de até 30 MB.', true); }
+    } else { $('#st-vid').classList.add('hidden'); $('#st-zona').style.backgroundImage = `url('${url}')`; }
+  };
   $('#st-ok').onclick = async (e) => {
     e.preventDefault();
     if (!arquivo) return toast('Escolha uma imagem.', true);
@@ -96,8 +107,10 @@ export function criarStory(u, depois) {
     if (mus && !spotifyId(mus)) return toast('Link do Spotify inválido. Use Compartilhar → Copiar link da música.', true);
     const bt = $('#st-ok'); bt.disabled = true; bt.textContent = 'Publicando...';
     try {
-      const image_url = await enviarImagem(u.id, 'story', arquivo, 25, 1440);
-      const { error } = await sb.from('stories').insert({ user_id: u.id, image_url, caption: $('#st-leg').value.trim() || null,
+      const video = arquivo.type.startsWith('video/');
+      const image_url = video ? null : await enviarImagem(u.id, 'story', arquivo, 25, 1440);
+      const video_url = video ? await enviarVideo(u.id, 'story', arquivo, 30) : null;
+      const { error } = await sb.from('stories').insert({ user_id: u.id, image_url, video_url, caption: $('#st-leg').value.trim() || null,
         poll: pq ? { pergunta: pq, a, b } : null, question: $('#st-q').value.trim() || null, musica: spotifyId(mus), close_friends: $('#st-cf').checked });
       if (error) throw error;
       dlg.close(); toast('Story publicado! 🎉'); depois?.();
@@ -121,10 +134,11 @@ export function verStories(u, grupos, gi = 0, aoFechar) {
       <div class="story-topo"><img src="${avatar(g.p)}" alt=""><a href="perfil.html?u=${encodeURIComponent(g.p.username)}"><strong>${esc(g.p.username)}</strong></a>
         <span class="muted">${tempo(s.created_at)}</span>${s.close_friends ? '<span class="tag" style="background:#1db954;color:#000">💚 amigos</span>' : ''}
         <button type="button" class="story-x" aria-label="Fechar">✕</button></div>
-      <div class="story-img"><img src="${esc(s.image_url)}" alt=""><button type="button" class="story-ant" aria-label="Anterior"></button><button type="button" class="story-prox" aria-label="Próximo"></button></div>
+      <div class="story-img">${s.video_url ? `<video src="${esc(s.video_url)}" playsinline autoplay ${somLigado() && !s.musica ? '' : 'muted'}></video>` : `<img src="${esc(s.image_url)}" alt="">`}<button type="button" class="story-ant" aria-label="Anterior"></button><button type="button" class="story-prox" aria-label="Próximo"></button></div>
       ${s.caption ? `<p class="story-leg">${esc(s.caption)}</p>` : ''}
       ${s.poll ? `<div class="story-poll" data-poll><strong>📊 ${esc(s.poll.pergunta)}</strong><div class="controles">
         <button type="button" class="btn sec" data-voto="a">${esc(s.poll.a)}</button><button type="button" class="btn sec" data-voto="b">${esc(s.poll.b)}</button></div></div>` : ''}
+      ${!meu && u ? `<div class="story-reacoes">${['🔥', '😂', '😮', '😍', '👏', '💀'].map((e) => `<button type="button" data-reagir="${e}">${e}</button>`).join('')}</div>` : ''}
       ${s.question && !meu ? `<form class="story-q" data-q><strong>💬 ${esc(s.question)}</strong><div class="controles"><input maxlength="300" placeholder="Responder..." required style="flex:1"><button class="btn pequeno">Enviar</button></div></form>` : ''}
       ${s.question && meu ? `<p class="muted">💬 ${esc(s.question)}: as respostas chegam nas suas notificações.</p>` : ''}
       ${s.musica ? `<div class="controles" style="align-items:center;gap:6px"><div data-spotify="${esc(s.musica)}" style="flex:1"></div>
@@ -189,6 +203,19 @@ export function verStories(u, grupos, gi = 0, aoFechar) {
         s.highlight = highlight; toast(highlight ? `⭐ Salvo em "${highlight}" no seu perfil.` : 'Removido dos destaques.'); mostrar();
       };
     }
+    dlg.querySelectorAll('[data-reagir]').forEach((b) => b.onclick = async () => {
+      const { error } = await sb.rpc('react_story', { sid: s.id, e: b.dataset.reagir });
+      if (error) return falha(error);
+      dlg.querySelectorAll('[data-reagir]').forEach((x) => x.classList.toggle('ativo', x === b));
+      toast(`${b.dataset.reagir} Reação enviada!`);
+    });
+    const vid = dlg.querySelector('.story-img video');
+    if (vid) {
+      // vídeo: avança quando termina (som ligado se você não silenciou e o story não tem música)
+      vid.onended = () => { if (!pausado) avancar(); };
+      vid.play().catch(() => { vid.muted = true; vid.play().catch(() => {}); });
+      return;
+    }
     if (!pausado) timer = setTimeout(avancar, s.musica || s.poll || s.question ? 12000 : 7000);
   };
   dlg.onclose = () => { clearTimeout(timer); pararMusica(); };
@@ -202,6 +229,6 @@ export async function destaquesPerfil(box, p, u) {
   for (const s of data || []) (pastas.get(s.highlight) || pastas.set(s.highlight, []).get(s.highlight)).push(s);
   if (!pastas.size) { box.innerHTML = ''; return; }
   box.innerHTML = `<div class="stories-barra destaques">${[...pastas].map(([nome, l]) => `<button type="button" class="story-bola destaque" data-pasta="${esc(nome)}">
-    <img ${srcCapa(l[l.length - 1].image_url, 160)} alt=""><span class="story-nome">${esc(nome)}</span></button>`).join('')}</div>`;
+    ${l[l.length - 1].image_url ? `<img ${srcCapa(l[l.length - 1].image_url, 160)} alt="">` : `<video src="${esc(l[l.length - 1].video_url)}#t=0.5" muted preload="metadata" class="story-mini"></video>`}<span class="story-nome">${esc(nome)}</span></button>`).join('')}</div>`;
   box.querySelectorAll('[data-pasta]').forEach((b) => b.onclick = () => verStories(u, [{ p, lista: pastas.get(b.dataset.pasta) }], 0));
 }

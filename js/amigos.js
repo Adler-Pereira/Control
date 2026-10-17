@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, avatarHtml, toast, falha, param, aoMudarOnline, aoVivo, seloAoVivo, notaAtiva, steamAgora } from './app.js';
+import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, avatarHtml, toast, falha, param, aoMudarOnline, aoVivo, seloAoVivo, notaAtiva, steamAgora, estadoOnline } from './app.js';
 import { montarCall } from './chamada-ui.js';
 
 await montarLayout();
@@ -26,7 +26,7 @@ async function carregar(u) {
       <span class="ponto-online" title="offline"></span>${avatarHtml(a)}
       <span style="flex:1;min-width:140px"><a class="usuario" href="perfil.html?u=${encodeURIComponent(a.username)}">${esc(a.username)}</a>
         ${notaAtiva(a) ? ` <span class="tag" style="font-size:.75rem">💭 ${esc(notaAtiva(a))}</span>` : ''}
-        <span class="jogando" data-steam="${esc(a.steam_id || '')}"></span>
+        <span class="na-call"></span><span class="jogando" data-steam="${esc(a.steam_id || '')}"></span>
         <br><span class="muted" style="font-size:.8rem">${[a.psn_id && 'PSN: ' + esc(a.psn_id), a.xbox_gamertag && 'Xbox: ' + esc(a.xbox_gamertag), a.discord_user && 'Discord: ' + esc(a.discord_user)].filter(Boolean).join(' · ')}</span></span>
       <button class="btn sec pequeno" data-conversar="${esc(a.username)}">💬 <span class="nao-lidas" data-nl="${a.id}"></span></button>
       <button class="btn pequeno" data-chamar="${esc(a.username)}">📞 Call</button>
@@ -82,8 +82,11 @@ async function carregar(u) {
   // Online agora (ordem: online primeiro)
   aoMudarOnline((online) => {
     let n = 0;
+    const est = estadoOnline();
     main.querySelectorAll('.amigo').forEach((el) => {
       const on = online.has(el.dataset.id); n += on;
+      const c = est.get(el.dataset.id)?.call;
+      el.querySelector('.na-call').innerHTML = c ? ` <span class="tag na-call-tag">🔊 Na call: ${esc(c.titulo)}</span>${c.cid ? ` <a class="btn pequeno" href="comunidade.html?id=${Number(c.cid)}">Entrar</a>` : ''}` : '';
       el.querySelector('.ponto-online').classList.toggle('on', on);
       el.querySelector('.ponto-online').title = on ? 'online agora' : 'offline';
       if (el.style.order !== '-2') el.style.order = on ? -1 : 0;

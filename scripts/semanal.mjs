@@ -1,5 +1,6 @@
 // Robô semanal (segunda de manhã):
 //  1) Steam: atualiza horas e conquistas de quem já vinculou a Steam (só jogos que já estão na biblioteca/catálogo)
+//  3) Limpeza: apaga stories vencidos e os arquivos deles do armazenamento
 //  2) Desafio: se não houver desafio aberto, abre o próximo da lista (7 dias), com moldura de prêmio
 // Variáveis: SUPABASE_URL, SUPABASE_SERVICE_KEY, STEAM_API_KEY (opcional: sem ela pula a parte da Steam)
 import { supabaseRest } from '../lib/igdb.mjs';
@@ -61,6 +62,24 @@ async function desafioSemanal() {
   aviso(`Desafio: aberto "${d.title}" até ${fim.slice(0, 10)}. Premie os vencedores em Admin → Desafios.`);
 }
 
+// ---------- 3) Limpeza: stories vencidos (que não viraram destaque) somem do banco e do armazenamento ----------
+async function limparStories() {
+  const limite = new Date(Date.now() - 2 * 864e5).toISOString();
+  const velhos = await api(`stories?select=id,image_url,video_url&highlight=is.null&expires_at=lt.${limite}&limit=1000`);
+  if (!velhos.length) return aviso('Limpeza: nenhum story vencido.');
+  const base = env('SUPABASE_URL').replace(/\/+(rest\/v1)?\/*$/, '');
+  const caminhos = velhos.flatMap((s) => [s.image_url, s.video_url]).filter(Boolean)
+    .map((u) => u.split('/storage/v1/object/public/media/')[1]).filter(Boolean);
+  const chave = env('SUPABASE_SERVICE_KEY');
+  for (let i = 0; i < caminhos.length; i += 100) {
+    await fetch(`${base}/storage/v1/object/media`, { method: 'DELETE', headers: { apikey: chave, ...(chave.startsWith('eyJ') ? { Authorization: `Bearer ${chave}` } : {}), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefixes: caminhos.slice(i, i + 100) }) }).catch(() => {});
+  }
+  for (let i = 0; i < velhos.length; i += 200) await api(`stories?id=in.(${velhos.slice(i, i + 200).map((s) => s.id).join(',')})`, { method: 'DELETE' });
+  aviso(`Limpeza: ${velhos.length} story(s) vencido(s) e ${caminhos.length} arquivo(s) apagados.`);
+}
+
 const so = process.argv[2];
+if (!so || so === 'limpeza') await limparStories();
 if (!so || so === 'steam') await steamSemanal();
 if (!so || so === 'desafio') await desafioSemanal();

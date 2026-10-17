@@ -433,7 +433,7 @@ function entrarOnline(p) {
     if (canalOnline) return;
     canalOnline = sb.channel('online', { config: { presence: { key: p.id } } });
     canalOnline.on('presence', { event: 'sync' }, () => ouvintesOnline.forEach((f) => f(onlineAgora())))
-      .subscribe((st) => { if (st === 'SUBSCRIBED') canalOnline?.track({ em: Date.now() }); });
+      .subscribe((st) => { if (st === 'SUBSCRIBED') canalOnline?.track({ em: Date.now(), call: meuStatus.call }); });
   };
   let timer;
   document.addEventListener('visibilitychange', () => {
@@ -454,6 +454,15 @@ async function contarAmigosOnline(uid) {
     b.textContent = n; b.classList.toggle('hidden', !n);
     b.parentElement.title = n ? `${n} amigo(s) online agora` : 'Amigos';
   });
+}
+// Status "na call": vai junto na presença (só o título e, se for de comunidade, o id dela; nunca a chave da sala)
+const meuStatus = { call: null };
+export function statusCall(info) { meuStatus.call = info; canalOnline?.track({ em: Date.now(), call: info }); }
+// Mapa id → { call } de quem está online
+export function estadoOnline() {
+  const m = new Map();
+  for (const [id, lista] of Object.entries(canalOnline?.presenceState() || {})) m.set(id, lista.find((x) => x.call)?.call ? { call: lista.find((x) => x.call).call } : {});
+  return m;
 }
 export function onlineAgora() { return new Set(Object.keys(canalOnline?.presenceState() || {})); }
 export function aoMudarOnline(f) { ouvintesOnline.add(f); f(onlineAgora()); }
