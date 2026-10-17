@@ -1,0 +1,45 @@
+name: Instagram
+
+on:
+  schedule:
+    - cron: '50 21 * * *'      # todo dia às 18h50 (Brasília): resumo do dia, notícia ou promoção
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'diario = resumo do dia | urgente = publica agora as notícias marcadas como urgentes'
+        type: choice
+        options: [diario, urgente]
+        default: diario
+      noticia:
+        description: 'ID da notícia (opcional, só no modo urgente)'
+        default: ''
+      teste:
+        description: 'Só gerar as artes (sem publicar): baixe em "Artifacts" no fim da execução'
+        type: boolean
+        default: false
+
+concurrency: instagram   # nunca publica duas coisas ao mesmo tempo
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev
+      - run: node scripts/instagram/publicar.mjs "${{ inputs.modo || 'diario' }}" "${{ inputs.noticia }}"
+        env:
+          TESTE: ${{ inputs.teste && '1' || '' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
+      - if: ${{ inputs.teste }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: artes-instagram
+          path: saida-instagram/
