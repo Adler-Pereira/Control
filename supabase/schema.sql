@@ -2733,3 +2733,15 @@ create or replace function public.cleanup_old() returns void language sql securi
   delete from stories where highlight is null and expires_at < now() - interval '2 days';
 $$;
 revoke execute on function public.cleanup_old() from public, anon, authenticated;
+
+-- Banner só com cor (1 a 3 cores em degradê), sem precisar enviar imagem
+alter table public.profiles add column if not exists banner_cor text;
+do $$ begin
+  alter table public.profiles add constraint profiles_banner_cor_ok check (banner_cor is null or banner_cor ~ '^#[0-9a-fA-F]{6}(,#[0-9a-fA-F]{6}){0,2}$');
+exception when duplicate_object then null; end $$;
+
+-- Posts com vídeo (MP4/WebM de até 50 MB, guardado no armazenamento do site)
+alter table public.posts add column if not exists video_url text;
+do $$ begin
+  alter table public.posts add constraint posts_video_ok check (video_url is null or video_url ~ '^https://[A-Za-z0-9.-]+\.supabase\.co/storage/v1/object/public/media/[A-Za-z0-9/_.-]+\.(mp4|webm|mov)$');
+exception when duplicate_object then null; end $$;

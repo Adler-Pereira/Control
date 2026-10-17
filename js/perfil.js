@@ -82,6 +82,9 @@ async function carregar(p, meu, u) {
       ${d ? `<span class="tag amarela">-${d.discount_pct}% ${d.price_cents != null ? reais(d.price_cents) : ''}</span>` : ''}</a>`;
   };
   const banner = urlSegura(p.banner_url);
+  // Banner só de cor: "#cor" ou "#cor1,#cor2[,#cor3]" (degradê)
+  const cores = /^#[0-9a-fA-F]{6}(,#[0-9a-fA-F]{6}){0,2}$/.test(p.banner_cor || '') ? p.banner_cor.split(',') : null;
+  const corBanner = cores ? (cores.length > 1 ? `linear-gradient(135deg,${cores.join(',')})` : cores[0]) : null;
   const contas = [
     p.psn_id && `<span title="PlayStation Network">🎮 PSN: ${esc(p.psn_id)}</span>`,
     p.xbox_gamertag && `<span title="Xbox">🟩 Xbox: ${esc(p.xbox_gamertag)}</span>`,
@@ -99,7 +102,7 @@ async function carregar(p, meu, u) {
       <form id="form-senha" class="controles"><input id="nova-senha" type="password" minlength="8" required placeholder="Nova senha" style="max-width:280px"><button class="btn">Salvar senha</button></form></div>` : ''}
 
     <section class="perfil-capa">
-      <div class="perfil-banner ${!banner && /^[a-z0-9_]+$/.test(p.equipped_banner || '') ? 'bn-' + p.equipped_banner : ''}" ${banner ? `style="background-image:url('${banner}')"` : ''}></div>
+      <div class="perfil-banner ${!banner && !corBanner && /^[a-z0-9_]+$/.test(p.equipped_banner || '') ? 'bn-' + p.equipped_banner : ''}" ${corBanner ? `style="background:${corBanner}"` : banner ? `style="background-image:url('${banner}')"` : ''}></div>
       <div class="perfil-info">
         ${avatarHtml(p, 'grande', 'Foto de ' + p.username)}
         <div class="nome-bloco">
@@ -337,6 +340,10 @@ async function abrirEditor(p) {
           <span class="dica">📷 Clique ou arraste uma imagem para o banner</span>
         </label>
         ${p.banner_url ? '<button type="button" class="btn sec pequeno" data-remover="banner" style="margin-top:6px">Remover banner</button>' : ''}
+        <div style="margin-top:8px"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="usar-cor" style="width:auto" ${p.banner_cor ? 'checked' : ''}> 🎨 Usar só cor no banner (sem imagem)</label>
+          <div class="controles" id="cores-banner" style="margin-top:6px;align-items:center">${(p.banner_cor ? p.banner_cor.split(',') : ['#ffd33c', '#7c4dff']).map((c) => `<input type="color" value="${esc(c)}" style="width:54px;height:40px;padding:2px">`).join('')}
+            <button type="button" class="btn sec pequeno" id="cor-mais">+ cor</button><button type="button" class="btn sec pequeno" id="cor-menos">− cor</button>
+            <span class="muted" style="font-size:.8rem">1 cor = sólida; 2 ou 3 = degradê</span></div></div>
       </div>
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
         <label class="zona-upload foto" id="zona-foto" style="background-image:url('${avatar(p)}')">
@@ -439,6 +446,17 @@ async function abrirEditor(p) {
     b.remove();
   });
 
+  // Banner de cor: prévia ao vivo e + / − cores (como no editor de itens do admin)
+  const previaCor = () => {
+    const zona = $('#zona-banner'), cs = [...dlg.querySelectorAll('#cores-banner input[type=color]')].map((i) => i.value);
+    if ($('#usar-cor').checked) zona.style.background = cs.length > 1 ? `linear-gradient(135deg,${cs.join(',')})` : cs[0];
+    else { zona.style.background = ''; if (p.banner_url) zona.style.backgroundImage = `url('${urlSegura(p.banner_url)}')`; }
+  };
+  $('#cores-banner').addEventListener('input', previaCor);
+  $('#usar-cor').onchange = previaCor;
+  $('#cor-mais').onclick = () => { if (dlg.querySelectorAll('#cores-banner input[type=color]').length < 3) { $('#cor-mais').insertAdjacentHTML('beforebegin', '<input type="color" value="#ff4081" style="width:54px;height:40px;padding:2px">'); previaCor(); } };
+  $('#cor-menos').onclick = () => { const l = dlg.querySelectorAll('#cores-banner input[type=color]'); if (l.length > 1) { l[l.length - 1].remove(); previaCor(); } };
+  if (p.banner_cor) previaCor();
   $('#form-perfil').onsubmit = async (e) => {
     e.preventDefault();
     const steam = $('#steam').value.trim();
@@ -452,6 +470,7 @@ async function abrirEditor(p) {
         psn_id: $('#psn').value.trim() || null, xbox_gamertag: $('#xbox').value.trim() || null,
         discord_user: $('#discord').value.trim() || null, steam_profile: steam || null, twitch_user: $('#twitch').value.trim() || null,
         musica: spotifyId(musica),
+        banner_cor: $('#usar-cor').checked ? [...dlg.querySelectorAll('#cores-banner input[type=color]')].map((i) => i.value).join(',') : null,
         fav_categories: [...dlg.querySelectorAll('#favs .chip.ativo')].map((b) => Number(b.dataset.id)),
       };
       if ('showcase_games' in p) dados.showcase_games = [...escolhidos];

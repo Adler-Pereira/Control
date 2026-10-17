@@ -1,6 +1,6 @@
 // Stories (24 h), inspirados no Instagram: foto/print com legenda, enquete, caixinha de perguntas,
 // música do Spotify, "só melhores amigos" e destaques no perfil. Também mostra as Notas (status de 24 h).
-import { sb, $, esc, avatar, toast, falha, enviarImagem, spotifyId, spotifyPlayer, notaAtiva, srcCapa } from './app.js';
+import { sb, $, esc, avatar, toast, falha, enviarImagem, spotifyId, spotifyPlayer, notaAtiva, srcCapa, playerSpotify, somLigado, definirSom, pararMusica, tocarSo } from './app.js';
 
 const COLS = 'id,user_id,image_url,caption,poll,question,musica,close_friends,highlight,created_at,expires_at';
 const tempo = (d) => { const m = Math.round((Date.now() - new Date(d)) / 6e4); return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
@@ -109,7 +109,7 @@ export function criarStory(u, depois) {
 export function verStories(u, grupos, gi = 0, aoFechar) {
   const dlg = dialogo();
   let si = 0, timer = null, pausado = false;
-  const fechar = () => { clearTimeout(timer); dlg.close(); aoFechar?.(); };
+  const fechar = () => { clearTimeout(timer); pararMusica(); dlg.close(); aoFechar?.(); };
   const mostrar = async () => {
     clearTimeout(timer);
     const g = grupos[gi]; if (!g) return fechar();
@@ -127,17 +127,26 @@ export function verStories(u, grupos, gi = 0, aoFechar) {
         <button type="button" class="btn sec" data-voto="a">${esc(s.poll.a)}</button><button type="button" class="btn sec" data-voto="b">${esc(s.poll.b)}</button></div></div>` : ''}
       ${s.question && !meu ? `<form class="story-q" data-q><strong>💬 ${esc(s.question)}</strong><div class="controles"><input maxlength="300" placeholder="Responder..." required style="flex:1"><button class="btn pequeno">Enviar</button></div></form>` : ''}
       ${s.question && meu ? `<p class="muted">💬 ${esc(s.question)}: as respostas chegam nas suas notificações.</p>` : ''}
-      ${spotifyPlayer(s.musica)}
+      ${s.musica ? `<div class="controles" style="align-items:center;gap:6px"><div data-spotify="${esc(s.musica)}" style="flex:1"></div>
+        <button type="button" class="btn sec pequeno" data-som title="Tocar a música sozinha ao abrir">${somLigado() ? '🔊' : '🔇'}</button></div>` : ''}
       ${meu ? `<div class="controles story-meu"><span class="muted" id="st-vistas">👀 ...</span>
         <button type="button" class="btn sec pequeno" data-destacar>${s.highlight ? `⭐ Em "${esc(s.highlight)}"` : '⭐ Destacar no perfil'}</button>
         <button type="button" class="btn perigo pequeno" data-apagar>Apagar</button></div>` : ''}</div>`;
     if (!dlg.open) dlg.showModal();
+    pararMusica();
+    if (s.musica) {
+      const ctrl = await playerSpotify(dlg.querySelector('[data-spotify]'), true);
+      dlg.querySelector('[data-som]').onclick = (e) => {
+        const on = !somLigado(); definirSom(on); e.target.textContent = on ? '🔊' : '🔇';
+        on ? ctrl && tocarSo(ctrl) : pararMusica();
+      };
+    }
     const avancar = () => { si++; mostrar(); };
     dlg.querySelector('.story-x').onclick = fechar;
     dlg.querySelector('.story-prox').onclick = avancar;
     dlg.querySelector('.story-ant').onclick = () => { if (si > 0) si--; else if (gi > 0) { gi--; si = 0; } mostrar(); };
     const pausar = () => { pausado = true; clearTimeout(timer); };
-    dlg.querySelectorAll('input, [data-voto], iframe, [data-destacar]').forEach((el) => el.addEventListener('focus', pausar));
+    dlg.querySelectorAll('input, [data-voto], [data-destacar]').forEach((el) => el.addEventListener('focus', pausar));
     if (s.poll) {
       const mostrarRes = async (meuVoto) => {
         const { data: r } = await sb.rpc('story_poll', { sid: s.id });
@@ -182,7 +191,7 @@ export function verStories(u, grupos, gi = 0, aoFechar) {
     }
     if (!pausado) timer = setTimeout(avancar, s.musica || s.poll || s.question ? 12000 : 7000);
   };
-  dlg.onclose = () => clearTimeout(timer);
+  dlg.onclose = () => { clearTimeout(timer); pararMusica(); };
   mostrar();
 }
 
