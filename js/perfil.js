@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, testarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel, spotifyId, spotifyPlayer, notaAtiva, aoMudarOnline, estadoOnline } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, testarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel, spotifyId, spotifyPlayer, notaAtiva, aoMudarOnline, estadoOnline, playerSpotify, somLigado, definirSom, tocarSo, pararMusica } from './app.js';
 import { destaquesPerfil, editarNota, criarStory } from './stories.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
@@ -133,7 +133,8 @@ async function carregar(p, meu, u) {
       </div>
     </section>
     <div id="destaques-perfil"></div>
-    ${p.musica ? `<div style="margin-top:12px">${spotifyPlayer(p.musica)}</div>` : ''}
+    ${p.musica ? `<div class="controles" id="musica-perfil" style="margin-top:12px;align-items:center;gap:6px"><div data-spotify="${esc(p.musica)}" style="flex:1"></div>
+      <button type="button" class="btn sec pequeno" data-som title="Tocar a música do perfil sozinha">${somLigado() ? '🔊' : '🔇'}</button></div>` : ''}
 
     ${meu ? `<h2>Recomendados para você</h2>
       <p class="muted" style="margin-bottom:12px">Com base nas suas categorias favoritas e nos jogos que você avaliou bem.</p>
@@ -203,6 +204,15 @@ async function carregar(p, meu, u) {
 
   // Biblioteca completa (janela com abas e busca)
   destaquesPerfil($('#destaques-perfil'), p, u);
+  // Música do perfil: toca sozinha ao abrir (como no Instagram), a menos que você tenha silenciado (🔇)
+  if ($('#musica-perfil')) {
+    playerSpotify($('#musica-perfil [data-spotify]'), true).then((c) => {
+      $('#musica-perfil [data-som]').onclick = (e) => {
+        const on = !somLigado(); definirSom(on); e.target.textContent = on ? '🔊' : '🔇';
+        on ? c && tocarSo(c) : pararMusica();
+      };
+    });
+  }
   // Online agora / na call (presença em tempo real)
   if (u && !meu) aoMudarOnline((online) => {
     const c = estadoOnline().get(p.id)?.call, alvo = $('#status-agora');
