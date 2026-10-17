@@ -2964,3 +2964,151 @@ begin
 end $$;
 drop trigger if exists profiles_contadores on public.profiles;
 create trigger profiles_contadores before update of stories_total, enquetes_total on public.profiles for each row execute function public.protect_contadores();
+
+-- =====================================================================
+-- CONQUISTAS (2ª leva): amizades, mensagens, comentários, curtidas, grupos, partidas, comunidades, listas,
+-- enquetes, melhores amigos, notas, Steam, calls e quem ajuda a achar bugs
+-- =====================================================================
+alter table public.profiles add column if not exists call_minutos integer not null default 0;
+alter table public.profiles add column if not exists call_visto timestamptz;
+
+insert into public.cosmetics (id, kind, name, description, rarity, icon, sort, custom, style) values
+  ('s_amigos5',    'badge',  'Turma',                 'Tenha 5 amigos',                                   'comum',    '🤝', 1300, false, null),
+  ('f_amigos25',   'frame',  'Alma da Festa',         'Tenha 25 amigos',                                  'epica',    null, 1301, true,
+     '{"cores":["#00e676","#00b0ff","#7c4dff"],"animado":true,"velocidade":6,"emoji":"🤝"}'),
+  ('s_papo',       'badge',  'Tagarela',              'Envie 100 mensagens diretas',                      'comum',    '💬', 1302, false, null),
+  ('s_comenta',    'badge',  'Comentarista',          'Faça 50 comentários em posts',                     'comum',    '🗨️', 1303, false, null),
+  ('s_curte',      'badge',  'Coração Mole',          'Curta 100 posts',                                  'comum',    '❤️', 1304, false, null),
+  ('b_amado',      'banner', 'Amado pela Galera',     'Receba 250 curtidas nos seus posts',               'lendaria', null, 1305, true,
+     '{"cores":["#ff1744","#ff4081","#ffd33c"]}'),
+  ('s_squad',      'badge',  'Bora Jogar',            'Procure grupo 5 vezes ("Quero jogar agora")',     'comum',    '🎮', 1306, false, null),
+  ('s_parceiro',   'badge',  'Parceiro de Squad',     'Entre no grupo de outras pessoas 10 vezes',        'rara',     '🙋', 1307, false, null),
+  ('s_presente',   'badge',  'Sempre Presente',       'Participe de 10 partidas marcadas',                'rara',     '📅', 1308, false, null),
+  ('s_nomade',     'badge',  'Nômade',                'Entre em 5 comunidades',                           'comum',    '🏘️', 1309, false, null),
+  ('s_listas',     'badge',  'Curador de Listas',     'Tenha 3 listas públicas com 5 ou mais jogos',      'rara',     '📋', 1310, false, null),
+  ('s_votante',    'badge',  'Eleitor',               'Vote em 20 enquetes de stories',                   'comum',    '🗳️', 1311, false, null),
+  ('s_bff',        'badge',  'Círculo Íntimo',        'Adicione 3 pessoas aos melhores amigos',           'comum',    '💚', 1312, false, null),
+  ('s_nota',       'badge',  'Pensador',              'Publique uma nota no seu perfil',                  'comum',    '💭', 1313, false, null),
+  ('s_steam',      'badge',  'Conectado',             'Importe sua biblioteca da Steam',                  'comum',    '🖥️', 1314, false, null),
+  ('s_horas1000',  'badge',  'Viciado',               'Tenha 1.000 horas jogadas (Steam)',                'rara',     '⏱️', 1315, false, null),
+  ('b_horas5000',  'banner', 'Lenda das Horas',       'Tenha 5.000 horas jogadas (Steam)',                'lendaria', null, 1316, true,
+     '{"cores":["#0b0b0d","#1db954","#ffd33c"]}'),
+  ('s_conq500',    'badge',  'Colecionador de Troféus','Tenha 500 conquistas da Steam',                   'rara',     '🏅', 1317, false, null),
+  ('f_rara',       'frame',  'Caçador de Raras',      'Desbloqueie uma conquista da Steam que menos de 1% dos jogadores têm', 'lendaria', null, 1318, true,
+     '{"cores":["#b388ff","#ffd33c","#b388ff"],"animado":true,"brilho":true,"velocidade":4,"emoji":"💎"}'),
+  ('s_call1',      'badge',  'Primeira Call',         'Fique 10 minutos numa call do site',               'comum',    '📞', 1319, false, null),
+  ('s_call24',     'badge',  'Rato de Call',          'Fique 24 horas em calls (somando todas)',          'rara',     '🎧', 1320, false, null),
+  ('f_call',       'frame',  'Voz da Comunidade',     'Fique 100 horas em calls (somando todas)',         'epica',    null, 1321, true,
+     '{"cores":["#5865f2","#00b0ff","#5865f2"],"animado":true,"velocidade":5,"emoji":"🎧"}'),
+  ('s_bug',        'badge',  'Olho de Lince',         'Envie 3 problemas ou sugestões pelo "Reportar"',   'comum',    '🐞', 1322, false, null),
+  ('f_testador',   'frame',  'Testador Oficial',      'Tenha 3 problemas que você reportou resolvidos pela equipe', 'especial', null, 1323, true,
+     '{"cores":["#00e5ff","#00e676"],"animado":true,"brilho":true,"velocidade":5,"emoji":"🐞"}')
+on conflict (id) do nothing;
+
+create or replace function public.check_achievements_mais(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare n int; p profiles;
+begin
+  if uid is null then return; end if;
+  select * into p from profiles where id = uid;
+  if p.id is null then return; end if;
+  select count(*) into n from friendships where status = 'aceita' and (user_a = uid or user_b = uid);
+  if n >= 5 then perform grant_cosmetic(uid, 's_amigos5'); end if;
+  if n >= 25 then perform grant_cosmetic(uid, 'f_amigos25'); end if;
+  select count(*) into n from direct_messages where sender_id = uid;
+  if n >= 100 then perform grant_cosmetic(uid, 's_papo'); end if;
+  select count(*) into n from post_comments where user_id = uid;
+  if n >= 50 then perform grant_cosmetic(uid, 's_comenta'); end if;
+  select count(*) into n from post_likes where user_id = uid;
+  if n >= 100 then perform grant_cosmetic(uid, 's_curte'); end if;
+  select coalesce(sum(likes_count), 0) into n from posts where user_id = uid;
+  if n >= 250 then perform grant_cosmetic(uid, 'b_amado'); end if;
+  select count(*) into n from lfg_posts where user_id = uid;
+  if n >= 5 then perform grant_cosmetic(uid, 's_squad'); end if;
+  select count(*) into n from lfg_interest where user_id = uid;
+  if n >= 10 then perform grant_cosmetic(uid, 's_parceiro'); end if;
+  select count(*) into n from event_attendees where user_id = uid;
+  if n >= 10 then perform grant_cosmetic(uid, 's_presente'); end if;
+  select count(*) into n from community_members where user_id = uid;
+  if n >= 5 then perform grant_cosmetic(uid, 's_nomade'); end if;
+  select count(*) into n from user_lists l where l.user_id = uid and l.is_public and (select count(*) from list_items i where i.list_id = l.id) >= 5;
+  if n >= 3 then perform grant_cosmetic(uid, 's_listas'); end if;
+  select count(*) into n from story_votes where user_id = uid;
+  if n >= 20 then perform grant_cosmetic(uid, 's_votante'); end if;
+  select count(*) into n from close_friends where owner_id = uid;
+  if n >= 3 then perform grant_cosmetic(uid, 's_bff'); end if;
+  if p.nota is not null then perform grant_cosmetic(uid, 's_nota'); end if;
+  if p.steam_id is not null then perform grant_cosmetic(uid, 's_steam'); end if;
+  select coalesce(sum(hours), 0) into n from user_games where user_id = uid;
+  if n >= 1000 then perform grant_cosmetic(uid, 's_horas1000'); end if;
+  if n >= 5000 then perform grant_cosmetic(uid, 'b_horas5000'); end if;
+  if coalesce((p.steam_conquistas->>'total')::int, 0) >= 500 then perform grant_cosmetic(uid, 's_conq500'); end if;
+  if exists (select 1 from jsonb_array_elements(coalesce(p.steam_conquistas->'raras', '[]'::jsonb)) a where (a->>'pct')::numeric < 1) then perform grant_cosmetic(uid, 'f_rara'); end if;
+  if p.call_minutos >= 10 then perform grant_cosmetic(uid, 's_call1'); end if;
+  if p.call_minutos >= 24 * 60 then perform grant_cosmetic(uid, 's_call24'); end if;
+  if p.call_minutos >= 100 * 60 then perform grant_cosmetic(uid, 'f_call'); end if;
+  select count(*) into n from app_feedback where user_id = uid and kind in ('bug', 'sugestao');
+  if n >= 3 then perform grant_cosmetic(uid, 's_bug'); end if;
+  select count(*) into n from app_feedback where user_id = uid and kind in ('bug', 'sugestao') and status = 'resolvido';
+  if n >= 3 then perform grant_cosmetic(uid, 'f_testador'); end if;
+exception when others then null;
+end $$;
+revoke execute on function public.check_achievements_mais(uuid) from public, anon, authenticated;
+
+-- Um gatilho só para todas as tabelas novas: descobre de quem é a ação (e, quando faz sentido, quem recebe)
+create or replace function public.mais_conquistas_trg() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'friendships' then
+    if new.status = 'aceita' then perform check_achievements_mais(new.user_a); perform check_achievements_mais(new.user_b); end if;
+  elsif tg_table_name = 'direct_messages' then perform check_achievements_mais(new.sender_id);
+  elsif tg_table_name = 'post_likes' then
+    perform check_achievements_mais(new.user_id);
+    perform check_achievements_mais((select user_id from posts where id = new.post_id));
+  elsif tg_table_name = 'list_items' then perform check_achievements_mais((select user_id from user_lists where id = new.list_id));
+  elsif tg_table_name = 'close_friends' then perform check_achievements_mais(new.owner_id);
+  elsif tg_table_name = 'profiles' then perform check_achievements_mais(new.id);
+  else perform check_achievements_mais(new.user_id);
+  end if;
+  return null;
+end $$;
+do $$ declare t text; begin
+  foreach t in array array['friendships','direct_messages','post_comments','post_likes','lfg_posts','lfg_interest','event_attendees',
+                           'community_members','user_lists','list_items','story_votes','close_friends','app_feedback'] loop
+    execute format('drop trigger if exists mais_conq_%1$s on public.%1$s', t);
+    execute format('create trigger mais_conq_%1$s after insert or update on public.%1$s for each row execute function public.mais_conquistas_trg()', t);
+  end loop;
+end $$;
+drop trigger if exists mais_conq_user_games on public.user_games;
+create trigger mais_conq_user_games after insert or update of hours on public.user_games for each row execute function public.mais_conquistas_trg();
+drop trigger if exists mais_conq_profiles on public.profiles;
+create trigger mais_conq_profiles after update of nota, steam_id, steam_conquistas, call_minutos on public.profiles
+  for each row execute function public.mais_conquistas_trg();
+
+-- Tempo em call: o site chama a cada minuto enquanto a pessoa está numa call (no máximo 1 minuto a cada 50 s)
+create or replace function public.registrar_call() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return; end if;
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set call_minutos = call_minutos + 1, call_visto = now()
+   where id = auth.uid() and (call_visto is null or call_visto < now() - interval '50 seconds');
+  perform set_config('cc.sistema', 'off', true);
+end $$;
+revoke execute on function public.registrar_call() from public, anon;
+grant execute on function public.registrar_call() to authenticated;
+create or replace function public.protect_call_minutos() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if auth.uid() is not null and not is_admin() and coalesce(current_setting('cc.sistema', true), '') <> 'on' then
+    new.call_minutos := old.call_minutos; new.call_visto := old.call_visto;
+  end if;
+  return new;
+end $$;
+drop trigger if exists profiles_call_min on public.profiles;
+create trigger profiles_call_min before update of call_minutos, call_visto on public.profiles for each row execute function public.protect_call_minutos();
+
+-- Entrega agora para quem já cumpre
+do $$ declare r record; begin
+  for r in select id from public.profiles loop perform public.check_achievements_mais(r.id); end loop;
+end $$;
