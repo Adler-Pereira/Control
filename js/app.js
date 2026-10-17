@@ -458,7 +458,12 @@ async function mostrarAvisoGlobal() {
 // Gera o CSS de cada item a partir do banco. Só valores validados entram no CSS.
 const COR = /^#[0-9a-fA-F]{6}$/, ID = /^[a-z0-9_]+$/, IMG = /^https:\/\/[A-Za-z0-9.-]+\.supabase\.co\/storage\/v1\/object\/public\/media\/[A-Za-z0-9/_.-]+$/;
 // Moldura com imagem: a arte inteira fica por cima da foto, maior que ela (o que passa da borda aparece)
-export const cssMolduraImagem = (id) => `.m-${id}.com::before{inset:-40%;border-radius:0;z-index:2;pointer-events:none;animation:none}.m-${id}.com{padding:0}.m-${id}.com>img{border:0!important}`;
+// escala: tamanho da arte em % da foto (100 = do tamanho da foto; padrão 180). x/y: deslocamento em % (−30 a 30)
+const faixa = (v, min, max, pad) => { const n = Number(v); return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : pad; };
+export const cssMolduraImagem = (id, st = {}) => {
+  const k = (faixa(st.escala, 80, 260, 180) - 100) / 2, x = faixa(st.x, -30, 30, 0), y = faixa(st.y, -30, 30, 0);
+  return `.m-${id}.com::before{inset:${-k + y}% ${-k - x}% ${-k - y}% ${-k + x}%;border-radius:0;z-index:2;pointer-events:none;animation:none}.m-${id}.com{padding:0}.m-${id}.com>img{border:0!important}`;
+};
 export function cssDoItem(c) {
   const st = c.style || {};
   if (!ID.test(c.id)) return '';
@@ -469,7 +474,7 @@ export function cssDoItem(c) {
   if (c.kind === 'frame') {
     const anel = img ? `url("${img}") center/100% 100% no-repeat` : cores.length > 1 ? `conic-gradient(${[...cores, cores[0]].join(',')})` : cores[0] || '#ffd33c';
     return `.m-${c.id}{--anel:${anel};${st.animado && !img ? `--anim:girar ${vel}s linear infinite;` : ''}}`
-      + (img ? cssMolduraImagem(c.id) : '') + (st.brilho ? `.m-${c.id}.com{box-shadow:0 0 14px 2px ${cores[0] || '#ffd33c'}88}` : '')
+      + (img ? cssMolduraImagem(c.id, st) : '') + (st.brilho ? `.m-${c.id}.com{box-shadow:0 0 14px 2px ${cores[0] || '#ffd33c'}88}` : '')
       + (emoji ? `.m-${c.id}::after{${emoji}}` : '');
   }
   if (c.kind === 'banner') {
