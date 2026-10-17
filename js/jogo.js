@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador, carrossel, imgIgdb, srcCapa, urlCdn } from './app.js';
+import { sb, $, esc, montarLayout, configurado, param, estrelas, data, urlSegura, usuario, avatar, avatarHtml, toast, falha, denunciar, traduzirNoNavegador, carrossel, imgIgdb, srcCapa, urlCdn, perfil, reportarProblema } from './app.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor, verImagem } from './posts.js';
 
 await montarLayout();
@@ -7,6 +7,40 @@ const LOJAS = [['store_ps', 'iconepl', 'PlayStation'], ['store_xbox', 'iconexb',
 const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 if (configurado) carregar();
+
+// Opções de capa para a equipe: imagem oficial da Steam (quando o jogo está lá) e as capturas do IGDB
+function ligarCapa(g) {
+  $('#capa-errada').onclick = () => reportarProblema(`A capa de "${g.title}" está errada (mostra outro jogo ou versão).`);
+  perfil().then((p) => {
+    if (p?.role !== 'admin') return;
+    const bt = $('#trocar-capa'); bt.classList.remove('hidden');
+    bt.onclick = () => {
+      const opcoes = [
+        ...(g.steam_appid ? [`https://cdn.cloudflare.steamstatic.com/steam/apps/${g.steam_appid}/library_hero.jpg`, `https://cdn.cloudflare.steamstatic.com/steam/apps/${g.steam_appid}/header.jpg`] : []),
+        ...(g.screenshots || []).map((x) => imgIgdb(x)).filter(Boolean),
+      ];
+      let dlg = $('#dlg-capa');
+      if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'dlg-capa'; document.body.append(dlg); }
+      dlg.innerHTML = `<h2 style="margin-top:0">Escolher capa</h2>
+        ${opcoes.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:60vh;overflow:auto">
+          ${opcoes.map((u) => `<button type="button" data-capa="${esc(u)}" style="padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;background:none;cursor:pointer">
+            <img ${srcCapa(u, 400)} alt="" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block"></button>`).join('')}</div>`
+        : '<p class="muted">Sem imagens alternativas para este jogo. Envie uma capa em Admin → Jogos → Editar.</p>'}
+        <p class="muted" style="font-size:.82rem">Se nenhuma servir, envie a imagem certa em Admin → Jogos → Editar.</p>
+        <div class="controles" style="margin-top:10px"><button class="btn sec" type="button" id="capa-fechar">Fechar</button></div>`;
+      dlg.showModal();
+      $('#capa-fechar').onclick = () => dlg.close();
+      dlg.querySelectorAll('[data-capa]').forEach((b) => b.onclick = async () => {
+        const { error } = await sb.from('games').update({ cover_url: b.dataset.capa }).eq('id', g.id);
+        if (error) return falha(error);
+        $('#capa-jogo').outerHTML = `<img id="capa-jogo" ${srcCapa(b.dataset.capa, 1000)} alt="" style="border-radius:14px;width:100%">`;
+        dlg.close(); toast('Capa trocada.');
+      });
+      // Imagem que não existe (ex.: jogo sem "hero" na Steam) some da lista
+      dlg.querySelectorAll('[data-capa] img').forEach((im) => im.addEventListener('error', () => im.closest('button').remove()));
+    };
+  });
+}
 
 async function carregar() {
   const [{ data: g }, { data: listaCats }] = await Promise.all([
@@ -35,7 +69,9 @@ async function carregar() {
   main.innerHTML = `
     <div class="detalhe">
       <div>
-        <img ${srcCapa(g.cover_url, 1000)} alt="" style="border-radius:14px;width:100%">
+        <img id="capa-jogo" ${srcCapa(g.cover_url, 1000)} alt="" style="border-radius:14px;width:100%">
+        <p style="text-align:right;margin-top:4px;font-size:.8rem"><button type="button" class="bt-link muted" id="capa-errada">📷 Capa errada?</button>
+          <button type="button" class="bt-link hidden" id="trocar-capa">🖼️ Trocar capa</button></p>
         <h1 style="margin-top:16px">${esc(g.title)}</h1>
         <p>${(g.category_ids?.length ? g.category_ids : g.categories ? [g.categories.id] : []).map((id) => cats[id] ? `<a class="tag" href="jogos.html?cat=${id}">${esc(cats[id])}</a>` : '').join(' ')} ${g.release_year ? `<span class="tag">${g.release_year}</span>` : ''}
           ${(g.platforms || []).map((pl) => `<a class="tag" href="jogos.html?plat=${encodeURIComponent(pl)}">${esc(pl)}</a>`).join(' ')}</p>
@@ -136,6 +172,7 @@ async function carregar() {
     $('#posts-jogo').innerHTML = (ps || []).map((x) => postHtml(x, { u })).join('') || '<p class="muted">Nenhum post sobre este jogo ainda.</p>';
     ligarPosts($('#posts-jogo'), { u });
   };
+  ligarCapa(g);
   if ($('#compositor')) ligarCompositor($('#compositor'), { u, jogo: { id: g.id, title: g.title }, aoPublicar: carregarPostsJogo });
   carregarPostsJogo();
 
