@@ -631,18 +631,21 @@ function carregarApiSpotify() {
   return apiSpotify;
 }
 // Troca um <div data-spotify="track/ID"> pelo player controlável; tocar = começar já (respeitando o mudo)
-export async function playerSpotify(el, tocar = false) {
+// tocar: começar sozinho; ainda(): checado na hora de tocar (evita tocar depois que a pessoa já saiu do story/post)
+export async function playerSpotify(el, tocar = false, ainda = () => true) {
   const id = el?.dataset.spotify;
   if (!/^(track|album|playlist|episode)\/[A-Za-z0-9]{22}$/.test(id || '')) return null;
   const api = await carregarApiSpotify();
   if (!api) { el.outerHTML = spotifyPlayer(id); return null; }
   return new Promise((ok) => api.createController(el, { uri: `spotify:${id.replace('/', ':')}`, height: 80, width: '100%' }, (c) => {
-    c.addListener('ready', () => { if (tocar && somLigado()) tocarSo(c); });
+    c.addListener('ready', () => { if (tocar && somLigado() && ainda()) tocarSo(c); });
     ok(c);
   }));
 }
 export function tocarSo(c) { if (tocandoAgora && tocandoAgora !== c) tocandoAgora.pause?.(); tocandoAgora = c; c.play?.(); }
 export function pararMusica() { tocandoAgora?.pause?.(); tocandoAgora = null; }
+// Pausa e remove o player (o iframe some, então o som para de vez)
+export function destruirPlayer(c) { if (!c) return; try { c.pause?.(); c.destroy?.(); } catch { /* já removido */ } if (tocandoAgora === c) tocandoAgora = null; }
 
 // Vídeo (MP4/WebM/MOV) direto para o armazenamento, sem conversão (limite do plano grátis do Supabase: 50 MB por arquivo)
 export async function enviarVideo(uid, prefixo, arq, limiteMb = 50) {

@@ -1,6 +1,6 @@
 // Stories (24 h), inspirados no Instagram: foto/print com legenda, enquete, caixinha de perguntas,
 // música do Spotify, "só melhores amigos" e destaques no perfil. Também mostra as Notas (status de 24 h).
-import { sb, $, esc, avatar, toast, falha, enviarImagem, spotifyId, spotifyPlayer, notaAtiva, srcCapa, playerSpotify, somLigado, definirSom, pararMusica, tocarSo, enviarVideo } from './app.js';
+import { sb, $, esc, avatar, toast, falha, enviarImagem, spotifyId, spotifyPlayer, notaAtiva, srcCapa, playerSpotify, somLigado, definirSom, pararMusica, tocarSo, enviarVideo, destruirPlayer } from './app.js';
 
 const COLS = 'id,user_id,image_url,video_url,caption,poll,question,musica,close_friends,highlight,created_at,expires_at';
 const tempo = (d) => { const m = Math.round((Date.now() - new Date(d)) / 6e4); return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
@@ -122,9 +122,13 @@ export function criarStory(u, depois) {
 export function verStories(u, grupos, gi = 0, aoFechar) {
   const dlg = dialogo();
   let si = 0, timer = null, pausado = false;
-  const fechar = () => { clearTimeout(timer); pararMusica(); dlg.close(); aoFechar?.(); };
+  let ctrlAtual = null, geracao = 0;
+  // Para tudo que toca: música do Spotify (destrói o player) e vídeo do story
+  const silenciar = () => { geracao++; destruirPlayer(ctrlAtual); ctrlAtual = null; pararMusica(); dlg.querySelectorAll('video').forEach((v) => { v.pause(); v.removeAttribute('src'); v.load(); }); };
+  const fechar = () => { clearTimeout(timer); silenciar(); dlg.close(); dlg.innerHTML = ''; aoFechar?.(); };
   const mostrar = async () => {
     clearTimeout(timer);
+    silenciar();   // a música/vídeo do story anterior para antes de mostrar o próximo
     const g = grupos[gi]; if (!g) return fechar();
     const s = g.lista[si]; if (!s) { gi++; si = 0; return mostrar(); }
     const meu = s.user_id === u?.id;
@@ -147,9 +151,11 @@ export function verStories(u, grupos, gi = 0, aoFechar) {
         <button type="button" class="btn sec pequeno" data-destacar>${s.highlight ? `⭐ Em "${esc(s.highlight)}"` : '⭐ Destacar no perfil'}</button>
         <button type="button" class="btn perigo pequeno" data-apagar>Apagar</button></div>` : ''}</div>`;
     if (!dlg.open) dlg.showModal();
-    pararMusica();
+    const minha = geracao;
     if (s.musica) {
-      const ctrl = await playerSpotify(dlg.querySelector('[data-spotify]'), true);
+      const ctrl = await playerSpotify(dlg.querySelector('[data-spotify]'), true, () => minha === geracao && dlg.open);
+      if (minha !== geracao || !dlg.open) { destruirPlayer(ctrl); return; }   // a pessoa já passou/fechou enquanto carregava
+      ctrlAtual = ctrl;
       dlg.querySelector('[data-som]').onclick = (e) => {
         const on = !somLigado(); definirSom(on); e.target.textContent = on ? '🔊' : '🔇';
         on ? ctrl && tocarSo(ctrl) : pararMusica();
@@ -218,7 +224,7 @@ export function verStories(u, grupos, gi = 0, aoFechar) {
     }
     if (!pausado) timer = setTimeout(avancar, s.musica || s.poll || s.question ? 12000 : 7000);
   };
-  dlg.onclose = () => { clearTimeout(timer); pararMusica(); };
+  dlg.onclose = () => { clearTimeout(timer); silenciar(); dlg.innerHTML = ''; };
   mostrar();
 }
 
