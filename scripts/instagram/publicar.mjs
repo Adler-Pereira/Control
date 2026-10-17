@@ -1,11 +1,12 @@
 // Publica no Instagram do Control Critic pela API oficial (Instagram API com login do Instagram).
 //   node scripts/instagram/publicar.mjs diario          -> resumo do dia (carrossel) ou uma notícia; sem notícia, a promoção do dia
+//   node scripts/instagram/publicar.mjs entretenimento   -> meme da comunidade aprovado pela equipe; sem meme, enquete "Qual você prefere?"
 //   node scripts/instagram/publicar.mjs urgente [id]    -> notícias marcadas como urgentes no painel (ou a de id informado)
 //   TESTE=1 ...                                        -> só gera as artes e a legenda (pasta saida-instagram/), sem publicar
 // Variáveis: SUPABASE_URL, SUPABASE_SERVICE_KEY, IG_USER_ID, IG_TOKEN (o token é renovado sozinho e guardado no banco)
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { supabaseRest } from '../../lib/igdb.mjs';
-import { arteNoticia, arteResumo, artePromo } from './arte.mjs';
+import { arteNoticia, arteResumo, artePromo, arteMeme, arteVersus } from './arte.mjs';
 
 const gh = !!process.env.GITHUB_ACTIONS;
 const env = (k) => (process.env[k] || '').trim();
@@ -182,4 +183,42 @@ async function urgente() {
   }
 }
 
-if (MODO === 'urgente') await urgente(); else await diario();
+// ---------- Entretenimento (12h50): alcance e comentários ----------
+async function entretenimento() {
+  const [m] = await api('posts?select=id,body,image_url,profiles!posts_user_id_fkey(username)&ig_ok=eq.true&ig_aprovado=eq.true&instagram_at=is.null&status=eq.published&image_url=not.is.null&order=created_at.asc&limit=1');
+  if (m) {
+    const autor = m.profiles?.username || 'membro';
+    const texto = corta(m.body && m.body !== '📷' ? m.body : '', 300);
+    const legenda = [`😂 ${texto || 'Meme do dia'}`, '', `🎨 Por @${autor} na comunidade do Control Critic`,
+      '👇 Marca aquele amigo que é exatamente assim', `📲 Poste o seu meme no site e apareça aqui: link na bio (${SITE})`, '',
+      '#memesgamer #memes #gamer #humorgamer #ControlCritic'].join('\n');
+    const r = await publicar([{ jpeg: await arteMeme({ imagem: m.image_url, autor }), nome: `meme-${m.id}` }], legenda);
+    if (!TESTE) { await api(`posts?id=eq.${m.id}`, { method: 'PATCH', body: { instagram_at: new Date().toISOString(), instagram_url: r.url } }); await registrar({ tipo: 'meme', url: r.url }); }
+    return aviso(`Instagram: meme de @${autor} ${TESTE ? 'gerado (teste)' : 'publicado'} ${r.url || ''}`);
+  }
+  // Sem meme aprovado: enquete com dois jogos populares da mesma categoria, sem repetir pares
+  const cfg = (await api('settings?key=eq.instagram_versus&select=value'))[0]?.value || { pares: [] };
+  const usados = new Set(cfg.pares || []);
+  const jogos = await api('games?select=id,title,cover_url,category_id,categories(name)&cover_url=not.is.null&category_id=not.is.null&order=igdb_rating_count.desc.nullslast&limit=120');
+  const porCat = {};
+  for (const j of jogos) (porCat[j.category_id] ||= []).push(j);
+  const pares = [];
+  for (const lista of Object.values(porCat)) for (let i = 0; i < lista.length; i++) for (let k = i + 1; k < Math.min(lista.length, i + 6); k++) {
+    const chave = [lista[i].id, lista[k].id].sort((x, y) => x - y).join('-');
+    if (!usados.has(chave)) pares.push({ a: lista[i], b: lista[k], chave });
+  }
+  if (!pares.length) return aviso('Instagram: sem meme aprovado e sem enquete nova hoje.');
+  const p = pares[Math.floor(Math.random() * Math.min(pares.length, 25))];
+  const categoria = p.a.categories?.name;
+  const legenda = [`🤔 QUAL VOCÊ PREFERE? ${p.a.title} ou ${p.b.title}?`, '',
+    `🅰️ ${p.a.title}`, `🅱️ ${p.b.title}`, '', '💬 Responda nos comentários com A ou B e defenda sua escolha!',
+    `⭐ Avalie os dois no site: link na bio (${SITE})`, '', '#enquete #qualvoceprefere #games #gamer #ControlCritic'].join('\n');
+  const r = await publicar([{ jpeg: await arteVersus({ a: { titulo: p.a.title, capa: p.a.cover_url }, b: { titulo: p.b.title, capa: p.b.cover_url }, categoria }), nome: `versus-${p.chave}` }], legenda);
+  if (!TESTE) {
+    await api('settings?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates', body: [{ key: 'instagram_versus', value: { pares: [...usados, p.chave].slice(-300) } }] });
+    await registrar({ tipo: 'versus', url: r.url });
+  }
+  aviso(`Instagram: enquete ${p.a.title} x ${p.b.title} ${TESTE ? 'gerada (teste)' : 'publicada'} ${r.url || ''}`);
+}
+
+if (MODO === 'urgente') await urgente(); else if (MODO === 'entretenimento') await entretenimento(); else await diario();

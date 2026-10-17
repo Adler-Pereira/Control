@@ -1,6 +1,7 @@
 # Robô do Instagram do Control Critic
 
-O que ele faz:
+O que ele faz (2 posts por dia):
+- **Todo dia às 12h50** (entretenimento): publica o **meme da comunidade** aprovado mais antigo, com crédito ao autor. Quando alguém posta uma imagem no site, pode marcar **"😂 É meme"**, e a equipe aprova ou recusa em **Admin → Memes 😂**. Sem meme aprovado, o robô publica uma enquete **"Qual você prefere?"** com dois jogos populares da mesma categoria, sem repetir a dupla.
 - **Todo dia às 18h50** publica o **"Resumo do dia"**: um carrossel com uma capa e até 5 notícias. Se houver só 1 notícia, publica ela sozinha.
 - **Dia sem notícia:** publica a **promoção do dia** (o maior desconto, sem repetir jogo na mesma semana), para a página não ficar parada.
 - **Notícia urgente:** no painel, em **Admin → Notícias**, clique em **📸 Postar agora**. O post sai em 1 a 2 minutos, com a etiqueta vermelha "URGENTE".
@@ -77,7 +78,8 @@ Rode o `supabase/schema.sql` de novo no Supabase. Ele cria o controle de "já pu
 | Botão diz "o GitHub recusou o disparo" | O `GITHUB_DISPARO_TOKEN` está errado, vencido ou sem a permissão Actions: Read and write. |
 
 ## Limites e cuidados
-- O Instagram permite até 50 posts por dia pela API. O robô faz 1 por dia, mais os urgentes.
+- O Instagram permite até 50 posts por dia pela API. O robô faz 2 por dia, mais os urgentes.
 - Links na legenda não são clicáveis no Instagram, por isso a legenda diz "link na bio".
-- Para mudar o horário, edite o `cron` em `.github/workflows/instagram.yml` (está em UTC: `50 21` = 18h50 de Brasília).
+- Para mudar o horário, edite o `cron` em `.github/workflows/instagram.yml` (está em UTC: `50 15` = 12h50 e `50 21` = 18h50 de Brasília). Se mudar o das 12h50, troque também o `50 15 * * *` na linha do `run`.
+- Só aprove memes originais ou de uso livre, sem ofensas e sem dados pessoais: quem posta no Instagram é a conta do Control Critic.
 - Post publicado só pode ser apagado pelo próprio app do Instagram.

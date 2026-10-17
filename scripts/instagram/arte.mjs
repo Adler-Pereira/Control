@@ -125,3 +125,45 @@ export async function artePromo({ jogo, desconto, preco, loja, capa }) {
     <image href="${MASCOTE}" x="${W - 190}" y="${H - 250}" width="150" height="150" preserveAspectRatio="xMidYMid meet"/>`;
   return renderizar(base(conteudo, img));
 }
+
+// Meme da comunidade: a imagem inteira (sem cortar) numa moldura com a identidade, e o crédito do autor
+export async function arteMeme({ imagem, autor }) {
+  const r = await fetch(imagem, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'ControlCriticBot/1.0' } });
+  if (!r.ok) throw new Error(`Não consegui baixar o meme (${r.status}).`);
+  const AW = W - 96, AH = H - 360;
+  const { data, info } = await sharp(Buffer.from(await r.arrayBuffer()), { animated: false }).resize(AW, AH, { fit: 'inside' }).jpeg({ quality: 92 }).toBuffer({ resolveWithObject: true });
+  const x = (W - info.width) / 2, y = 190 + (AH - info.height) / 2;
+  const conteudo = `
+    ${etiqueta('MEME')}
+    <rect x="${x - 6}" y="${y - 6}" width="${info.width + 12}" height="${info.height + 12}" rx="14" fill="${AMARELO}"/>
+    <image href="${b64(data, 'image/jpeg')}" x="${x}" y="${y}" width="${info.width}" height="${info.height}"/>
+    <text x="56" y="${H - 96}" font-family="Inter" font-size="32" font-weight="600" fill="${AMARELO}">por @${esc(autor)} na comunidade</text>`;
+  return renderizar(base(conteudo, null));
+}
+
+// Enquete "Qual você prefere?": dois jogos lado a lado, resposta nos comentários
+export async function arteVersus({ a, b, categoria }) {
+  const [ia, ib] = await Promise.all([a.capa, b.capa].map(async (u) => {
+    if (!u) return null;
+    try {
+      const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return null;
+      return b64(await sharp(Buffer.from(await r.arrayBuffer())).resize(460, 640, { fit: 'cover', position: 'attention' }).jpeg({ quality: 88 }).toBuffer(), 'image/jpeg');
+    } catch { return null; }
+  }));
+  const lado = (img, jogo, x, letra) => {
+    const { tam, linhas } = ajustarTitulo(jogo.titulo, 440, 2, [52, 44, 38, 32]);
+    return `<rect x="${x}" y="300" width="460" height="640" rx="22" fill="#1b1b20"/>
+      ${img ? `<clipPath id="c${letra}"><rect x="${x}" y="300" width="460" height="640" rx="22"/></clipPath><image href="${img}" x="${x}" y="300" width="460" height="640" clip-path="url(#c${letra})"/>` : ''}
+      <circle cx="${x + 230}" cy="300" r="44" fill="${AMARELO}"/><text x="${x + 230}" y="318" text-anchor="middle" font-family="Anton" font-size="52" fill="${PRETO}">${letra}</text>
+      ${linhas.map((l, i) => `<text x="${x + 230}" y="${1000 + i * tam * 1.1}" text-anchor="middle" font-family="Anton" font-size="${tam}" fill="#FFFFFF">${esc(l)}</text>`).join('')}`;
+  };
+  const conteudo = `
+    ${etiqueta(categoria ? String(categoria).toUpperCase().slice(0, 18) : 'ENQUETE')}
+    <text x="${W / 2}" y="250" text-anchor="middle" font-family="Anton" font-size="84" fill="#FFFFFF">QUAL VOCÊ <tspan fill="${AMARELO}">PREFERE?</tspan></text>
+    ${lado(ia, a, 56, 'A')}${lado(ib, b, W - 516, 'B')}
+    <circle cx="${W / 2}" cy="620" r="54" fill="${PRETO}" stroke="${AMARELO}" stroke-width="6"/>
+    <text x="${W / 2}" y="642" text-anchor="middle" font-family="Anton" font-size="56" fill="${AMARELO}">VS</text>
+    <text x="${W / 2}" y="${H - 96}" text-anchor="middle" font-family="Inter" font-size="32" font-weight="600" fill="${AMARELO}">Responda nos comentários: A ou B?</text>`;
+  return renderizar(base(conteudo, null));
+}

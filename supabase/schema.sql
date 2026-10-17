@@ -2475,3 +2475,19 @@ create table if not exists public.app_secrets (
 );
 alter table public.app_secrets enable row level security;
 revoke all on public.app_secrets from anon, authenticated;
+
+-- =====================================================================
+-- INSTAGRAM: memes da comunidade (o autor autoriza, a equipe aprova, o robô publica com crédito)
+-- =====================================================================
+alter table public.posts add column if not exists ig_ok boolean not null default false;       -- o autor autorizou ir para o Instagram
+alter table public.posts add column if not exists ig_aprovado boolean not null default false; -- só a equipe marca
+alter table public.posts add column if not exists ig_recusado boolean not null default false;
+alter table public.posts add column if not exists instagram_at timestamptz;
+alter table public.posts add column if not exists instagram_url text;
+create index if not exists posts_ig_fila_idx on public.posts(created_at) where ig_ok and instagram_at is null;
+drop policy if exists posts_insert on public.posts;
+create policy posts_insert on public.posts for insert with check (
+  user_id = auth.uid() and is_active_user() and status = 'published'
+  and not ig_aprovado and not ig_recusado and instagram_at is null and instagram_url is null
+  and (ig_ok = false or image_url is not null)
+  and (community_id is null or exists (select 1 from community_members m where m.community_id = posts.community_id and m.user_id = auth.uid())));

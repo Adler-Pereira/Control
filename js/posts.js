@@ -25,6 +25,7 @@ export function postHtml(x, { u, moderar = false, mostrarComunidade = true } = {
       <span style="flex:1;min-width:0"><a class="usuario" href="perfil.html?u=${encodeURIComponent(x.profiles?.username || '')}">${esc(x.profiles?.username)}</a>
         ${mostrarComunidade && x.communities ? `<span class="muted"> em <a href="comunidade.html?id=${x.communities.id}">${esc(x.communities.name)}</a></span>` : ''}
         ${x.challenges ? `<span class="tag amarela" style="margin-left:4px">🏆 ${esc(x.challenges.title)}</span>` : ''}
+        ${x.instagram_url ? `<a class="tag amarela" style="margin-left:4px" href="${urlSegura(x.instagram_url)}" target="_blank" rel="noopener">📸 no Instagram</a>` : x.ig_ok ? '<span class="tag" style="margin-left:4px">😂 meme</span>' : ''}
         <br><span class="muted" style="font-size:.8rem">${tempo(x.created_at)}${x.games ? ` · 🎮 <a href="jogo.html?slug=${encodeURIComponent(x.games.slug)}">${esc(x.games.title)}</a>` : ''}</span></span>
       ${meu || moderar ? `<button class="btn sec pequeno" data-p-del="${x.id}">Apagar</button>` : u ? `<button class="bt-denunciar" data-p-den="${x.id}" aria-label="Denunciar">🚩</button>` : ''}
     </header>
@@ -113,6 +114,7 @@ export function compositorHtml(placeholder = 'O que você está jogando? Compart
     <div class="controles" style="margin-top:8px;align-items:center">
       <label class="btn sec pequeno" style="cursor:pointer">🖼️ Imagem / GIF<input type="file" id="cp-img" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
       <span class="busca-jogo" style="flex:1;min-width:160px;max-width:280px"><input id="cp-busca" type="search" placeholder="🎮 Marcar jogo (opcional)" autocomplete="off"><input type="hidden" id="cp-jogo"><span class="sugestoes hidden" id="cp-sug"></span></span>
+      <label class="muted cp-meme hidden" style="font-size:.85rem;display:flex;gap:6px;align-items:center" title="A equipe escolhe os melhores e posta no @control.critic com crédito para você"><input type="checkbox" id="cp-meme"> 😂 É meme: pode ir para o Instagram do Control Critic (com seu @)</label>
       <button class="btn" id="cp-enviar" style="margin-left:auto">Publicar</button>
     </div></form>`;
 }
@@ -134,8 +136,10 @@ export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPub
     const problema = imagemAceitavel(a, 3);
     if (problema) { e.target.value = ''; return toast(problema, true); }
     arquivo = a; previa.querySelector('img').src = URL.createObjectURL(a); previa.classList.remove('hidden');
+    $('.cp-meme', form).classList.remove('hidden');
   };
-  $('#cp-tirar', form).onclick = () => { arquivo = null; $('#cp-img', form).value = ''; previa.classList.add('hidden'); };
+  const semImagem = () => { arquivo = null; $('#cp-img', form).value = ''; previa.classList.add('hidden'); $('.cp-meme', form).classList.add('hidden'); $('#cp-meme', form).checked = false; };
+  $('#cp-tirar', form).onclick = semImagem;
   $('#cp-busca', form).oninput = () => {
     $('#cp-jogo', form).value = ''; clearTimeout(t);
     t = setTimeout(async () => {
@@ -155,9 +159,11 @@ export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPub
     try {
       const image_url = arquivo ? await enviarImagem(u.id, 'post', arquivo) : null;
       const { error } = await sb.from('posts').insert({ user_id: u.id, community_id: comunidade, body: texto || '📷',
-        image_url, game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null, ...(desafio ? { challenge_id: desafio.id } : {}) });
+        image_url, game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null, ...(desafio ? { challenge_id: desafio.id } : {}), ...(arquivo && $('#cp-meme', form).checked ? { ig_ok: true } : {}) });
       if (error) throw /row-level/.test(error.message) ? new Error('Você precisa participar da comunidade para publicar.') : error;
-      form.reset(); arquivo = null; previa.classList.add('hidden');
+      const meme = arquivo && $('#cp-meme', form).checked;
+      form.reset(); semImagem();
+      if (meme) toast('😂 Meme enviado! Se a equipe aprovar, ele vai para o @control.critic com o seu nome.');
       toast(desafio ? 'Participação enviada! Boa sorte 🏆' : 'Publicado!'); definirDesafio(null); aoPublicar?.();
     } catch (err) { falha(err); } finally { bt.disabled = false; bt.textContent = 'Publicar'; }
   };
