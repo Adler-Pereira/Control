@@ -520,3 +520,8 @@ dialog.visor::backdrop { background: rgba(0,0,0,.85); }
 .poll-res.meu { outline: 2px solid var(--amarelo, #ffd33c); }
 iframe.spotify { width: 100%; border: 0; border-radius: 12px; }
 .post-aviso { border: 1px solid var(--amarelo, #ffd33c); }
+/* Perfil: os botões ficam numa linha própria, abaixo do nome (antes espremiam as informações numa coluna estreita) */
+.perfil-info > .controles { flex-basis: 100%; margin-left: 130px; gap: 8px; }
+.perfil-info .nome-bloco { min-width: 0; }
+.perfil-info .vitrine, .perfil-info .contas-jogo { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 640px) { .perfil-info > .controles { margin-left: 0; } }
