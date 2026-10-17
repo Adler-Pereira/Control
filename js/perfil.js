@@ -50,6 +50,23 @@ async function carregar(p, meu, u) {
   const recentes = lista.filter((x) => x.status || x.hours).slice().sort((a, b) => new Date(b.last_played || b.updated_at) - new Date(a.last_played || a.updated_at)).slice(0, 4);
   const vitrine = (p.showcase_games || []).map((gid) => lista.find((x) => x.game_id === gid)?.games).filter(Boolean);
   const desejos = lista.filter((x) => x.wishlist);
+  // Resumo de horas (vem da importação da Steam e fica sempre no perfil)
+  const comHoras = lista.filter((x) => Number(x.hours) > 0).sort((a, b) => b.hours - a.hours);
+  const totalHoras = comHoras.reduce((t, x) => t + Number(x.hours), 0);
+  const horas2sem = lista.reduce((t, x) => t + (Number(x.hours_2weeks) || 0), 0);
+  const fmtH = (h) => Math.round(h).toLocaleString('pt-BR') + ' h';
+  const resumo = comHoras.length ? `<div class="cartao resumo-horas" style="margin-bottom:14px">
+      <div class="controles" style="gap:22px;align-items:flex-end">
+        <div><div class="nota-grande" style="font-size:2rem">${fmtH(totalHoras)}</div><span class="muted">jogadas no total</span></div>
+        <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status || Number(x.hours) > 0).length}</div><span class="muted">jogos</span></div>
+        ${horas2sem ? `<div><div class="nota-grande" style="font-size:2rem">${fmtH(horas2sem)}</div><span class="muted">nas últimas 2 semanas</span></div>` : ''}
+        <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status === 'zerado').length}</div><span class="muted">zerados</span></div>
+      </div>
+      <h3 style="margin-top:12px">⏱️ Mais jogados</h3>
+      <div class="lista">${comHoras.slice(0, 5).map((x) => `<a href="jogo.html?slug=${encodeURIComponent(x.games.slug)}" style="display:flex;gap:10px;align-items:center;color:var(--texto);text-decoration:none">
+        <span style="flex:1;min-width:0"><strong>${esc(x.games.title)}</strong></span>
+        <span style="flex:2;height:8px;background:var(--borda,#2a2a31);border-radius:6px;overflow:hidden"><span style="display:block;height:100%;width:${Math.max(3, Math.round(x.hours / comHoras[0].hours * 100))}%;background:var(--amarelo,#ffd33c)"></span></span>
+        <span class="muted" style="min-width:64px;text-align:right">${fmtH(Number(x.hours))}</span></a>`).join('')}</div></div>` : '';
   const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const itemBib = (x) => {
     const d = (x.games.deals || []).filter((k) => k.discount_pct > 0).sort((a, b) => b.discount_pct - a.discount_pct)[0];
@@ -94,7 +111,7 @@ async function carregar(p, meu, u) {
           <div class="barra-xp" style="margin-top:10px;max-width:360px" title="${p.xp} XP"><div style="width:${n.pct}%"></div></div>
           <p class="muted" style="font-size:.85rem">${p.xp} XP · próximo nível em ${n.prox} XP</p>
           <p style="margin-top:6px"><strong id="n-seguidores">${seguidores ?? 0}</strong> seguidores · <strong>${seguindo ?? 0}</strong> seguindo ·
-            <strong>${lista.filter((x) => x.status).length}</strong> jogos na biblioteca</p>
+            <strong>${lista.filter((x) => x.status || Number(x.hours) > 0).length}</strong> jogos na biblioteca${totalHoras ? ` · <strong>${fmtH(totalHoras)}</strong> jogadas` : ''}</p>
         </div>
         ${!meu ? `<div class="controles">${u ? `<button class="btn ${sigo ? 'sec' : ''}" id="seguir">${sigo ? '✓ Seguindo' : '+ Seguir'}</button>
           <button class="btn sec" id="amizade">${amizade?.status === 'aceita' ? '🤝 Amigos' : amizade ? (amizade.requester === u.id ? '⏳ Pedido enviado' : '✓ Aceitar amizade') : '👥 Adicionar amigo'}</button>` : ''}
@@ -109,6 +126,7 @@ async function carregar(p, meu, u) {
       <div class="grade">${(rec.data || []).map(cardJogo).join('') || '<p class="vazio">Escolha categorias favoritas em "Editar perfil" ou avalie jogos para receber recomendações.</p>'}</div>` : ''}
 
     <h2>Biblioteca</h2>
+    ${resumo}
     ${meu ? `<div class="cartao" style="margin-bottom:12px"><div class="controles" style="align-items:center">
       <span style="flex:1">Importe seus jogos e horas jogadas da <strong>Steam</strong> (seu perfil e a lista de jogos precisam estar públicos).</span>
       <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button></div>
