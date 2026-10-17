@@ -2809,3 +2809,24 @@ update public.settings set value = value || (
   ]'::jsonb) f
   where not exists (select 1 from jsonb_array_elements(settings.value) x where x->>'url' = f->>'url'))
 where key = 'feeds' and jsonb_typeof(value) = 'array';
+
+-- Preço-alvo na lista de desejos: com alvo, só avisa quando o preço ficar igual ou abaixo dele
+alter table public.user_games add column if not exists alvo_cents integer check (alvo_cents is null or alvo_cents between 100 and 200000);
+create or replace function public.notify_deal() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare g games;
+begin
+  if new.discount_pct <= 0 then return null; end if;
+  if tg_op = 'UPDATE' and old.discount_pct >= new.discount_pct and coalesce(old.price_cents, 0) <= coalesce(new.price_cents, 0) then return null; end if;
+  select * into g from games where id = new.game_id;
+  insert into notifications (user_id, type, title, body, link)
+  select ug.user_id, 'deal',
+         case when ug.alvo_cents is not null then '🎯 ' || g.title || ' chegou no seu preço-alvo!' else g.title || ' está com ' || new.discount_pct || '% de desconto!' end,
+         'Na ' || new.store || coalesce(' por R$ ' || replace(to_char(new.price_cents / 100.0, 'FM999990.00'), '.', ','), ''),
+         'jogo.html?slug=' || g.slug
+  from user_games ug
+  where ug.game_id = new.game_id and ug.wishlist
+    and (ug.alvo_cents is null or (new.price_cents is not null and new.price_cents <= ug.alvo_cents
+         and (tg_op = 'INSERT' or old.price_cents is null or old.price_cents > ug.alvo_cents)));   -- avisa uma vez ao cruzar o alvo
+  return null;
+end $$;
