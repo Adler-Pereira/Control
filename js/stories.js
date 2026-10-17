@@ -64,9 +64,12 @@ export async function editarNota(u, p, depois) {
   toast(nota ? '💭 Nota publicada por 24 h.' : 'Nota apagada.'); depois?.();
 }
 
+// A mesma janela serve para o menu, criar e ver stories. Ao reaproveitar, tira o "ao fechar" do uso anterior:
+// o evento close chega depois (assíncrono) e apagava a janela que acabou de abrir (bug "não consigo ver meus stories").
 function dialogo() {
   let dlg = document.getElementById('dlg-story');
   if (!dlg) { dlg = document.createElement('dialog'); dlg.id = 'dlg-story'; dlg.className = 'dlg-story'; document.body.append(dlg); }
+  dlg.onclose = null;
   return dlg;
 }
 
@@ -224,7 +227,7 @@ export function verStories(u, grupos, gi = 0, aoFechar) {
     }
     if (!pausado) timer = setTimeout(avancar, s.musica || s.poll || s.question ? 12000 : 7000);
   };
-  dlg.onclose = () => { clearTimeout(timer); silenciar(); dlg.innerHTML = ''; };
+  dlg.onclose = () => { if (dlg.open) return; clearTimeout(timer); silenciar(); dlg.innerHTML = ''; };
   mostrar();
 }
 
