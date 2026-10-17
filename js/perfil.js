@@ -60,7 +60,7 @@ async function carregar(p, meu, u) {
         <div><div class="nota-grande" style="font-size:2rem">${fmtH(totalHoras)}</div><span class="muted">jogadas no total</span></div>
         <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status || Number(x.hours) > 0 || !x.wishlist).length}</div><span class="muted">jogos</span></div>
         ${horas2sem ? `<div><div class="nota-grande" style="font-size:2rem">${fmtH(horas2sem)}</div><span class="muted">nas últimas 2 semanas</span></div>` : ''}
-        <div><div class="nota-grande" style="font-size:2rem">${lista.filter((x) => x.status === 'zerado').length}</div><span class="muted">zerados</span></div>
+        ${(() => { const z = lista.filter((x) => x.status === 'zerado').length; return z ? `<div><div class="nota-grande" style="font-size:2rem">${z}</div><span class="muted" title="A Steam não informa quais jogos foram zerados: conta só os marcados como Zerado no site">marcados como zerados</span></div>` : ''; })()}
       </div>
       <h3 style="margin-top:12px">⏱️ Mais jogados</h3>
       <div class="lista">${comHoras.slice(0, 5).map((x) => `<a href="jogo.html?slug=${encodeURIComponent(x.games.slug)}" style="display:flex;gap:10px;align-items:center;color:var(--texto);text-decoration:none">
