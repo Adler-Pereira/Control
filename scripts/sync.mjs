@@ -60,6 +60,7 @@ const resumo = (s, n = 280) => (s.length > n ? s.slice(0, n).replace(/\s\S*$/, '
 const tag = (xml, nome) => { const m = xml.match(new RegExp(`<${nome}[^>]*>([\\s\\S]*?)</${nome}>`, 'i')); return m ? semCdata(m[1]).trim() : ''; };
 
 function lerRss(xml) {
+  if (!/<item[\s>]/i.test(xml) && /<entry[\s>]/i.test(xml)) return lerAtom(xml);
   return [...xml.matchAll(/<item[\s>][\s\S]*?<\/item>/gi)].map(([it]) => {
     const img = it.match(/<media:content[^>]+url="([^"]+)"/i)?.[1] || it.match(/<enclosure[^>]+url="([^"]+)"[^>]*type="image/i)?.[1]
       || it.match(/<img[^>]+src="([^"]+)"/i)?.[1] || null;
@@ -70,6 +71,23 @@ function lerRss(xml) {
       summary: resumo(texto(tag(it, 'description')).replace(/\s*The post .*? appeared first on .*$/i, '').trim()) || null,
       date: tag(it, 'pubDate'),
       image: img && /^https:\/\//.test(img) ? decodificar(img) : null,
+    };
+  }).filter((i) => i.title && /^https?:\/\//.test(i.link));
+}
+
+// Formato Atom (Blogger e outros): <entry> com <link rel="alternate" href>, <summary>/<content> e <published>
+function lerAtom(xml) {
+  return [...xml.matchAll(/<entry[\s>][\s\S]*?<\/entry>/gi)].map(([it]) => {
+    const link = it.match(/<link[^>]+rel=["']alternate["'][^>]+href=["']([^"']+)["']/i)?.[1] || it.match(/<link[^>]+href=["']([^"']+)["']/i)?.[1] || '';
+    const corpo = tag(it, 'summary') || tag(it, 'content');
+    const img = it.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i)?.[1] || decodificar(corpo).match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || null;
+    return {
+      title: texto(tag(it, 'title')),
+      link: decodificar(link),
+      summary: resumo(texto(decodificar(corpo))) || null,
+      date: tag(it, 'published') || tag(it, 'updated'),
+      // Blogger manda miniatura pequena (s72-c): pede a versão grande
+      image: img && /^https:\/\//.test(img) ? decodificar(img).replace(/\/s\d+(-c)?\//, '/s1200/') : null,
     };
   }).filter((i) => i.title && /^https?:\/\//.test(i.link));
 }
