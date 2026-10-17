@@ -657,6 +657,11 @@ function editorItem(c) {
         <div><label for="it-emoji">Emoji no canto (opcional)</label><input id="it-emoji" maxlength="4" value="${esc(st.emoji || '')}" placeholder="🔥"></div></div>` : ''}
       <label for="it-img">Ou envie uma imagem (PNG com fundo transparente para moldura; JPG/PNG para banner)</label>
       <input id="it-img" type="file" accept="image/png,image/webp,image/jpeg,image/gif">
+      ${c.kind === 'frame' ? `<div class="form-linha" id="it-ajuste">
+        <div><label for="it-escala">Tamanho da imagem: <span id="it-escala-v">${st.escala || 180}%</span></label><input id="it-escala" type="range" min="80" max="260" step="2" value="${st.escala || 180}"></div>
+        <div><label for="it-x">Mover para os lados</label><input id="it-x" type="range" min="-30" max="30" value="${st.x || 0}"></div>
+        <div><label for="it-y">Mover para cima/baixo</label><input id="it-y" type="range" min="-30" max="30" value="${st.y || 0}"></div></div>
+        <p class="muted" style="font-size:.8rem">Os ajustes valem para molduras com imagem. 100% = do tamanho da foto.</p>` : ''}
       ${st.imagem ? '<label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="it-sem-img" style="width:auto"> Remover imagem e usar as cores</label>' : ''}`
     : '<p class="muted">A aparência dos itens originais vem do código do site.</p>'}
     <h3 style="margin-top:14px">Desbloqueio automático (opcional)</h3>
@@ -677,6 +682,7 @@ function editorItem(c) {
     const out = { cores: [...dlg.querySelectorAll('#it-cores input[type=color]')].map((i) => i.value) };
     if ($('#it-anim')) { out.animado = $('#it-anim').checked; out.brilho = $('#it-brilho').checked; out.velocidade = Number($('#it-vel').value) || 4; out.emoji = $('#it-emoji').value.trim() || null; }
     out.imagem = $('#it-sem-img')?.checked ? null : st.imagem || null;
+    if ($('#it-escala')) { out.escala = Number($('#it-escala').value); out.x = Number($('#it-x').value); out.y = Number($('#it-y').value); $('#it-escala-v').textContent = out.escala + '%'; }
     return out;
   };
   const atualizar = () => {
@@ -684,7 +690,7 @@ function editorItem(c) {
     const previa = { ...c, id: 'previa_item', style: estilo, icon: $('#it-icone')?.value };
     // imagem ainda não enviada: mostra pela URL local
     let css = cssDoItem({ ...previa, style: { ...estilo, imagem: null } });
-    if (urlTemp) css += c.kind === 'frame' ? `.m-previa_item{--anel:url("${urlTemp}") center/100% 100% no-repeat;--anim:none}${cssMolduraImagem('previa_item')}` : `.bn-previa_item{background:url("${urlTemp}") center/cover !important}`;
+    if (urlTemp) css += c.kind === 'frame' ? `.m-previa_item{--anel:url("${urlTemp}") center/100% 100% no-repeat;--anim:none}${cssMolduraImagem('previa_item', estilo)}` : `.bn-previa_item{background:url("${urlTemp}") center/cover !important}`;
     else if (estilo.imagem) css = cssDoItem(previa);
     let el = document.getElementById('estilos-editor');
     if (!el) { el = document.createElement('style'); el.id = 'estilos-editor'; document.head.append(el); }
