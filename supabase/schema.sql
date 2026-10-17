@@ -2022,7 +2022,7 @@ begin
     new.banned_until := old.banned_until; new.ban_reason := old.ban_reason; new.titles := old.titles;
     new.streak_current := old.streak_current; new.streak_best := old.streak_best; new.last_checkin := old.last_checkin;
     new.equipped_frame := old.equipped_frame; new.equipped_banner := old.equipped_banner;
-    new.steam_id := old.steam_id;
+    if new.steam_id is not null then new.steam_id := old.steam_id; end if;   -- pode apagar (desfazer importação), não trocar
   end if;
   return new;
 end $$;
