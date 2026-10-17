@@ -117,6 +117,19 @@ async function carregar() {
         + fotos.map((f) => `<img class="midia" ${srcCapa(f, 900)} data-grande="${esc(urlCdn(f.replace('t_screenshot_big', 't_1080p'), 1920))}" alt="Imagem de ${esc(g.title)}" loading="lazy">`).join(''))}`.replace('class="car-trilho"', 'class="car-trilho largo"');
     })()}
 
+    ${(() => {
+      // Links úteis: histórico longo de preços (SteamDB, IsThereAnyDeal), compatibilidade (ProtonDB) e tempo para zerar (HowLongToBeat)
+      const q = encodeURIComponent(g.title);
+      const links = [
+        g.steam_appid && [`https://steamdb.info/app/${g.steam_appid}/`, '📈 Histórico de preço completo (SteamDB)'],
+        [`https://isthereanydeal.com/search/?q=${q}`, '💸 Menor preço em todas as lojas (IsThereAnyDeal)'],
+        [`https://howlongtobeat.com/?q=${q}`, '⏱️ Quanto tempo para zerar (HowLongToBeat)'],
+        g.steam_appid && [`https://www.protondb.com/app/${g.steam_appid}`, '🐧 Roda no Steam Deck/Linux? (ProtonDB)'],
+        [`https://www.youtube.com/results?search_query=${q}+gameplay+pt-br`, '▶️ Gameplay no YouTube'],
+      ].filter(Boolean);
+      return `<div class="cartao links-uteis" style="margin-top:14px"><h3>🔗 Mais sobre o jogo</h3><div class="controles">${links.map(([u, t]) =>
+        `<a class="btn sec pequeno" href="${u}" target="_blank" rel="noopener">${t}</a>`).join('')}</div></div>`;
+    })()}
     ${precos?.menor ? `<div class="cartao" style="margin-top:14px"><h3>📉 Histórico de preço</h3>
       <p>Menor preço já visto aqui: <strong>${reais(precos.menor.preco)}</strong> na ${esc(precos.menor.loja)} em ${new Date(precos.menor.quando).toLocaleDateString('pt-BR')}
       <span class="muted">(acompanhando desde ${new Date(precos.desde).toLocaleDateString('pt-BR')})</span></p>
@@ -137,7 +150,10 @@ async function carregar() {
           ${(minhasListas || []).map((l) => `<option value="${l.id}">${esc(l.title)}</option>`).join('')}<option value="nova">+ Nova lista</option></select>
         <button class="btn sec desejo ${bib?.wishlist ? 'ativo' : ''}" id="b-desejo">${bib?.wishlist ? '💖 Na lista de desejos' : '🤍 Lista de desejos'}</button>
       </div>
-      <p class="muted" style="font-size:.85rem;margin-top:8px">Na lista de desejos você recebe uma notificação quando o jogo entrar em promoção.
+      <div class="controles ${bib?.wishlist ? '' : 'hidden'}" id="alvo-box" style="margin-top:8px;align-items:center;gap:6px">
+        <label for="b-alvo" style="margin:0;font-weight:400;font-size:.88rem">🎯 Avisar só abaixo de R$</label>
+        <input id="b-alvo" type="number" min="1" max="2000" step="1" style="max-width:110px" placeholder="qualquer" value="${bib?.alvo_cents ? Math.round(bib.alvo_cents / 100) : ''}"></div>
+      <p class="muted" style="font-size:.85rem;margin-top:8px">Na lista de desejos você recebe uma notificação quando o jogo entrar em promoção (ou só quando ficar abaixo do seu preço-alvo).
         ${desejam ? `${desejam} pessoa(s) desejam este jogo.` : ''}</p>`
       : `<p><a href="entrar.html?volta=${encodeURIComponent('jogo.html?slug=' + g.slug)}">Entre</a> para adicionar à sua biblioteca e receber alertas de promoção.</p>`}
     </div>
@@ -233,12 +249,17 @@ async function carregar() {
     return true;
   };
   $('#b-status')?.addEventListener('change', async () => { if (await salvarBib()) toast('Biblioteca atualizada.'); });
+  $('#b-alvo')?.addEventListener('change', async (e) => {
+    const v = Number(e.target.value);
+    if (await salvarBib({ alvo_cents: v > 0 ? Math.round(v * 100) : null })) toast(v > 0 ? `🎯 Avisaremos quando ficar abaixo de R$ ${v}.` : 'Aviso em qualquer promoção.');
+  });
   $('#b-horas')?.addEventListener('change', async () => { if (await salvarBib()) toast('Horas salvas.'); });
   $('#b-desejo')?.addEventListener('click', async (e) => {
     const b = e.currentTarget, ativo = !b.classList.contains('ativo');
     if (!(await salvarBib({ wishlist: ativo }))) return;
     b.classList.toggle('ativo', ativo);
     b.textContent = ativo ? '💖 Na lista de desejos' : '🤍 Lista de desejos';
+    $('#alvo-box')?.classList.toggle('hidden', !ativo);
     toast(ativo ? 'Adicionado à lista de desejos. Avisaremos quando entrar em promoção!' : 'Removido da lista de desejos.');
   });
 

@@ -193,7 +193,7 @@ export async function montarLayout() {
       <a href="amigos.html" class="sino" title="Amigos" aria-label="Amigos">👥<span class="badge online hidden" id="badge-online" title="Amigos online agora"></span></a>
       <a href="notificacoes.html" class="sino" title="Notificações" aria-label="Notificações">🔔<span class="badge hidden" id="badge"></span></a>
       <a href="perfil.html" title="${esc(p.username)}" aria-label="Meu perfil">${avatarHtml(p)}</a>
-      <button class="sino" id="sair-topo" title="Sair da conta" aria-label="Sair da conta" style="background:none;border:0;cursor:pointer">⎋</button>`;
+      <button class="sino sair-topo" id="sair-topo" title="Sair da conta" aria-label="Sair da conta">🚪</button>`;
     $('#sair-topo', topo).onclick = () => { if (confirm('Sair da sua conta?')) sair(); };
     contarNotificacoes(p.id);
     if (!p.onboarded && p.onboarded !== undefined) import('./boas-vindas.js').then((m) => m.boasVindas(p)).catch(() => {});
