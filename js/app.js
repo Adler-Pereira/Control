@@ -483,17 +483,16 @@ export function cssDoItem(c) {
   }
   return '';
 }
+// Usa a cópia salva para desenhar na hora e sempre busca a versão atual em seguida (moldura editada aparece no próximo carregamento de página)
 async function carregarEstilosItens() {
-  let itens = null;
-  try { const c = JSON.parse(sessionStorage.getItem('cc_itens') || 'null'); if (c && Date.now() - c.em < 600e3) itens = c.itens; } catch { /* ignora */ }
-  if (!itens) {
-    const { data } = await sb.from('cosmetics').select('id,kind,style').eq('custom', true);
-    itens = data || [];
-    try { sessionStorage.setItem('cc_itens', JSON.stringify({ em: Date.now(), itens })); } catch { /* ignora */ }
-  }
   let el = document.getElementById('estilos-itens');
   if (!el) { el = document.createElement('style'); el.id = 'estilos-itens'; document.head.append(el); }
-  el.textContent = itens.map(cssDoItem).join('\n');
+  const aplicar = (itens) => { el.textContent = itens.map(cssDoItem).join('\n'); };
+  try { const c = JSON.parse(sessionStorage.getItem('cc_itens') || 'null'); if (c?.itens) aplicar(c.itens); } catch { /* ignora */ }
+  const { data } = await sb.from('cosmetics').select('id,kind,style').eq('custom', true);
+  if (!data) return;
+  aplicar(data);
+  try { sessionStorage.setItem('cc_itens', JSON.stringify({ em: Date.now(), itens: data })); } catch { /* ignora */ }
 }
 
 // ---------- Twitch: quem está ao vivo ----------
