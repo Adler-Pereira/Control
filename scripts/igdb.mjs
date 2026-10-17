@@ -28,7 +28,7 @@ const cfg = Object.fromEntries((await api('settings?select=key,value')).map((s) 
 // Jogos que já existem (para não duplicar e só completar o que falta)
 const existentes = [];
 for (let de = 0; ; de += 1000) {
-  const lote = await api(`games?select=id,slug,igdb_id,steam_appid,cover_url,description_lang,category_id,release_year,store_ps,store_xbox,store_steam,store_nintendo,platforms,videos,screenshots,igdb_rating_count&order=id&limit=1000&offset=${de}`);
+  const lote = await api(`games?select=id,slug,igdb_id,steam_appid,cover_url,description_lang,category_id,category_ids,release_year,store_ps,store_xbox,store_steam,store_nintendo,platforms,videos,screenshots,igdb_rating_count&order=id&limit=1000&offset=${de}`);
   existentes.push(...lote);
   if (lote.length < 1000) break;
 }
@@ -69,7 +69,11 @@ async function importar(onde, ordem, inicio, quantidade) {
       if (Math.abs((atual.igdb_rating_count || 0) - linha.igdb_rating_count) > 20 || patch.igdb_id) {
         patch.igdb_rating = linha.igdb_rating; patch.igdb_rating_count = linha.igdb_rating_count;
       }
-      if (modo === 'recategorizar' && atual.igdb_id && linha.category_id && atual.category_id !== linha.category_id) patch.category_id = linha.category_id;
+      if (!atual.category_ids?.length && linha.category_ids.length) patch.category_ids = linha.category_ids;
+      if (modo === 'recategorizar' && atual.igdb_id && linha.category_id) {
+        if (atual.category_id !== linha.category_id) patch.category_id = linha.category_id;
+        if (String(atual.category_ids) !== String(linha.category_ids)) patch.category_ids = linha.category_ids;
+      }
       if (Object.keys(patch).length) {
         await api(`games?id=eq.${atual.id}`, { method: 'PATCH', body: patch });
         Object.assign(atual, patch); totais.completados++;

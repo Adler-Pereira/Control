@@ -9,7 +9,10 @@ const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', curr
 if (configurado) carregar();
 
 async function carregar() {
-  const { data: g } = await sb.from('games').select('*, categories(name,id)').eq('slug', param('slug')).maybeSingle();
+  const [{ data: g }, { data: listaCats }] = await Promise.all([
+    sb.from('games').select('*, categories(name,id)').eq('slug', param('slug')).maybeSingle(),
+    sb.from('categories').select('id,name')]);
+  const cats = Object.fromEntries((listaCats || []).map((c) => [c.id, c.name]));
   if (!g) { main.innerHTML += '<p class="vazio">Jogo não encontrado.</p>'; return; }
   document.title = `${g.title} | Control Critic`;
   const u = await usuario();
@@ -34,7 +37,7 @@ async function carregar() {
       <div>
         <img ${srcCapa(g.cover_url, 1000)} alt="" style="border-radius:14px;width:100%">
         <h1 style="margin-top:16px">${esc(g.title)}</h1>
-        <p>${g.categories ? `<a class="tag" href="jogos.html?cat=${g.categories.id}">${esc(g.categories.name)}</a>` : ''} ${g.release_year ? `<span class="tag">${g.release_year}</span>` : ''}
+        <p>${(g.category_ids?.length ? g.category_ids : g.categories ? [g.categories.id] : []).map((id) => cats[id] ? `<a class="tag" href="jogos.html?cat=${id}">${esc(cats[id])}</a>` : '').join(' ')} ${g.release_year ? `<span class="tag">${g.release_year}</span>` : ''}
           ${(g.platforms || []).map((pl) => `<a class="tag" href="jogos.html?plat=${encodeURIComponent(pl)}">${esc(pl)}</a>`).join(' ')}</p>
         <p class="quebra" style="margin-top:12px" id="descricao">${esc(g.description || '')}</p>
         ${g.description_lang === 'en' ? '<p class="muted" id="desc-aviso" style="font-size:.82rem;margin-top:4px">🌐 Traduzindo a descrição (original em inglês)...</p>' : ''}

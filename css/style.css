@@ -476,3 +476,4 @@ dialog.visor::backdrop { background: rgba(0,0,0,.85); }
 .medidor .nivel.aberto { background: #3ddc84; }
 .medidor .limite { position: absolute; top: -2px; bottom: -2px; width: 3px; background: var(--amarelo); }
 .sens input[type=range] { width: 100%; accent-color: var(--amarelo); padding: 0; }
+.jogo-card .tags-cat { display: flex; flex-wrap: wrap; gap: 4px; }
