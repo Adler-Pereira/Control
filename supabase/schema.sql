@@ -2830,3 +2830,137 @@ begin
          and (tg_op = 'INSERT' or old.price_cents is null or old.price_cents > ug.alvo_cents)));   -- avisa uma vez ao cruzar o alvo
   return null;
 end $$;
+
+-- =====================================================================
+-- CONQUISTAS DAS NOVAS FUNÇÕES: posts, vídeos, stories, enquetes, reações, música, memes no Instagram e desafios
+-- =====================================================================
+insert into public.cosmetics (id, kind, name, description, rarity, icon, sort, custom, style) values
+  ('s_posts10',    'badge',  'Postador',               'Publique 10 posts',                              'comum',    '📝', 1200, false, null),
+  ('f_criador',    'frame',  'Criador de Conteúdo',     'Publique 100 posts',                             'lendaria', null, 1201, true,
+     '{"cores":["#ffd33c","#ff4081","#7c4dff","#00b0ff"],"animado":true,"brilho":true,"velocidade":4,"emoji":"✍️"}'),
+  ('s_video',      'badge',  'Diretor',                 'Poste 5 vídeos',                                 'rara',     '🎬', 1202, false, null),
+  ('b_diretor',    'banner', 'Diretor de Cinema',       'Poste 20 vídeos',                                'epica',    null, 1203, true,
+     '{"cores":["#0b0b0d","#3a0d0d","#e5484d"]}'),
+  ('s_story1',     'badge',  'Contador de Histórias',   'Publique seu primeiro story',                    'comum',    '📸', 1204, false, null),
+  ('f_story',      'frame',  'Aro de Story',            'Publique 30 stories',                            'epica',    null, 1205, true,
+     '{"cores":["#feda75","#fa7e1e","#d62976","#962fbf","#4f5bd5"],"animado":true,"velocidade":5,"emoji":"📸"}'),
+  ('s_story100',   'badge',  'Influencer',              'Publique 100 stories',                           'lendaria', '🌟', 1206, false, null),
+  ('s_enquete',    'badge',  'Pesquisador',             'Crie 5 enquetes nos stories',                    'rara',     '📊', 1207, false, null),
+  ('s_reativo',    'badge',  'Reativo',                 'Reaja a 25 stories',                             'comum',    '🔥', 1208, false, null),
+  ('b_queridinho', 'banner', 'Queridinho',              'Receba 100 reações nos seus stories',            'epica',    null, 1209, true,
+     '{"cores":["#ff4081","#ffd33c","#ff6d00"]}'),
+  ('s_dj',         'badge',  'DJ',                      'Coloque uma música do Spotify no seu perfil',    'comum',    '🎵', 1210, false, null),
+  ('s_destaque',   'badge',  'Curador',                 'Salve um story nos destaques do perfil',         'comum',    '⭐', 1211, false, null),
+  ('s_viral',      'badge',  'Viral',                   'Tenha um meme publicado no Instagram do Control Critic', 'lendaria', '😂', 1212, false, null),
+  ('f_viral',      'frame',  'Viral',                   'Tenha 3 memes publicados no Instagram do Control Critic', 'especial', null, 1213, true,
+     '{"cores":["#833ab4","#fd1d1d","#fcb045"],"animado":true,"brilho":true,"velocidade":3,"emoji":"😂"}'),
+  ('s_desafio5',   'badge',  'Desafiante',              'Participe de 5 desafios',                        'rara',     '🏆', 1214, false, null),
+  ('b_desafiante', 'banner', 'Competidor Nato',         'Participe de 15 desafios',                       'epica',    null, 1215, true,
+     '{"cores":["#0b0b0d","#ffd33c","#b8860b"]}')
+on conflict (id) do nothing;
+
+create or replace function public.check_achievements_social(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if uid is null then return; end if;
+  select count(*) into n from posts where user_id = uid;
+  if n >= 10 then perform grant_cosmetic(uid, 's_posts10'); end if;
+  if n >= 100 then perform grant_cosmetic(uid, 'f_criador'); end if;
+  select count(*) into n from posts where user_id = uid and video_url is not null;
+  if n >= 5 then perform grant_cosmetic(uid, 's_video'); end if;
+  if n >= 20 then perform grant_cosmetic(uid, 'b_diretor'); end if;
+  select count(*) into n from posts where user_id = uid and instagram_at is not null;
+  if n >= 1 then perform grant_cosmetic(uid, 's_viral'); end if;
+  if n >= 3 then perform grant_cosmetic(uid, 'f_viral'); end if;
+  select count(distinct challenge_id) into n from posts where user_id = uid and challenge_id is not null;
+  if n >= 5 then perform grant_cosmetic(uid, 's_desafio5'); end if;
+  if n >= 15 then perform grant_cosmetic(uid, 'b_desafiante'); end if;
+  -- stories contam mesmo depois de vencidos: usa o contador guardado no perfil (os antigos são apagados pela limpeza)
+  select coalesce(stories_total, 0) into n from profiles where id = uid;
+  if n >= 1 then perform grant_cosmetic(uid, 's_story1'); end if;
+  if n >= 30 then perform grant_cosmetic(uid, 'f_story'); end if;
+  if n >= 100 then perform grant_cosmetic(uid, 's_story100'); end if;
+  select coalesce(enquetes_total, 0) into n from profiles where id = uid;
+  if n >= 5 then perform grant_cosmetic(uid, 's_enquete'); end if;
+  if exists (select 1 from stories where user_id = uid and highlight is not null) then perform grant_cosmetic(uid, 's_destaque'); end if;
+  select count(*) into n from story_reactions where user_id = uid;
+  if n >= 25 then perform grant_cosmetic(uid, 's_reativo'); end if;
+  select count(*) into n from story_reactions r join stories s on s.id = r.story_id where s.user_id = uid;
+  if n >= 100 then perform grant_cosmetic(uid, 'b_queridinho'); end if;
+  if exists (select 1 from profiles where id = uid and musica is not null) then perform grant_cosmetic(uid, 's_dj'); end if;
+exception when others then null;   -- conquista nunca atrapalha a ação da pessoa
+end $$;
+revoke execute on function public.check_achievements_social(uuid) from public, anon, authenticated;
+
+-- Contadores de stories e enquetes (não somem quando os stories vencem)
+alter table public.profiles add column if not exists stories_total integer not null default 0;
+alter table public.profiles add column if not exists enquetes_total integer not null default 0;
+create or replace function public.stories_contar() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform set_config('cc.sistema', 'on', true);
+  update profiles set stories_total = stories_total + 1, enquetes_total = enquetes_total + (case when new.poll is not null then 1 else 0 end) where id = new.user_id;
+  perform set_config('cc.sistema', 'off', true);
+  perform check_achievements_social(new.user_id);
+  return null;
+end $$;
+drop trigger if exists stories_contar_trg on public.stories;
+create trigger stories_contar_trg after insert on public.stories for each row execute function public.stories_contar();
+
+-- Destaque, reações (de quem reage e de quem recebe) e música no perfil também conferem as conquistas
+create or replace function public.social_conquistas_trg() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'story_reactions' then
+    perform check_achievements_social(new.user_id);
+    perform check_achievements_social((select user_id from stories where id = new.story_id));
+  else
+    perform check_achievements_social(new.user_id);
+  end if;
+  return null;
+end $$;
+drop trigger if exists stories_destaque_conq on public.stories;
+create trigger stories_destaque_conq after update of highlight on public.stories for each row when (new.highlight is not null) execute function public.social_conquistas_trg();
+drop trigger if exists reacoes_conq on public.story_reactions;
+create trigger reacoes_conq after insert on public.story_reactions for each row execute function public.social_conquistas_trg();
+create or replace function public.musica_conq() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin perform check_achievements_social(new.id); return null; end $$;
+drop trigger if exists profiles_musica_conq on public.profiles;
+create trigger profiles_musica_conq after update of musica on public.profiles for each row when (new.musica is not null and new.musica is distinct from old.musica) execute function public.musica_conq();
+
+-- Posts (inclusive meme publicado no Instagram e participação em desafio) passam pela checagem social também
+create or replace function public.achievements_trigger() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare uid uuid;
+begin
+  -- IF em vez de CASE: o CASE avalia campos que não existem em NEW de outras tabelas
+  if tg_table_name = 'follows' then uid := new.followed_id;
+  elsif tg_table_name = 'events' then uid := new.creator_id;
+  elsif tg_table_name = 'communities' then uid := new.owner_id;
+  else uid := new.user_id;
+  end if;
+  perform check_achievements(uid);
+  perform check_achievements_extra(uid);
+  if tg_table_name = 'posts' then perform check_achievements_social(uid); end if;
+  return null;
+end $$;
+
+-- Quem já fez antes de existir a conquista recebe agora (uma vez, ao rodar este arquivo)
+update public.profiles p set stories_total = greatest(stories_total, (select count(*) from stories s where s.user_id = p.id)),
+  enquetes_total = greatest(enquetes_total, (select count(*) from stories s where s.user_id = p.id and s.poll is not null));
+do $$ declare r record; begin
+  for r in select id from public.profiles loop perform public.check_achievements_social(r.id); end loop;
+end $$;
+-- Ninguém edita os próprios contadores de stories pelo site
+create or replace function public.protect_contadores() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if auth.uid() is not null and not is_admin() and coalesce(current_setting('cc.sistema', true), '') <> 'on' then
+    new.stories_total := old.stories_total; new.enquetes_total := old.enquetes_total;
+  end if;
+  return new;
+end $$;
+drop trigger if exists profiles_contadores on public.profiles;
+create trigger profiles_contadores before update of stories_total, enquetes_total on public.profiles for each row execute function public.protect_contadores();
