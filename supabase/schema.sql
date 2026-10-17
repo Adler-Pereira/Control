@@ -2795,3 +2795,17 @@ create or replace function public.cleanup_old() returns void language sql securi
   delete from notifications where read and created_at < now() - interval '90 days';
 $$;
 revoke execute on function public.cleanup_old() from public, anon, authenticated;
+
+-- Mais fontes de notícias em português (acrescenta só as que ainda não estão na lista; dá para editar em Admin → Automação)
+update public.settings set value = value || (
+  select coalesce(jsonb_agg(f), '[]'::jsonb) from jsonb_array_elements('[
+    {"name":"IGN Brasil","url":"https://br.ign.com/feed.xml"},
+    {"name":"Eurogamer","url":"https://www.eurogamer.pt/feed"},
+    {"name":"Critical Hits","url":"https://www.criticalhits.com.br/feed/"},
+    {"name":"MeuPlayStation","url":"https://meups.com.br/feed/"},
+    {"name":"Nintendo Blast","url":"https://www.nintendoblast.com.br/feeds/posts/default"},
+    {"name":"Xbox Power","url":"https://www.xboxpower.com.br/feed/"},
+    {"name":"GameHall","url":"https://gamehall.com.br/feed/"}
+  ]'::jsonb) f
+  where not exists (select 1 from jsonb_array_elements(settings.value) x where x->>'url' = f->>'url'))
+where key = 'feeds' and jsonb_typeof(value) = 'array';
