@@ -208,7 +208,7 @@ export async function montarLayout() {
 }
 
 // Colunas usadas pelos cards de jogo (pedir só isso economiza tráfego do Supabase)
-export const COLUNAS_CARD = 'id,slug,title,cover_url,avg_rating,reviews_count,categories(name)';
+export const COLUNAS_CARD = 'id,slug,title,cover_url,avg_rating,reviews_count,igdb_rating,categories(name)';
 
 export function cardJogo(g) {
   return `<a class="jogo-card" href="jogo.html?slug=${encodeURIComponent(g.slug)}">
@@ -216,7 +216,9 @@ export function cardJogo(g) {
     <div class="info">
       <span class="titulo" title="${esc(g.title)}">${esc(g.title)}</span>
       ${g.categories ? `<span><span class="tag">${esc(g.categories.name)}</span></span>` : ''}
-      <span>${estrelas(g.avg_rating)} <span class="muted">(${g.reviews_count})</span></span>
+      ${g.reviews_count || !g.igdb_rating ? `<span>${estrelas(g.avg_rating)} <span class="muted">(${g.reviews_count})</span></span>`
+        // Sem avaliações no site ainda: mostra a nota do IGDB (crítica e público) como nota inicial, convertida para 5 estrelas
+        : `<span title="Nota inicial do IGDB (${Math.round(g.igdb_rating)}/100). Avalie para dar a nota do Control Critic!">${estrelas(g.igdb_rating / 20)} <span class="muted">IGDB</span></span>`}
     </div></a>`;
 }
 

@@ -43,6 +43,8 @@ async function carregar() {
         <div class="cartao">
           ${g.reviews_count ? `<div class="nota-grande">${Number(g.avg_rating).toFixed(1)}</div>
           ${estrelas(g.avg_rating)} <span class="muted">${g.reviews_count} avaliação(ões) no Control Critic</span>`
+          : g.igdb_rating ? `<div class="nota-grande">${(g.igdb_rating / 20).toFixed(1)}</div>
+          ${estrelas(g.igdb_rating / 20)} <span class="muted">nota inicial (IGDB)</span><br><a href="#form-review" class="muted">Seja o primeiro a avaliar no Control Critic →</a>`
           : '<div class="nota-grande" style="font-size:1.6rem">Sem notas ainda</div><a href="#form-review" class="muted">Seja o primeiro a avaliar no Control Critic →</a>'}
           ${g.igdb_rating ? `<p class="muted" style="margin-top:8px;font-size:.88rem">Nota da crítica e público (IGDB): <strong>${Math.round(g.igdb_rating)}/100</strong> · ${g.igdb_rating_count} votos</p>` : ''}
         </div>
