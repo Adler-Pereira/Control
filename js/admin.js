@@ -637,7 +637,7 @@ function editorItem(c) {
   const cores = st.cores?.length ? st.cores : ['#ffd33c', '#ff6d00'];
   dlg.innerHTML = `<form method="dialog" id="form-item">
     <h2 style="margin-top:0">${novo ? 'Nova' : 'Editar'} ${TIPO_ITEM[c.kind].toLowerCase()}</h2>
-    <div class="controles" style="align-items:center;gap:16px"><div id="it-previa" style="min-width:120px;display:flex;justify-content:center"></div>
+    <div class="controles" style="align-items:center;gap:16px"><div id="it-previa" style="min-width:160px;min-height:170px;padding:30px;display:flex;justify-content:center;align-items:center;overflow:visible"></div>
       <span class="muted" style="font-size:.85rem">Pré-visualização</span></div>
     <div class="form-linha">
       <div><label for="it-nome">Nome</label><input id="it-nome" required maxlength="40" value="${esc(c.name || '')}"></div>
