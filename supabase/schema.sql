@@ -2491,3 +2491,22 @@ create policy posts_insert on public.posts for insert with check (
   and not ig_aprovado and not ig_recusado and instagram_at is null and instagram_url is null
   and (ig_ok = false or image_url is not null)
   and (community_id is null or exists (select 1 from community_members m where m.community_id = posts.community_id and m.user_id = auth.uid())));
+
+-- =====================================================================
+-- VÁRIAS CATEGORIAS POR JOGO (até 3, a primeira é a principal = category_id)
+-- =====================================================================
+alter table public.games add column if not exists category_ids integer[] not null default '{}';
+create index if not exists games_cat_ids_idx on public.games using gin (category_ids);
+update public.games set category_ids = array[category_id] where category_ids = '{}' and category_id is not null;
+-- jogo cadastrado/editado à mão: a categoria principal sempre faz parte da lista
+create or replace function public.games_cat_ids() returns trigger language plpgsql as $$
+begin
+  if new.category_id is not null and not (new.category_id = any(new.category_ids)) then
+    new.category_ids := array[new.category_id] || coalesce(new.category_ids, '{}');
+  end if;
+  new.category_ids := new.category_ids[1:3];
+  return new;
+end $$;
+drop trigger if exists games_cat_ids_trg on public.games;
+create trigger games_cat_ids_trg before insert or update of category_id, category_ids on public.games
+  for each row execute function public.games_cat_ids();

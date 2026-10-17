@@ -175,6 +175,7 @@ export async function montarLayout() {
 
   mostrarAvisoGlobal();
   carregarEstilosItens();
+  if (!Object.keys(NOMES_CAT).length) carregarCategorias();
   const conta = $('.conta', topo);
   const p = await perfil();
   // Conta suspensa: avisa a própria pessoa (ela continua navegando, mas não publica)
@@ -208,14 +209,28 @@ export async function montarLayout() {
 }
 
 // Colunas usadas pelos cards de jogo (pedir só isso economiza tráfego do Supabase)
-export const COLUNAS_CARD = 'id,slug,title,cover_url,avg_rating,reviews_count,igdb_rating,categories(name)';
+export const COLUNAS_CARD = 'id,slug,title,cover_url,avg_rating,reviews_count,igdb_rating,category_ids,categories(name)';
+
+// Nomes das categorias (tabela pequena, guardada na sessão) para mostrar as até 3 categorias de cada jogo
+let NOMES_CAT = {};
+try { NOMES_CAT = JSON.parse(sessionStorage.getItem('cc_cats') || '{}'); } catch { /* ignora */ }
+async function carregarCategorias() {
+  const { data } = await sb.from('categories').select('id,name');
+  if (!data) return;
+  NOMES_CAT = Object.fromEntries(data.map((c) => [c.id, c.name]));
+  try { sessionStorage.setItem('cc_cats', JSON.stringify(NOMES_CAT)); } catch { /* ignora */ }
+}
+export const nomesCategorias = (g) => {
+  const nomes = (g.category_ids || []).map((id) => NOMES_CAT[id]).filter(Boolean);
+  return nomes.length ? nomes : g.categories?.name ? [g.categories.name] : [];
+};
 
 export function cardJogo(g) {
   return `<a class="jogo-card" href="jogo.html?slug=${encodeURIComponent(g.slug)}">
     <img ${srcCapa(g.cover_url, 480)} alt="" loading="lazy">
     <div class="info">
       <span class="titulo" title="${esc(g.title)}">${esc(g.title)}</span>
-      ${g.categories ? `<span><span class="tag">${esc(g.categories.name)}</span></span>` : ''}
+      ${nomesCategorias(g).length ? `<span class="tags-cat">${nomesCategorias(g).map((n) => `<span class="tag">${esc(n)}</span>`).join(' ')}</span>` : ''}
       ${g.reviews_count || !g.igdb_rating ? `<span>${estrelas(g.avg_rating)} <span class="muted">(${g.reviews_count})</span></span>`
         // Sem avaliações no site ainda: mostra a nota do IGDB (crítica e público) como nota inicial, convertida para 5 estrelas
         : `<span title="Nota inicial do IGDB (${Math.round(g.igdb_rating)}/100). Avalie para dar a nota do Control Critic!">${estrelas(g.igdb_rating / 20)} <span class="muted">IGDB</span></span>`}

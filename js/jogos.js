@@ -49,7 +49,7 @@ async function carregar(continuar = false) {
     .range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
   const termo = $('#q').value.trim().replace(/[%,()]/g, '');
   if (termo) q = q.ilike('title', `%${termo}%`);
-  if (cat) q = q.eq('category_id', cat);
+  if (cat) q = q.contains('category_ids', [Number(cat)]);
   if (plat) q = q.contains('platforms', [plat]);
   const { data, error, count } = await q;
   if (error) { $('#lista').innerHTML = '<p class="vazio">Erro ao carregar.</p>'; return; }
