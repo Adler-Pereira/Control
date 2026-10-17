@@ -521,11 +521,39 @@ export async function ativarPush(uid) {
   if (await Notification.requestPermission() !== 'granted') throw new Error('Permissão negada. Libere as notificações nas configurações do navegador para este site.');
   const reg = await navigator.serviceWorker.register('/sw.js');
   await navigator.serviceWorker.ready;
-  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) });
+  // Inscrição antiga feita com outra chave (o admin gerou chaves novas): refaz, senão o envio falha em silêncio
+  const velha = await reg.pushManager.getSubscription();
+  const chave = b64url(publicKey);
+  if (velha) {
+    const atual = velha.options?.applicationServerKey ? new Uint8Array(velha.options.applicationServerKey) : null;
+    if (!atual || atual.length !== chave.length || atual.some((b, i) => b !== chave[i])) await velha.unsubscribe();
+  }
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chave });
   const j = sub.toJSON();
   const { error } = await sb.from('push_subscriptions').upsert({ endpoint: j.endpoint, user_id: uid, p256dh: j.keys.p256dh, auth: j.keys.auth });
   if (error) throw error;
 }
+// Diagnóstico: manda 2 notificações de teste (direto e pelo banco) e devolve o que está faltando
+export async function testarPush() {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch('/.netlify/functions/push?teste=1', { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` } });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 503) return 'O administrador ainda não colocou as chaves das notificações no Netlify (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e PUSH_SECRET).';
+  if (!r.ok) return d.erro || 'Não foi possível testar agora.';
+  const p = [];
+  if (!d.aparelhos) p.push('Nenhum aparelho seu está inscrito: toque em "🔔 Ativar neste aparelho" no celular.');
+  else if (d.enviados) p.push(`✅ Teste 1 enviado para ${d.enviados} aparelho(s).`);
+  else p.push('❌ O envio direto falhou (' + d.erros.map((e) => e.status || e.msg).join(', ') + '). A inscrição antiga foi apagada: ative de novo neste aparelho.');
+  if (!d.chaves_netlify) p.push('⚠️ Falta PUSH_SECRET (ou as chaves VAPID) no Netlify.');
+  if (!d.banco_configurado) p.push('⚠️ O banco não sabe para onde mandar: admin → Site → Notificações → "Gerar chaves e configurar".');
+  else {
+    if (!d.segredo_igual) p.push('⚠️ O PUSH_SECRET do Netlify é diferente do salvo no banco: as notificações do site não saem. Gere as chaves de novo e atualize o Netlify.');
+    if (!d.endereco_certo) p.push(`⚠️ O banco está apontando para outro endereço (${d.endereco_banco}).`);
+  }
+  if (d.aparelhos && d.enviados && d.chaves_netlify && d.segredo_igual && d.endereco_certo) p.push('Se o Teste 2 não chegar em 1 minuto, falta a extensão pg_net no Supabase (Database → Extensions → pg_net → ativar).');
+  return p.join('\n');
+}
+
 export async function desativarPush() {
   const reg = await navigator.serviceWorker.getRegistration();
   const sub = await reg?.pushManager.getSubscription();

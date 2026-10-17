@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel } from './app.js';
+import { sb, $, esc, montarLayout, configurado, usuario, perfil, nivel, avatar, estrelas, data, cardJogo, toast, falha, param, urlSegura, denunciar, avatarHtml, sair, COLUNAS_CARD, aoVivo, seloAoVivo, estadoPush, ativarPush, desativarPush, testarPush, steamAgora, carrossel, enviarImagem, srcCapa, imagemAceitavel } from './app.js';
 import { COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
 await montarLayout();
@@ -156,6 +156,7 @@ async function carregar(p, meu, u) {
       <div class="cartao controles" style="align-items:center">
         <span style="flex:1" class="muted" id="push-status">Receba no celular avisos de chamadas, mensagens, partidas e promoções da sua lista de desejos — mesmo com o site fechado.</span>
         <button class="btn" id="push-bt" disabled>Verificando…</button>
+        <button class="btn sec" id="push-teste" type="button">📨 Enviar teste</button>
       </div>
       <h2>Privacidade e conta</h2>
       <div class="cartao controles" style="align-items:center">
@@ -234,6 +235,11 @@ async function carregar(p, meu, u) {
       else { await ativarPush(p.id); toast('🔔 Pronto! Você vai receber os avisos neste aparelho.'); }
     } catch (e) { falha(e); }
     atualizarPush();
+  };
+  $('#push-teste').onclick = async (e) => {
+    e.target.disabled = true;
+    try { const r = await testarPush(); $('#push-status').textContent = r; $('#push-status').style.whiteSpace = 'pre-line'; } catch (err) { falha(err); }
+    e.target.disabled = false;
   };
   atualizarPush();
   $('#nova-lista')?.addEventListener('click', async () => {
