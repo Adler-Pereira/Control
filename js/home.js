@@ -45,7 +45,7 @@ main.insertAdjacentHTML('beforeend', `
 if (configurado) {
   const ano = new Date().getFullYear();
   const [dest, promos, news, lanc] = await Promise.all([
-    sb.from('games').select(COLUNAS_CARD).eq('featured', true).order('avg_rating', { ascending: false }).limit(12),
+    sb.from('games').select(COLUNAS_CARD).eq('featured', true).order('avg_rating', { ascending: false }).order('igdb_rating', { ascending: false, nullsFirst: false }).limit(12),
     sb.from('deals').select('*, games(slug,title,cover_url)').gt('discount_pct', 0).order('discount_pct', { ascending: false }).limit(12),
     sb.from('news').select('id,title,summary,source,cover_url,created_at').eq('published', true).order('created_at', { ascending: false }).limit(10),
     sb.from('games').select(COLUNAS_CARD).gte('release_year', ano - 1).order('release_year', { ascending: false }).order('igdb_rating_count', { ascending: false, nullsFirst: false }).limit(12),
