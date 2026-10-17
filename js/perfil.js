@@ -129,7 +129,8 @@ async function carregar(p, meu, u) {
     ${resumo}
     ${meu ? `<div class="cartao" style="margin-bottom:12px"><div class="controles" style="align-items:center">
       <span style="flex:1">Importe seus jogos e horas jogadas da <strong>Steam</strong> (seu perfil e a lista de jogos precisam estar públicos).</span>
-      <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button></div>
+      <button class="btn sec" id="importar-steam">🖥️ Importar da Steam</button>
+      ${p.steam_id || lista.some((x) => x.hours != null) ? '<button class="btn perigo pequeno" id="desfazer-steam" title="Remove os jogos e horas trazidos da Steam (ex.: importou o perfil errado)">↩️ Desfazer importação</button>' : ''}</div>
       <p class="muted" style="font-size:.82rem;margin-top:6px">PlayStation e Xbox não oferecem importação oficial: adicione esses jogos pela página de cada jogo.</p></div>` : ''}
     ${vitrine.length || meu ? `<h2>🏆 Vitrine</h2>${vitrine.length ? `<div class="vitrine-jogos">${vitrine.map((g) => `<a href="jogo.html?slug=${encodeURIComponent(g.slug)}"><img ${srcCapa(g.cover_url, 320)} alt="" loading="lazy"><span>${esc(g.title)}</span></a>`).join('')}</div>`
       : '<p class="muted">Escolha até 6 jogos favoritos para exibir aqui em "✏️ Editar perfil".</p>'}` : ''}
@@ -238,6 +239,7 @@ async function carregar(p, meu, u) {
   }
 
   $('#importar-steam').onclick = () => importarSteam(p);
+  $('#desfazer-steam')?.addEventListener('click', () => desfazerSteam(p));
   // Notificações no celular
   const atualizarPush = async () => {
     const st = await estadoPush(), bt = $('#push-bt');
@@ -451,6 +453,19 @@ async function exportarDados(p) {
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `control-critic-${p.username}.json` });
   a.click(); URL.revokeObjectURL(a.href);
+}
+
+// Desfaz a importação: apaga os jogos que vieram só da Steam e tira as horas dos que a pessoa também marcou (status/desejo)
+async function desfazerSteam(p) {
+  if (!confirm('Remover a importação da Steam?\n\nOs jogos trazidos da Steam saem da sua biblioteca e as horas são apagadas. Jogos que você marcou (jogando, zerado, lista de desejos) continuam, só sem as horas.\n\nDepois você pode importar o perfil certo.')) return;
+  try {
+    const { error: e1 } = await sb.from('user_games').delete().eq('user_id', p.id).not('hours', 'is', null).is('status', null).eq('wishlist', false);
+    if (e1) throw e1;
+    const { error: e2 } = await sb.from('user_games').update({ hours: null, hours_2weeks: null, last_played: null }).eq('user_id', p.id).not('hours', 'is', null);
+    if (e2) throw e2;
+    await sb.from('profiles').update({ steam_id: null, steam_profile: null }).eq('id', p.id);
+    toast('Importação removida.'); location.reload();
+  } catch (e) { falha(e); }
 }
 
 // Importa jogos e horas da Steam (via função no servidor, que guarda a chave da Steam)
