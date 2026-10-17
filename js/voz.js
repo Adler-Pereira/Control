@@ -29,6 +29,48 @@ async function servidoresIce() {
 
 const ESTADOS = { new: 'conectando…', connecting: 'conectando…', connected: '', disconnected: 'reconectando…', failed: 'sem conexão', closed: '' };
 
+// ---------- Mini player com vários vídeos (Document Picture-in-Picture) ----------
+// A janela fica por cima de tudo (jogo, outras abas) e mostra os vídeos escolhidos lado a lado.
+export const miniPlayer = {
+  win: null, itens: new Map(),
+  async abrir() {
+    if (this.win && !this.win.closed) return this.win;
+    this.win = await window.documentPictureInPicture.requestWindow({ width: 520, height: 300 });
+    const d = this.win.document;
+    d.title = 'Call · Control Critic';
+    d.body.innerHTML = '<div id="g"></div>';
+    const st = d.createElement('style');
+    st.textContent = `body{margin:0;background:#0b0b0d;font:12px Inter,system-ui,sans-serif;color:#fff;height:100vh}
+      #g{display:grid;gap:4px;padding:4px;height:calc(100vh - 8px);grid-template-columns:repeat(auto-fit,minmax(200px,1fr));grid-auto-rows:1fr}
+      .q{position:relative;background:#16161a;border-radius:8px;overflow:hidden;min-height:0}
+      .q video{width:100%;height:100%;object-fit:contain;display:block}
+      .q span{position:absolute;left:6px;bottom:4px;background:#000a;padding:1px 6px;border-radius:6px}
+      .q button{position:absolute;right:4px;top:4px;background:#000a;color:#fff;border:0;border-radius:6px;cursor:pointer}`;
+    d.head.append(st);
+    this.win.addEventListener('pagehide', () => { for (const it of this.itens.values()) it.tile.classList.remove('no-mini'); this.itens.clear(); this.win = null; });
+    return this.win;
+  },
+  async alternar(id, nome, video, tile) {
+    if (this.itens.has(id)) return this.remover(id);
+    if (!video.srcObject || video.style.display === 'none') { alert('Essa pessoa está sem vídeo agora (câmera ou tela desligada).'); return; }
+    const w = await this.abrir();
+    const q = w.document.createElement('div'); q.className = 'q';
+    q.innerHTML = '<video autoplay playsinline muted></video><span></span><button title="Tirar do mini player">✕</button>';
+    q.querySelector('span').textContent = nome;
+    const v = q.querySelector('video'); v.srcObject = video.srcObject;   // mesmo vídeo, sem som duplicado (o som continua na call)
+    q.querySelector('button').onclick = () => this.remover(id);
+    w.document.getElementById('g').append(q);
+    tile.classList.add('no-mini');
+    this.itens.set(id, { q, tile });
+  },
+  remover(id) {
+    const it = this.itens.get(id); if (!it) return;
+    it.q.remove(); it.tile.classList.remove('no-mini'); this.itens.delete(id);
+    if (!this.itens.size) this.win?.close();
+  },
+  fecharTudo() { this.win?.close(); },
+};
+
 export class SalaVoz {
   constructor({ salaId, eu, nome, container, aoMudar, aoChat, aoAviso }) {
     this.salaId = salaId;
@@ -93,6 +135,7 @@ export class SalaVoz {
   }
 
   async sair() {
+    miniPlayer.fecharTudo();
     clearInterval(this.vigia);
     for (const id of [...this.peers.keys()]) this.#remover(id);
     this.proc?.fechar(); this.proc = null;
@@ -430,6 +473,7 @@ export class SalaVoz {
   #remover(id) {
     const p = this.peers.get(id);
     if (!p) return;
+    miniPlayer.remover(id);
     p.pc.close();
     p.el.remove();
     this.peers.delete(id);
@@ -444,7 +488,7 @@ export class SalaVoz {
       ${local ? '' : '<audio autoplay playsinline></audio>'}
       <span class="nome">${esc(nome)}${local ? '' : ' · conectando…'}</span>
       <span class="acoes-video">
-        <button class="pip" title="Janela flutuante (assistir enquanto joga)" aria-label="Janela flutuante">⧉</button>
+        <button class="pip" title="Mini player: põe este vídeo numa janela flutuante por cima do jogo (no Chrome dá para pôr vários)" aria-label="Janela flutuante">⧉</button>
         <button class="tela-cheia" title="Tela cheia" aria-label="Tela cheia">⛶</button>
       </span>`;
     if (!local) {
@@ -455,6 +499,8 @@ export class SalaVoz {
     el.querySelector('.pip').onclick = async (e) => {
       e.stopPropagation();
       const v = el.querySelector('video.v');
+      // Chrome/Edge: uma janela flutuante com VÁRIOS vídeos (clique ⧉ em quantos quiser); nos outros, um vídeo por vez
+      if (window.documentPictureInPicture) return miniPlayer.alternar(id, nome, v, el);
       try {
         if (document.pictureInPictureElement === v) await document.exitPictureInPicture();
         else if (v.style.display !== 'none' && v.requestPictureInPicture) await v.requestPictureInPicture();

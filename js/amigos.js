@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, avatarHtml, toast, falha, param, aoMudarOnline, aoVivo, seloAoVivo, notaAtiva } from './app.js';
+import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, avatarHtml, toast, falha, param, aoMudarOnline, aoVivo, seloAoVivo, notaAtiva, steamAgora } from './app.js';
 import { montarCall } from './chamada-ui.js';
 
 await montarLayout();
@@ -16,7 +16,7 @@ async function carregar(u) {
   if (error) return falha(error.message.includes('friendships') ? { message: 'Banco desatualizado: rode de novo o supabase/schema.sql.' } : error);
   const outroId = (f) => (f.user_a === u.id ? f.user_b : f.user_a);
   const ids = rel.map(outroId);
-  const { data: perfis } = ids.length ? await sb.from('profiles').select('id,username,avatar_url,equipped_frame,psn_id,xbox_gamertag,discord_user,twitch_user,nota,nota_at').in('id', ids) : { data: [] };
+  const { data: perfis } = ids.length ? await sb.from('profiles').select('id,username,avatar_url,equipped_frame,psn_id,xbox_gamertag,discord_user,twitch_user,nota,nota_at,steam_id').in('id', ids) : { data: [] };
   const P = new Map((perfis || []).map((x) => [x.id, x]));
   const amigos = rel.filter((f) => f.status === 'aceita').map((f) => ({ ...P.get(outroId(f)), room_key: f.room_key })).filter((x) => x.id).sort((a, b) => a.username.localeCompare(b.username));
   const recebidos = rel.filter((f) => f.status === 'pendente' && f.requester !== u.id).map((f) => P.get(outroId(f))).filter(Boolean);
@@ -26,6 +26,7 @@ async function carregar(u) {
       <span class="ponto-online" title="offline"></span>${avatarHtml(a)}
       <span style="flex:1;min-width:140px"><a class="usuario" href="perfil.html?u=${encodeURIComponent(a.username)}">${esc(a.username)}</a>
         ${notaAtiva(a) ? ` <span class="tag" style="font-size:.75rem">💭 ${esc(notaAtiva(a))}</span>` : ''}
+        <span class="jogando" data-steam="${esc(a.steam_id || '')}"></span>
         <br><span class="muted" style="font-size:.8rem">${[a.psn_id && 'PSN: ' + esc(a.psn_id), a.xbox_gamertag && 'Xbox: ' + esc(a.xbox_gamertag), a.discord_user && 'Discord: ' + esc(a.discord_user)].filter(Boolean).join(' · ')}</span></span>
       <button class="btn sec pequeno" data-conversar="${esc(a.username)}">💬 <span class="nao-lidas" data-nl="${a.id}"></span></button>
       <button class="btn pequeno" data-chamar="${esc(a.username)}">📞 Call</button>
@@ -64,6 +65,20 @@ async function carregar(u) {
     if (s) main.querySelector(`.amigo[data-id="${a.id}"] .usuario`)?.insertAdjacentHTML('afterend', ' ' + seloAoVivo(s, a.twitch_user));
   }));
 
+  // Jogando agora na Steam (atualiza a cada 2 min enquanto a página está aberta)
+  const atualizarSteam = async () => {
+    const els = [...main.querySelectorAll('.jogando[data-steam]')].filter((e) => e.dataset.steam);
+    if (!els.length) return;
+    const st = await steamAgora(els.map((e) => e.dataset.steam));
+    for (const e of els) {
+      const s = st[e.dataset.steam];
+      e.innerHTML = s?.jogo ? ` <span class="tag jogando-agora" title="Agora na Steam">🎮 Jogando ${esc(s.jogo)}</span>` : s?.online ? ' <span class="tag" style="font-size:.72rem">🟢 Online na Steam</span>' : '';
+      if (s?.jogo) e.closest('.amigo').style.order = -2;
+    }
+  };
+  atualizarSteam();
+  clearInterval(window.__steamTimer); window.__steamTimer = setInterval(atualizarSteam, 120000);
+
   // Online agora (ordem: online primeiro)
   aoMudarOnline((online) => {
     let n = 0;
@@ -71,7 +86,7 @@ async function carregar(u) {
       const on = online.has(el.dataset.id); n += on;
       el.querySelector('.ponto-online').classList.toggle('on', on);
       el.querySelector('.ponto-online').title = on ? 'online agora' : 'offline';
-      el.style.order = on ? -1 : 0;
+      if (el.style.order !== '-2') el.style.order = on ? -1 : 0;
     });
     $('#n-online').textContent = n ? `· ${n} online` : '';
   });

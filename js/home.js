@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha, carrossel, esqueletoCards, esqueletoLista, param, srcCapa } from './app.js';
+import { sb, $, esc, montarLayout, cardJogo, configurado, usuario, data, urlSegura, COLUNAS_CARD, avatarHtml, toast, falha, carrossel, esqueletoCards, esqueletoLista, param, srcCapa, steamAgora } from './app.js';
 import { barraStories } from './stories.js';
 import { COLUNAS_POST_DESAFIO as COLUNAS_POST, postHtml, ligarPosts, compositorHtml, ligarCompositor } from './posts.js';
 
@@ -41,7 +41,7 @@ main.insertAdjacentHTML('beforeend', `
   <div class="detalhe" style="margin-top:8px">
     <section><div id="desafio"></div><h2>📣 Feed da comunidade</h2><div id="compor"></div><div class="lista" id="feed" style="margin-top:12px">${esqueletoLista(3)}</div>
       <button class="btn sec hidden" id="mais-feed" style="margin-top:12px;width:100%">Carregar mais</button></section>
-    <aside><h2>👥 Atividade dos amigos</h2><div class="lista" id="atividade"><p class="muted">Entre e siga pessoas para ver o que elas estão jogando e avaliando.</p></div></aside>
+    <aside><div id="jogando-agora"></div><h2>👥 Atividade dos amigos</h2><div class="lista" id="atividade"><p class="muted">Entre e siga pessoas para ver o que elas estão jogando e avaliando.</p></div></aside>
   </div>`);
 
 if (configurado) {
@@ -72,6 +72,7 @@ if (configurado) {
     const { data: rec } = await sb.rpc('recommend_games', { lim: 12 }).select(COLUNAS_CARD);
     if (rec?.length) { $('#sec-rec').classList.remove('hidden'); $('#rec').innerHTML = carrossel(rec.map(cardJogo).join('')); }
     carregarAtividade();
+    carregarJogandoAgora(u).catch(() => {});
     barraStories($('#stories'), u);
     $('#compor').innerHTML = compositorHtml();
     compositor = ligarCompositor($('#compositor'), { u, aoPublicar: () => { carregarFeed(true); carregarDesafio(); } });
@@ -127,6 +128,17 @@ async function carregarFeed(reiniciar) {
   $('#mais-feed').classList.toggle('hidden', (ps || []).length < POR);
   $('#mais-feed').onclick = () => { paginaFeed++; carregarFeed(false); };
   if (reiniciar && alvo) box.querySelector(`[data-post="${alvo}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// Quem você segue e está jogando agora (status público da Steam)
+async function carregarJogandoAgora(u) {
+  const { data: seg } = await sb.from('follows').select('profiles!follows_followed_id_fkey(id,username,avatar_url,equipped_frame,steam_id)').eq('follower_id', u.id).limit(100);
+  const pessoas = (seg || []).map((x) => x.profiles).filter((p) => p?.steam_id);
+  if (!pessoas.length) return;
+  const st = await steamAgora(pessoas.map((p) => p.steam_id));
+  const ativos = pessoas.filter((p) => st[p.steam_id]?.jogo);
+  $('#jogando-agora').innerHTML = ativos.length ? `<h2>🟢 Jogando agora</h2><div class="lista" style="margin-bottom:14px">${ativos.map((p) => `<a class="atividade" href="perfil.html?u=${encodeURIComponent(p.username)}" style="color:var(--texto);text-decoration:none">
+    ${avatarHtml(p)}<span style="flex:1;min-width:0;font-size:.9rem"><strong>${esc(p.username)}</strong><br><span class="tag jogando-agora">🎮 ${esc(st[p.steam_id].jogo)}</span></span></a>`).join('')}</div>` : '';
 }
 
 async function carregarAtividade() {

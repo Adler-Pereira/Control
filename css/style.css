@@ -525,3 +525,9 @@ iframe.spotify { width: 100%; border: 0; border-radius: 12px; }
 .perfil-info .nome-bloco { min-width: 0; }
 .perfil-info .vitrine, .perfil-info .contas-jogo { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 640px) { .perfil-info > .controles { margin-left: 0; } }
+.badge.online { background: #22c55e; color: #000; }
+.tag.jogando-agora { background: #1b3a1f; color: #7ee787; font-size: .75rem; }
+.no-mini { outline: 2px dashed var(--amarelo, #ffd33c); outline-offset: -2px; }
+.post-video { position: relative; margin-top: 8px; }
+.post-video video { width: 100%; max-height: 70vh; border-radius: 12px; background: #000; display: block; cursor: pointer; }
+.video-som { position: absolute; right: 10px; bottom: 10px; background: #000b; color: #fff; border: 0; border-radius: 999px; width: 40px; height: 40px; font-size: 1.1rem; cursor: pointer; }

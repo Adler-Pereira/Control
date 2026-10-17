@@ -1,5 +1,5 @@
 // Posts com imagem, curtidas e comentários (usado na página inicial, nas comunidades e no perfil)
-import { sb, $, esc, avatarHtml, toast, falha, urlSegura, denunciar, enviarImagem, esqueletoLista, imagemAceitavel, spotifyId, spotifyPlayer } from './app.js';
+import { sb, $, esc, avatarHtml, toast, falha, urlSegura, denunciar, enviarImagem, esqueletoLista, imagemAceitavel, spotifyId, spotifyPlayer, playerSpotify, somLigado, definirSom, tocarSo, pararMusica, enviarVideo } from './app.js';
 
 export const COLUNAS_POST = '*, profiles!posts_user_id_fkey(username,avatar_url,equipped_frame), games(slug,title), communities(id,name)';
 // Com desafio (só depois do schema novo): usado onde os desafios aparecem
@@ -30,8 +30,11 @@ export function postHtml(x, { u, moderar = false, mostrarComunidade = true } = {
       ${meu || moderar ? `<button class="btn sec pequeno" data-p-del="${x.id}">Apagar</button>` : u ? `<button class="bt-denunciar" data-p-den="${x.id}" aria-label="Denunciar">🚩</button>` : ''}
     </header>
     ${x.body ? `<p class="quebra">${comLinks(x.body)}</p>` : ''}
-    ${x.musica ? spotifyPlayer(x.musica) : ''}
+    ${x.musica ? `<div class="controles post-musica" style="align-items:center;gap:6px"><div data-spotify="${esc(x.musica)}" style="flex:1"></div>
+      <button type="button" class="btn sec pequeno" data-som title="Tocar a música sozinha ao ver o post">${somLigado() ? '🔊' : '🔇'}</button></div>` : ''}
     ${x.image_url ? `<img class="post-img" src="${urlSegura(x.image_url)}" alt="Imagem do post" loading="lazy">` : ''}
+    ${x.video_url ? `<div class="post-video"><video src="${urlSegura(x.video_url)}" playsinline loop muted preload="metadata"></video>
+      <button type="button" class="video-som" data-video-som title="Som">🔇</button></div>` : ''}
     <footer class="post-acoes">
       <button class="bt-acao" data-p-like="${x.id}" ${u ? '' : 'disabled'}>🤍 <span>${x.likes_count || 0}</span></button>
       <button class="bt-acao" data-p-com="${x.id}">💬 <span>${x.comments_count || 0}</span></button>
@@ -42,7 +45,45 @@ export function postHtml(x, { u, moderar = false, mostrarComunidade = true } = {
 }
 
 // Liga os botões de uma lista de posts já desenhada. aoMudar: recarregar a lista (ex.: depois de apagar)
+// Música dos posts: toca sozinha o post que está mais visível na tela (um por vez), como no Instagram
+let observador = null;
+function ligarMusicas(box) {
+  const blocos = [...box.querySelectorAll('.post-musica')];
+  if (!blocos.length) return;
+  observador ||= new IntersectionObserver((entradas) => {
+    for (const e of entradas) {
+      const b = e.target;
+      if (e.isIntersecting && e.intersectionRatio >= 0.7) { if (b._ctrl && somLigado()) tocarSo(b._ctrl); }
+      else if (b._ctrl) b._ctrl.pause?.();
+    }
+  }, { threshold: [0, 0.7] });
+  for (const b of blocos) {
+    if (b._ligado) continue; b._ligado = true;
+    playerSpotify(b.querySelector('[data-spotify]')).then((c) => { b._ctrl = c; observador.observe(b); });
+    b.querySelector('[data-som]').onclick = (e) => {
+      const on = !somLigado(); definirSom(on);
+      document.querySelectorAll('.post-musica [data-som]').forEach((x) => { x.textContent = on ? '🔊' : '🔇'; });
+      on ? b._ctrl && tocarSo(b._ctrl) : pararMusica();
+    };
+  }
+}
+
+// Vídeos dos posts: tocam sozinhos (sem som) quando aparecem na tela e pausam ao sair; 🔇/🔊 liga o som
+let obsVideo = null;
+function ligarVideos(box) {
+  obsVideo ||= new IntersectionObserver((es) => es.forEach((e) => { const v = e.target; e.isIntersecting && e.intersectionRatio >= 0.6 ? v.play().catch(() => {}) : v.pause(); }), { threshold: [0, 0.6] });
+  box.querySelectorAll('.post-video').forEach((c) => {
+    if (c._ligado) return; c._ligado = true;
+    const v = c.querySelector('video'), b = c.querySelector('[data-video-som]');
+    obsVideo.observe(v);
+    v.onclick = () => (v.paused ? v.play() : v.pause());
+    b.onclick = () => { v.muted = !v.muted; b.textContent = v.muted ? '🔇' : '🔊'; if (!v.muted) pararMusica(); };
+  });
+}
+
 export async function ligarPosts(box, { u, aoMudar } = {}) {
+  ligarMusicas(box);
+  ligarVideos(box);
   const ids = [...box.querySelectorAll('[data-post]')].map((a) => Number(a.dataset.post));
   if (u && ids.length) {
     const { data: curti } = await sb.from('post_likes').select('post_id').eq('user_id', u.id).in('post_id', ids);
@@ -112,9 +153,9 @@ export function compositorHtml(placeholder = 'O que você está jogando? Compart
     <textarea id="cp-txt" rows="2" maxlength="2000" placeholder="${esc(placeholder)}"></textarea>
     <div class="cp-desafio hidden" id="cp-desafio"></div>
     <input id="cp-musica" class="hidden" type="url" placeholder="🎵 Cole o link de uma música do Spotify (opcional)" style="margin-top:6px">
-    <div class="cp-previa hidden" id="cp-previa"><img alt=""><button type="button" class="btn sec pequeno" id="cp-tirar">✕ Remover imagem</button></div>
+    <div class="cp-previa hidden" id="cp-previa"><img alt=""><video class="hidden" muted playsinline controls style="max-width:100%;max-height:240px;border-radius:10px"></video><button type="button" class="btn sec pequeno" id="cp-tirar">✕ Remover imagem</button></div>
     <div class="controles" style="margin-top:8px;align-items:center">
-      <label class="btn sec pequeno" style="cursor:pointer">🖼️ Imagem / GIF<input type="file" id="cp-img" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
+      <label class="btn sec pequeno" style="cursor:pointer">🖼️ Imagem / GIF / 🎬 Vídeo<input type="file" id="cp-img" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime" hidden></label>
       <span class="busca-jogo" style="flex:1;min-width:160px;max-width:280px"><input id="cp-busca" type="search" placeholder="🎮 Marcar jogo (opcional)" autocomplete="off"><input type="hidden" id="cp-jogo"><span class="sugestoes hidden" id="cp-sug"></span></span>
       <label class="muted cp-meme hidden" style="font-size:.85rem;display:flex;gap:6px;align-items:center" title="A equipe escolhe os melhores e posta no @control.critic com crédito para você"><input type="checkbox" id="cp-meme"> 😂 É meme: pode ir para o Instagram do Control Critic (com seu @)</label>
       <button type="button" class="btn sec pequeno" id="cp-bt-musica" title="Adicionar música do Spotify">🎵 Música</button>
@@ -139,6 +180,14 @@ export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPub
   $('#cp-img', form).onchange = (e) => {
     const a = e.target.files[0];
     if (!a) return;
+    if (a.type.startsWith('video/')) {
+      if (a.size > 50 * 1024 * 1024) { e.target.value = ''; return toast('O vídeo deve ter no máximo 50 MB.', true); }
+      arquivo = a; previa.querySelector('img').classList.add('hidden');
+      const v = previa.querySelector('video'); v.src = URL.createObjectURL(a); v.classList.remove('hidden'); previa.classList.remove('hidden');
+      $('.cp-meme', form).classList.add('hidden');
+      return;
+    }
+    previa.querySelector('video').classList.add('hidden'); previa.querySelector('img').classList.remove('hidden');
     const problema = imagemAceitavel(a, 3);
     if (problema) { e.target.value = ''; return toast(problema, true); }
     arquivo = a; previa.querySelector('img').src = URL.createObjectURL(a); previa.classList.remove('hidden');
@@ -160,14 +209,17 @@ export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPub
   form.onsubmit = async (e) => {
     e.preventDefault();
     const texto = $('#cp-txt', form).value.trim();
-    if (!texto && !arquivo) return toast('Escreva algo ou escolha uma imagem.', true);
+    if (!texto && !arquivo) return toast('Escreva algo ou escolha uma imagem ou vídeo.', true);
     const linkMus = $('#cp-musica', form).value.trim();
     if (linkMus && !spotifyId(linkMus)) return toast('Link do Spotify inválido. No Spotify: Compartilhar → Copiar link.', true);
     const bt = $('#cp-enviar', form); bt.disabled = true; bt.textContent = 'Publicando...';
     try {
-      const image_url = arquivo ? await enviarImagem(u.id, 'post', arquivo) : null;
+      const ehVideo = arquivo?.type.startsWith('video/');
+      if (ehVideo) bt.textContent = 'Enviando vídeo...';
+      const image_url = arquivo && !ehVideo ? await enviarImagem(u.id, 'post', arquivo) : null;
+      const video_url = ehVideo ? await enviarVideo(u.id, 'video', arquivo) : null;
       const { error } = await sb.from('posts').insert({ user_id: u.id, community_id: comunidade, body: texto || '📷',
-        image_url, game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null, ...(desafio ? { challenge_id: desafio.id } : {}), ...(arquivo && $('#cp-meme', form).checked ? { ig_ok: true } : {}),
+        image_url, ...(video_url ? { video_url } : {}), game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null, ...(desafio ? { challenge_id: desafio.id } : {}), ...(arquivo && $('#cp-meme', form).checked ? { ig_ok: true } : {}),
         ...(linkMus ? { musica: spotifyId(linkMus) } : {}), ...($('#cp-aviso', form).checked ? { aviso: true } : {}) });
       if (error) throw /row-level/.test(error.message) ? new Error('Você precisa participar da comunidade para publicar.') : error;
       const meme = arquivo && $('#cp-meme', form).checked;

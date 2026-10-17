@@ -190,7 +190,7 @@ export async function montarLayout() {
     conta.innerHTML = `
       ${p.role !== 'user' ? '<a class="btn sec pequeno" href="admin.html">Admin</a>' : ''}
       <a href="conquistas.html" class="chama-topo" id="chama" title="Sequência de dias e conquistas">🔥 ${p.streak_current || 0}</a>
-      <a href="amigos.html" class="sino" title="Amigos" aria-label="Amigos">👥</a>
+      <a href="amigos.html" class="sino" title="Amigos" aria-label="Amigos">👥<span class="badge online hidden" id="badge-online" title="Amigos online agora"></span></a>
       <a href="notificacoes.html" class="sino" title="Notificações" aria-label="Notificações">🔔<span class="badge hidden" id="badge"></span></a>
       <a href="perfil.html" title="${esc(p.username)}" aria-label="Meu perfil">${avatarHtml(p)}</a>
       <button class="sino" id="sair-topo" title="Sair da conta" aria-label="Sair da conta" style="background:none;border:0;cursor:pointer">⎋</button>`;
@@ -199,6 +199,7 @@ export async function montarLayout() {
     if (!p.onboarded && p.onboarded !== undefined) import('./boas-vindas.js').then((m) => m.boasVindas(p)).catch(() => {});
     loginDiario();
     entrarOnline(p);
+    contarAmigosOnline(p.id);
     // Atualiza o sino em tempo real
     sb.channel('notif:' + p.id)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${p.id}` }, (m) => {
@@ -442,6 +443,18 @@ function entrarOnline(p) {
   });
   conectar();
 }
+// Bolinha verde no 👥 do topo com quantos amigos estão online agora
+async function contarAmigosOnline(uid) {
+  const { data } = await sb.from('friendships').select('user_a,user_b').eq('status', 'aceita').or(`user_a.eq.${uid},user_b.eq.${uid}`);
+  const amigos = new Set((data || []).map((f) => (f.user_a === uid ? f.user_b : f.user_a)));
+  if (!amigos.size) return;
+  aoMudarOnline((online) => {
+    const n = [...amigos].filter((id) => online.has(id)).length, b = $('#badge-online');
+    if (!b) return;
+    b.textContent = n; b.classList.toggle('hidden', !n);
+    b.parentElement.title = n ? `${n} amigo(s) online agora` : 'Amigos';
+  });
+}
 export function onlineAgora() { return new Set(Object.keys(canalOnline?.presenceState() || {})); }
 export function aoMudarOnline(f) { ouvintesOnline.add(f); f(onlineAgora()); }
 
@@ -593,3 +606,42 @@ export const spotifyPlayer = (id, alto = false) => /^(track|album|playlist|episo
   ? `<iframe class="spotify" src="https://open.spotify.com/embed/${id}?utm_source=controlcritic" height="${alto ? 352 : 80}" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" title="Música no Spotify"></iframe>` : '';
 // Nota (status de até 60 caracteres) vale por 24 horas
 export const notaAtiva = (p) => p?.nota && p.nota_at && Date.now() - new Date(p.nota_at) < 864e5 ? p.nota : null;
+
+// ---------- Música tocando sozinha (como no Instagram), a menos que a pessoa tenha silenciado ----------
+// Usa a API oficial do player do Spotify. Preferência guardada no aparelho: cc_som = 'off' quando silenciou.
+export const somLigado = () => { try { return localStorage.getItem('cc_som') !== 'off'; } catch { return true; } };
+export const definirSom = (on) => { try { localStorage.setItem('cc_som', on ? 'on' : 'off'); } catch { /* ignora */ } };
+let apiSpotify = null, tocandoAgora = null;
+function carregarApiSpotify() {
+  if (apiSpotify) return apiSpotify;
+  apiSpotify = new Promise((ok) => {
+    window.onSpotifyIframeApiReady = (IFrameAPI) => ok(IFrameAPI);
+    const s = document.createElement('script'); s.src = 'https://open.spotify.com/embed/iframe-api/v1'; s.async = true;
+    s.onerror = () => ok(null); document.head.append(s);
+  });
+  return apiSpotify;
+}
+// Troca um <div data-spotify="track/ID"> pelo player controlável; tocar = começar já (respeitando o mudo)
+export async function playerSpotify(el, tocar = false) {
+  const id = el?.dataset.spotify;
+  if (!/^(track|album|playlist|episode)\/[A-Za-z0-9]{22}$/.test(id || '')) return null;
+  const api = await carregarApiSpotify();
+  if (!api) { el.outerHTML = spotifyPlayer(id); return null; }
+  return new Promise((ok) => api.createController(el, { uri: `spotify:${id.replace('/', ':')}`, height: 80, width: '100%' }, (c) => {
+    c.addListener('ready', () => { if (tocar && somLigado()) tocarSo(c); });
+    ok(c);
+  }));
+}
+export function tocarSo(c) { if (tocandoAgora && tocandoAgora !== c) tocandoAgora.pause?.(); tocandoAgora = c; c.play?.(); }
+export function pararMusica() { tocandoAgora?.pause?.(); tocandoAgora = null; }
+
+// Vídeo (MP4/WebM/MOV) direto para o armazenamento, sem conversão (limite do plano grátis do Supabase: 50 MB por arquivo)
+export async function enviarVideo(uid, prefixo, arq, limiteMb = 50) {
+  if (!/^video\/(mp4|webm|quicktime)$/.test(arq.type)) throw new Error('Vídeo precisa ser MP4, WebM ou MOV.');
+  if (arq.size > limiteMb * 1024 * 1024) throw new Error(`O vídeo deve ter no máximo ${limiteMb} MB (corte um trecho menor ou reduza a qualidade).`);
+  const ext = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' }[arq.type];
+  const caminho = `avatars/${uid}/${prefixo}-${Date.now()}.${ext}`;
+  const { error } = await sb.storage.from('media').upload(caminho, arq, { contentType: arq.type });
+  if (error) throw new Error(`Não foi possível enviar o vídeo (${error.message}).`);
+  return sb.storage.from('media').getPublicUrl(caminho).data.publicUrl;
+}
