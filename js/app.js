@@ -582,3 +582,14 @@ export async function desativarPush() {
   await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
   await sub.unsubscribe();
 }
+
+// ---------- Música do Spotify (perfil, posts e stories) ----------
+// Aceita link do Spotify (open.spotify.com/intl-pt/track/ID?si=...) e guarda só "track/ID"
+export function spotifyId(link) {
+  const m = String(link || '').match(/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(track|album|playlist|episode)\/([A-Za-z0-9]{22})/);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+export const spotifyPlayer = (id, alto = false) => /^(track|album|playlist|episode)\/[A-Za-z0-9]{22}$/.test(id || '')
+  ? `<iframe class="spotify" src="https://open.spotify.com/embed/${id}?utm_source=controlcritic" height="${alto ? 352 : 80}" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" title="Música no Spotify"></iframe>` : '';
+// Nota (status de até 60 caracteres) vale por 24 horas
+export const notaAtiva = (p) => p?.nota && p.nota_at && Date.now() - new Date(p.nota_at) < 864e5 ? p.nota : null;

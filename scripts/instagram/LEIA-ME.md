@@ -8,6 +8,8 @@ O que ele faz (2 posts por dia):
 
 **Stories:** todo post do feed também sai como story (1080×1920), com a arte no centro e o chamado "Toque na foto do perfil e veja o post". Se o story falhar, o post continua valendo. Enquetes com figurinha, links e música não existem na API: esses precisam ser feitos à mão no app.
 
+**Reels com música:** coloque músicas livres de direitos em `scripts/instagram/musicas/` (veja o LEIA-ME de lá). Com música disponível, o resumo do dia sai como **Reels** (vídeo vertical com as artes e a música), que alcança muito mais gente. Sem música, continua como carrossel.
+
 O Adelino muda de skin conforme o tema do post (terror, RPG, meme, promoção...): veja `img/adelino/LEIA-ME.md`.
 
 As artes seguem a identidade do site: fundo escuro, amarelo, títulos em Anton, logo e o Adelino. As legendas levam emojis, fonte, "link na bio" e hashtags.

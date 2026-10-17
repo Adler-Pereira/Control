@@ -1,5 +1,5 @@
 // Posts com imagem, curtidas e comentários (usado na página inicial, nas comunidades e no perfil)
-import { sb, $, esc, avatarHtml, toast, falha, urlSegura, denunciar, enviarImagem, esqueletoLista, imagemAceitavel } from './app.js';
+import { sb, $, esc, avatarHtml, toast, falha, urlSegura, denunciar, enviarImagem, esqueletoLista, imagemAceitavel, spotifyId, spotifyPlayer } from './app.js';
 
 export const COLUNAS_POST = '*, profiles!posts_user_id_fkey(username,avatar_url,equipped_frame), games(slug,title), communities(id,name)';
 // Com desafio (só depois do schema novo): usado onde os desafios aparecem
@@ -20,7 +20,7 @@ const comLinks = (t) => esc(t)
 
 export function postHtml(x, { u, moderar = false, mostrarComunidade = true } = {}) {
   const meu = u && x.user_id === u.id;
-  return `<article class="post" data-post="${x.id}">
+  return `<article class="post ${x.aviso ? 'post-aviso' : ''}" data-post="${x.id}">${x.aviso ? '<span class="tag amarela" style="margin-bottom:6px">📢 Aviso da comunidade</span>' : ''}
     <header>${avatarHtml(x.profiles)}
       <span style="flex:1;min-width:0"><a class="usuario" href="perfil.html?u=${encodeURIComponent(x.profiles?.username || '')}">${esc(x.profiles?.username)}</a>
         ${mostrarComunidade && x.communities ? `<span class="muted"> em <a href="comunidade.html?id=${x.communities.id}">${esc(x.communities.name)}</a></span>` : ''}
@@ -30,6 +30,7 @@ export function postHtml(x, { u, moderar = false, mostrarComunidade = true } = {
       ${meu || moderar ? `<button class="btn sec pequeno" data-p-del="${x.id}">Apagar</button>` : u ? `<button class="bt-denunciar" data-p-den="${x.id}" aria-label="Denunciar">🚩</button>` : ''}
     </header>
     ${x.body ? `<p class="quebra">${comLinks(x.body)}</p>` : ''}
+    ${x.musica ? spotifyPlayer(x.musica) : ''}
     ${x.image_url ? `<img class="post-img" src="${urlSegura(x.image_url)}" alt="Imagem do post" loading="lazy">` : ''}
     <footer class="post-acoes">
       <button class="bt-acao" data-p-like="${x.id}" ${u ? '' : 'disabled'}>🤍 <span>${x.likes_count || 0}</span></button>
@@ -110,17 +111,22 @@ export function compositorHtml(placeholder = 'O que você está jogando? Compart
   return `<form class="cartao compositor" id="compositor">
     <textarea id="cp-txt" rows="2" maxlength="2000" placeholder="${esc(placeholder)}"></textarea>
     <div class="cp-desafio hidden" id="cp-desafio"></div>
+    <input id="cp-musica" class="hidden" type="url" placeholder="🎵 Cole o link de uma música do Spotify (opcional)" style="margin-top:6px">
     <div class="cp-previa hidden" id="cp-previa"><img alt=""><button type="button" class="btn sec pequeno" id="cp-tirar">✕ Remover imagem</button></div>
     <div class="controles" style="margin-top:8px;align-items:center">
       <label class="btn sec pequeno" style="cursor:pointer">🖼️ Imagem / GIF<input type="file" id="cp-img" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
       <span class="busca-jogo" style="flex:1;min-width:160px;max-width:280px"><input id="cp-busca" type="search" placeholder="🎮 Marcar jogo (opcional)" autocomplete="off"><input type="hidden" id="cp-jogo"><span class="sugestoes hidden" id="cp-sug"></span></span>
       <label class="muted cp-meme hidden" style="font-size:.85rem;display:flex;gap:6px;align-items:center" title="A equipe escolhe os melhores e posta no @control.critic com crédito para você"><input type="checkbox" id="cp-meme"> 😂 É meme: pode ir para o Instagram do Control Critic (com seu @)</label>
+      <button type="button" class="btn sec pequeno" id="cp-bt-musica" title="Adicionar música do Spotify">🎵 Música</button>
+      <label class="muted cp-aviso hidden" style="font-size:.85rem;display:flex;gap:6px;align-items:center"><input type="checkbox" id="cp-aviso" style="width:auto"> 📢 Fixar como aviso</label>
       <button class="btn" id="cp-enviar" style="margin-left:auto">Publicar</button>
     </div></form>`;
 }
 
-export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPublicar }) {
+export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPublicar, moderador = false }) {
   let arquivo = null, t, desafio = null;
+  if (moderador && comunidade) $('.cp-aviso', form).classList.remove('hidden');
+  $('#cp-bt-musica', form).onclick = () => { $('#cp-musica', form).classList.toggle('hidden'); $('#cp-musica', form).focus(); };
   const boxDesafio = $('#cp-desafio', form);
   const definirDesafio = (ch) => {
     desafio = ch;
@@ -155,11 +161,14 @@ export function ligarCompositor(form, { u, comunidade = null, jogo = null, aoPub
     e.preventDefault();
     const texto = $('#cp-txt', form).value.trim();
     if (!texto && !arquivo) return toast('Escreva algo ou escolha uma imagem.', true);
+    const linkMus = $('#cp-musica', form).value.trim();
+    if (linkMus && !spotifyId(linkMus)) return toast('Link do Spotify inválido. No Spotify: Compartilhar → Copiar link.', true);
     const bt = $('#cp-enviar', form); bt.disabled = true; bt.textContent = 'Publicando...';
     try {
       const image_url = arquivo ? await enviarImagem(u.id, 'post', arquivo) : null;
       const { error } = await sb.from('posts').insert({ user_id: u.id, community_id: comunidade, body: texto || '📷',
-        image_url, game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null, ...(desafio ? { challenge_id: desafio.id } : {}), ...(arquivo && $('#cp-meme', form).checked ? { ig_ok: true } : {}) });
+        image_url, game_id: $('#cp-jogo', form).value ? Number($('#cp-jogo', form).value) : null, ...(desafio ? { challenge_id: desafio.id } : {}), ...(arquivo && $('#cp-meme', form).checked ? { ig_ok: true } : {}),
+        ...(linkMus ? { musica: spotifyId(linkMus) } : {}), ...($('#cp-aviso', form).checked ? { aviso: true } : {}) });
       if (error) throw /row-level/.test(error.message) ? new Error('Você precisa participar da comunidade para publicar.') : error;
       const meme = arquivo && $('#cp-meme', form).checked;
       form.reset(); semImagem();

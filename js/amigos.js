@@ -1,4 +1,4 @@
-import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, avatarHtml, toast, falha, param, aoMudarOnline, aoVivo, seloAoVivo } from './app.js';
+import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, avatarHtml, toast, falha, param, aoMudarOnline, aoVivo, seloAoVivo, notaAtiva } from './app.js';
 import { montarCall } from './chamada-ui.js';
 
 await montarLayout();
@@ -16,7 +16,7 @@ async function carregar(u) {
   if (error) return falha(error.message.includes('friendships') ? { message: 'Banco desatualizado: rode de novo o supabase/schema.sql.' } : error);
   const outroId = (f) => (f.user_a === u.id ? f.user_b : f.user_a);
   const ids = rel.map(outroId);
-  const { data: perfis } = ids.length ? await sb.from('profiles').select('id,username,avatar_url,equipped_frame,psn_id,xbox_gamertag,discord_user,twitch_user').in('id', ids) : { data: [] };
+  const { data: perfis } = ids.length ? await sb.from('profiles').select('id,username,avatar_url,equipped_frame,psn_id,xbox_gamertag,discord_user,twitch_user,nota,nota_at').in('id', ids) : { data: [] };
   const P = new Map((perfis || []).map((x) => [x.id, x]));
   const amigos = rel.filter((f) => f.status === 'aceita').map((f) => ({ ...P.get(outroId(f)), room_key: f.room_key })).filter((x) => x.id).sort((a, b) => a.username.localeCompare(b.username));
   const recebidos = rel.filter((f) => f.status === 'pendente' && f.requester !== u.id).map((f) => P.get(outroId(f))).filter(Boolean);
@@ -25,6 +25,7 @@ async function carregar(u) {
   const linhaAmigo = (a) => `<div class="cartao controles amigo" data-id="${a.id}" style="align-items:center">
       <span class="ponto-online" title="offline"></span>${avatarHtml(a)}
       <span style="flex:1;min-width:140px"><a class="usuario" href="perfil.html?u=${encodeURIComponent(a.username)}">${esc(a.username)}</a>
+        ${notaAtiva(a) ? ` <span class="tag" style="font-size:.75rem">💭 ${esc(notaAtiva(a))}</span>` : ''}
         <br><span class="muted" style="font-size:.8rem">${[a.psn_id && 'PSN: ' + esc(a.psn_id), a.xbox_gamertag && 'Xbox: ' + esc(a.xbox_gamertag), a.discord_user && 'Discord: ' + esc(a.discord_user)].filter(Boolean).join(' · ')}</span></span>
       <button class="btn sec pequeno" data-conversar="${esc(a.username)}">💬 <span class="nao-lidas" data-nl="${a.id}"></span></button>
       <button class="btn pequeno" data-chamar="${esc(a.username)}">📞 Call</button>
