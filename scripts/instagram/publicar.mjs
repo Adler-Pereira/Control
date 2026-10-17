@@ -6,7 +6,7 @@
 // Variáveis: SUPABASE_URL, SUPABASE_SERVICE_KEY, IG_USER_ID, IG_TOKEN (o token é renovado sozinho e guardado no banco)
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { supabaseRest } from '../../lib/igdb.mjs';
-import { arteNoticia, arteResumo, artePromo, arteMeme, arteVersus } from './arte.mjs';
+import { arteNoticia, arteResumo, artePromo, arteMeme, arteVersus, arteStory } from './arte.mjs';
 
 const gh = !!process.env.GITHUB_ACTIONS;
 const env = (k) => (process.env[k] || '').trim();
@@ -79,10 +79,24 @@ async function aguardarPronto(id, token) {
 }
 
 // imagens: [{ jpeg, nome }]; uma imagem = post simples; várias = carrossel
+// Todo post do feed também vira story (mais alcance: os stories aparecem no topo do app para os seguidores)
+const CHAMADAS = { resumo: 'RESUMO DO DIA', noticia: 'NOTÍCIA NOVA', urgente: 'URGENTE', promo: 'PROMOÇÃO DO DIA', meme: 'MEME DO DIA', versus: 'VOTE NOS COMENTÁRIOS' };
+const chamadaDe = (nome) => CHAMADAS[String(nome).split('-')[0]] || 'NOVO POST NO PERFIL';
+async function publicarStory(jpeg, nome, token) {
+  try {
+    const url = await hospedar(await arteStory(jpeg, chamadaDe(nome)), `story-${nome}`);
+    const c = await ig(`${env('IG_USER_ID')}/media`, { media_type: 'STORIES', image_url: url }, token);
+    await aguardarPronto(c.id, token);
+    await ig(`${env('IG_USER_ID')}/media_publish`, { creation_id: c.id }, token);
+    log('Story publicado.');
+  } catch (e) { aviso(`O post saiu, mas o story falhou: ${e.message}`); }   // story nunca derruba o post
+}
+
 async function publicar(imagens, legenda) {
   if (TESTE) {
     mkdirSync('saida-instagram', { recursive: true });
     imagens.forEach((im, i) => writeFileSync(`saida-instagram/${i + 1}-${im.nome}.jpg`, im.jpeg));
+    writeFileSync('saida-instagram/story.jpg', await arteStory(imagens[0].jpeg, chamadaDe(imagens[0].nome)));
     writeFileSync('saida-instagram/legenda.txt', legenda);
     aviso(`TESTE: ${imagens.length} arte(s) e a legenda salvas em saida-instagram/ (nada foi publicado).`);
     return { url: null };
@@ -103,6 +117,7 @@ async function publicar(imagens, legenda) {
   await aguardarPronto(container, token);
   const post = await ig(`${usuario}/media_publish`, { creation_id: container }, token);
   const info = await ig(post.id, { fields: 'permalink' }, token, 'GET').catch(() => ({}));
+  await publicarStory(imagens[0].jpeg, imagens[0].nome, token);
   return { id: post.id, url: info.permalink || null };
 }
 
