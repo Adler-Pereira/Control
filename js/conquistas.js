@@ -16,6 +16,12 @@ async function carregar() {
   ]);
   const itens = (todos || []).filter((i) => i.active !== false); // itens excluídos pelo admin somem
   const tenho = new Map((meus || []).filter((m) => !m.expires_at || new Date(m.expires_at) > new Date()).map((m) => [m.cosmetic_id, m]));
+  // Progresso das metas automáticas (Steam/biblioteca) que a pessoa ainda não tem
+  progresso.clear();
+  if (u) await Promise.all(itens.filter((i) => i.regra && !tenho.has(i.id)).map(async (i) => {
+    const { data: v } = await sb.rpc('regra_valor', { uid: u.id, r: i.regra });
+    if (v != null) progresso.set(i.id, { v: Number(v), alvo: Number(i.regra.min ?? i.regra.pct), pct: !!i.regra.pct });
+  }));
   const n = p ? nivel(p.xp) : null;
   const porTipo = (k) => itens.filter((i) => i.kind === k);
   const total = itens.length, desbloqueados = itens.filter((i) => tenho.has(i.id)).length;
@@ -82,6 +88,7 @@ async function carregar() {
   });
 }
 
+const progresso = new Map();
 function cartaoItem(i, tenho, p, tipo) {
   const meu = tenho.get(i.id);
   const equipado = p && ((tipo === 'frame' && p.equipped_frame === i.id) || (tipo === 'banner' && p.equipped_banner === i.id));
@@ -96,6 +103,9 @@ function cartaoItem(i, tenho, p, tipo) {
     <strong>${esc(i.name)}</strong>
     <span class="raridade r-${i.rarity}">${RARIDADE[i.rarity] || ''}</span>
     <span class="muted" style="font-size:.82rem">${meu ? (meu.expires_at ? `Válido até ${new Date(meu.expires_at).toLocaleDateString('pt-BR')}` : '✓ Desbloqueado') : '🔒 ' + esc(i.description)}</span>
+    ${!meu && progresso.has(i.id) ? (() => { const g = progresso.get(i.id), pc = Math.min(100, Math.round(g.v / g.alvo * 100));
+      return `<div class="barra-xp" style="width:100%;margin-top:4px" title="${pc}%"><div style="width:${pc}%"></div></div>
+        <span class="muted" style="font-size:.75rem">${Math.floor(g.v).toLocaleString('pt-BR')}${g.pct ? '%' : ''} de ${g.alvo.toLocaleString('pt-BR')}${g.pct ? '%' : ''}</span>`; })() : ''}
     ${acao}
   </div>`;
 }

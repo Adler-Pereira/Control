@@ -3150,3 +3150,110 @@ begin
 end $$;
 revoke execute on function public.admin_xp_lote(uuid[], integer, text) from public, anon;
 grant execute on function public.admin_xp_lote(uuid[], integer, text) to authenticated;
+
+-- =====================================================================
+-- METAS AUTOMÁTICAS (Steam e biblioteca): o item é liberado quando a pessoa cumpre a regra
+--   horas_serie        {padrao, min}  horas somadas nos jogos cujo nome contém o padrão (ex.: "devil may cry")
+--   conquistas_serie   {padrao, pct}  algum jogo da série com pct% das conquistas da Steam (100 = platinou). padrao vazio = qualquer jogo
+--   horas_categoria    {categoria, min}   horas em jogos da categoria (slug: terror, rpg, fps...)
+--   jogos_categoria    {categoria, min}   quantidade de jogos da categoria na biblioteca
+--   zerados_categoria  {categoria, min}   jogos da categoria marcados como zerado
+--   horas_total        {min}  ·  jogos_total {min}
+-- =====================================================================
+alter table public.cosmetics add column if not exists regra jsonb;
+create or replace function public.regra_ok(r jsonb) returns boolean language sql immutable as $$
+  select r is null or (jsonb_typeof(r) = 'object'
+    and r->>'tipo' in ('horas_serie','conquistas_serie','horas_categoria','jogos_categoria','zerados_categoria','horas_total','jogos_total')
+    and coalesce((r->>'min')::numeric, (r->>'pct')::numeric, 0) > 0
+    and char_length(coalesce(r->>'padrao', '')) <= 60 and char_length(coalesce(r->>'categoria', '')) <= 40)
+$$;
+do $$ begin
+  alter table public.cosmetics add constraint cosmetics_regra_ok check (public.regra_ok(regra));
+exception when duplicate_object then null; end $$;
+
+-- Valor atual da pessoa para uma regra (usado para liberar e para mostrar o progresso)
+create or replace function public.regra_valor(uid uuid, r jsonb) returns numeric
+language plpgsql stable security definer set search_path = public as $$
+declare v numeric := 0; cat int; padrao text := '%' || lower(coalesce(r->>'padrao', '')) || '%';
+begin
+  if r->>'categoria' is not null then select id into cat from categories where slug = r->>'categoria'; end if;
+  case r->>'tipo'
+    when 'horas_serie' then
+      select coalesce(sum(ug.hours), 0) into v from user_games ug join games g on g.id = ug.game_id where ug.user_id = uid and lower(g.title) like padrao;
+    when 'conquistas_serie' then
+      select coalesce(max(ug.ach_done * 100.0 / nullif(ug.ach_total, 0)), 0) into v from user_games ug join games g on g.id = ug.game_id
+       where ug.user_id = uid and lower(g.title) like padrao and ug.ach_total > 0;
+    when 'horas_categoria' then
+      select coalesce(sum(ug.hours), 0) into v from user_games ug join games g on g.id = ug.game_id where ug.user_id = uid and cat = any(g.category_ids);
+    when 'jogos_categoria' then
+      select count(*) into v from user_games ug join games g on g.id = ug.game_id where ug.user_id = uid and cat = any(g.category_ids) and (ug.status is not null or ug.hours > 0);
+    when 'zerados_categoria' then
+      select count(*) into v from user_games ug join games g on g.id = ug.game_id where ug.user_id = uid and cat = any(g.category_ids) and ug.status = 'zerado';
+    when 'horas_total' then select coalesce(sum(hours), 0) into v from user_games where user_id = uid;
+    when 'jogos_total' then select count(*) into v from user_games where user_id = uid and (status is not null or hours > 0);
+    else v := 0;
+  end case;
+  return v;
+end $$;
+grant execute on function public.regra_valor(uuid, jsonb) to authenticated;
+
+create or replace function public.check_regras(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare c record;
+begin
+  if uid is null then return; end if;
+  for c in select id, regra from cosmetics where regra is not null and active
+             and not exists (select 1 from user_cosmetics uc where uc.user_id = uid and uc.cosmetic_id = cosmetics.id) loop
+    if regra_valor(uid, c.regra) >= coalesce((c.regra->>'min')::numeric, (c.regra->>'pct')::numeric) then perform grant_cosmetic(uid, c.id); end if;
+  end loop;
+exception when others then null;
+end $$;
+revoke execute on function public.check_regras(uuid) from public, anon, authenticated;
+
+-- Confere a cada mudança na biblioteca (importação da Steam, robô semanal, marcar zerado...)
+create or replace function public.regras_trg() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin perform check_regras(new.user_id); return null; end $$;
+drop trigger if exists user_games_regras on public.user_games;
+create trigger user_games_regras after insert or update of hours, status, ach_done on public.user_games
+  for each row execute function public.regras_trg();
+
+-- Admin cria/edita uma meta e aplica para quem já cumpre (botão no painel)
+create or replace function public.admin_aplicar_regras() returns integer
+language plpgsql security definer set search_path = public as $$
+declare r record; n integer := 0;
+begin
+  if not is_admin() then raise exception 'Só administradores.'; end if;
+  for r in select distinct user_id from user_games loop perform check_regras(r.user_id); n := n + 1; end loop;
+  return n;
+end $$;
+revoke execute on function public.admin_aplicar_regras() from public, anon;
+grant execute on function public.admin_aplicar_regras() to authenticated;
+
+-- Metas prontas (dá para editar ou criar outras em Admin → Itens)
+insert into public.cosmetics (id, kind, name, description, rarity, icon, sort, custom, style, regra) values
+  ('f_dmc',      'frame',  'Caçador de Demônios', 'Jogue 100 horas de Devil May Cry (somando a série)', 'epica', null, 1400, true,
+     '{"cores":["#b71c1c","#0b0b0d","#ff1744"],"animado":true,"brilho":true,"velocidade":3,"emoji":"⚔️"}', '{"tipo":"horas_serie","padrao":"devil may cry","min":100}'),
+  ('b_dmc',      'banner', 'Smokin'' Sexy Style!!', 'Platine (100% das conquistas) um Devil May Cry na Steam', 'lendaria', null, 1401, true,
+     '{"cores":["#0b0b0d","#b71c1c","#ffd33c"]}', '{"tipo":"conquistas_serie","padrao":"devil may cry","pct":100}'),
+  ('s_souls',    'badge',  'Não Morri (Muito)',   'Jogue 100 horas de Dark Souls (somando a série)', 'rara', '🔥', 1402, false, null, '{"tipo":"horas_serie","padrao":"dark souls","min":100}'),
+  ('s_elden',    'badge',  'Maculado',            'Jogue 80 horas de Elden Ring', 'rara', '💍', 1403, false, null, '{"tipo":"horas_serie","padrao":"elden ring","min":80}'),
+  ('s_witcher',  'badge',  'Bruxo de Rívia',      'Jogue 100 horas de The Witcher (somando a série)', 'rara', '🐺', 1404, false, null, '{"tipo":"horas_serie","padrao":"witcher","min":100}'),
+  ('s_mk',       'badge',  'Fatality',            'Jogue 100 horas de Mortal Kombat (somando a série)', 'rara', '🐉', 1405, false, null, '{"tipo":"horas_serie","padrao":"mortal kombat","min":100}'),
+  ('b_dbd',      'banner', 'Sobrevivente da Névoa','Jogue 300 horas de Dead by Daylight', 'epica', null, 1406, true,
+     '{"cores":["#0b0b0d","#3a0d0d","#7a7a7a"]}', '{"tipo":"horas_serie","padrao":"dead by daylight","min":300}'),
+  ('s_terror',   'badge',  'Corajoso',            'Jogue 100 horas de jogos de terror', 'rara', '👻', 1407, false, null, '{"tipo":"horas_categoria","categoria":"terror","min":100}'),
+  ('f_terror',   'frame',  'Sobrevivente',        'Zere 10 jogos de terror', 'epica', null, 1408, true,
+     '{"cores":["#0b0b0d","#2e7d32","#0b0b0d"],"animado":true,"velocidade":8,"emoji":"🔦"}', '{"tipo":"zerados_categoria","categoria":"terror","min":10}'),
+  ('s_rpg',      'badge',  'Aventureiro',         'Tenha 20 RPGs na biblioteca', 'comum', '🗡️', 1409, false, null, '{"tipo":"jogos_categoria","categoria":"rpg","min":20}'),
+  ('s_fps',      'badge',  'Mira Afiada',         'Jogue 200 horas de FPS', 'rara', '🎯', 1410, false, null, '{"tipo":"horas_categoria","categoria":"fps","min":200}'),
+  ('s_luta',     'badge',  'Mestre do Combo',     'Jogue 100 horas de jogos de luta', 'rara', '🥊', 1411, false, null, '{"tipo":"horas_categoria","categoria":"luta","min":100}'),
+  ('s_platina',  'badge',  'Platinador',          'Tenha 100% das conquistas de algum jogo na Steam', 'epica', '🏆', 1412, false, null, '{"tipo":"conquistas_serie","padrao":"","pct":100}'),
+  ('s_200jogos', 'badge',  'Biblioteca Infinita', 'Tenha 200 jogos na biblioteca', 'epica', '📚', 1413, false, null, '{"tipo":"jogos_total","min":200}'),
+  ('f_10mil',    'frame',  'Sem Vida Social',     'Tenha 10.000 horas jogadas', 'lendaria', null, 1414, true,
+     '{"cores":["#ffd33c","#ff6d00","#ff1744","#7c4dff"],"animado":true,"brilho":true,"velocidade":2,"emoji":"🕹️"}', '{"tipo":"horas_total","min":10000}')
+on conflict (id) do nothing;
+
+do $$ declare r record; begin
+  for r in select distinct user_id from public.user_games loop perform public.check_regras(r.user_id); end loop;
+end $$;

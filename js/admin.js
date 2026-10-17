@@ -745,7 +745,22 @@ function seletorItens(box, itens, tem = new Set()) {
 
 const previaItem = (c) => c.kind === 'frame' ? avatarHtml({ ...P, equipped_frame: c.id }, 'grande')
   : c.kind === 'banner' ? `<div class="amostra-banner bn-${esc(c.id)}" style="width:180px"></div>` : `<span style="font-size:2rem">${esc(c.icon || '🏅')}</span>`;
-const comoGanha = (c) => [c.unlock_level ? `nível ${c.unlock_level}` : '', c.unlock_streak ? `${c.unlock_streak} dias seguidos` : ''].filter(Boolean).join(' ou ') || (c.custom ? 'dado pela equipe' : 'regra do site');
+// Metas automáticas (Steam/biblioteca): o banco confere sozinho (check_regras)
+const TIPOS_META = {
+  horas_serie: { nome: 'Horas num jogo ou série', padrao: true, unidade: 'Horas', exemplo: '"devil may cry" + 100 horas (soma DMC 1 a 5)' },
+  conquistas_serie: { nome: '% das conquistas Steam num jogo/série', padrao: true, unidade: '% das conquistas', exemplo: '"elden ring" + 100 (platinou). Nome vazio = qualquer jogo' },
+  horas_categoria: { nome: 'Horas numa categoria', categoria: true, unidade: 'Horas', exemplo: 'Terror + 100 horas' },
+  jogos_categoria: { nome: 'Jogos de uma categoria na biblioteca', categoria: true, unidade: 'Jogos', exemplo: 'RPG + 20 jogos' },
+  zerados_categoria: { nome: 'Jogos zerados de uma categoria', categoria: true, unidade: 'Jogos zerados', exemplo: 'Terror + 10 zerados' },
+  horas_total: { nome: 'Horas jogadas no total', unidade: 'Horas', exemplo: '10.000 horas' },
+  jogos_total: { nome: 'Jogos na biblioteca (total)', unidade: 'Jogos', exemplo: '200 jogos' },
+};
+const CATS_META = [['acao', 'Ação'], ['aventura', 'Aventura'], ['arcade', 'Arcade'], ['esportes', 'Esportes'], ['estrategia', 'Estratégia'], ['fps', 'FPS'],
+  ['indies', 'Indies'], ['luta', 'Luta'], ['mobile', 'Mobile'], ['musica', 'Música'], ['rpg', 'RPG'], ['simulacao', 'Simulação'], ['terror', 'Terror']];
+const descreverMeta = (r) => { const t = TIPOS_META[r?.tipo]; if (!t) return '';
+  const alvo = t.padrao ? (r.padrao ? `"${r.padrao}"` : 'qualquer jogo') : t.categoria ? (CATS_META.find(([v]) => v === r.categoria)?.[1] || r.categoria) : '';
+  return `🎮 ${t.nome}${alvo ? `: ${alvo}` : ''} ≥ ${r.min ?? r.pct}${r.pct ? '%' : ''}`; };
+const comoGanha = (c) => [c.unlock_level ? `nível ${c.unlock_level}` : '', c.unlock_streak ? `${c.unlock_streak} dias seguidos` : '', c.regra ? descreverMeta(c.regra) : ''].filter(Boolean).join(' ou ') || (c.custom ? 'dado pela equipe' : 'regra do site');
 
 async function itens() {
   const [{ data: cs, error }, { data: posse }] = await Promise.all([
@@ -755,7 +770,7 @@ async function itens() {
   aplicarEstilosPrevia(cs.filter((c) => c.custom));
   painel().innerHTML = `<p class="muted">Crie molduras, banners e selos. Eles podem ser dados manualmente (ficha do usuário) ou liberados
       automaticamente por nível ou por dias seguidos de login. Itens originais do site podem ter nome e descrição editados, mas não ser excluídos.</p>
-    <div class="controles" style="margin:12px 0"><button class="btn sec" data-acao="lote" data-id="x">🎁 Dar vários itens</button><button class="btn" data-acao="novo" data-id="frame">+ Nova moldura</button>
+    <div class="controles" style="margin:12px 0"><button class="btn sec" data-acao="lote" data-id="x">🎁 Dar vários itens</button><button class="btn sec" data-acao="metas" data-id="x" title="Confere as metas automáticas para todos e entrega a quem já cumpre">🎮 Aplicar metas agora</button><button class="btn" data-acao="novo" data-id="frame">+ Nova moldura</button>
       <button class="btn" data-acao="novo" data-id="banner">+ Novo banner</button><button class="btn" data-acao="novo" data-id="badge">+ Novo selo</button></div>
     ${tabela(['Prévia', 'Item', 'Como ganha', 'Pessoas', ''], cs.map((c) => `<tr>
       <td>${previaItem(c)}</td>
@@ -766,6 +781,7 @@ async function itens() {
         ${c.active === false ? `<button class="btn sec pequeno" data-acao="reativar" data-id="${esc(c.id)}">Reativar</button>`
           : `<button class="btn perigo pequeno" data-acao="excluir" data-id="${esc(c.id)}">Excluir</button>`}</td></tr>`))}`;
   acoes({
+    metas: async () => { const { data: n, error: e } = await sb.rpc('admin_aplicar_regras'); if (e) throw e; toast(`🎮 Metas conferidas para ${n} pessoa(s).`); itens(); },
     dar: (id) => darEmLote({ itensIniciais: [id] }),
     lote: () => darEmLote({}),
     novo: (tipo) => editorItem({ kind: tipo, custom: true, rarity: 'comum', style: tipo === 'badge' ? null : { cores: ['#ffd33c', '#ff6d00'], animado: tipo === 'frame' } }),
@@ -821,6 +837,14 @@ function editorItem(c) {
       <div><label for="it-nivel">Ao chegar no nível</label><input id="it-nivel" type="number" min="1" max="500" value="${c.unlock_level ?? ''}" placeholder="—"></div>
       <div><label for="it-seq">Com dias seguidos de login</label><input id="it-seq" type="number" min="1" max="3650" value="${c.unlock_streak ?? ''}" placeholder="—"></div>
     </div>
+    <h3 style="margin-top:14px">🎮 Meta automática (Steam e biblioteca)</h3>
+    <div class="form-linha">
+      <div><label for="it-rtipo">Tipo de meta</label><select id="it-rtipo"><option value="">Nenhuma</option>${Object.entries(TIPOS_META).map(([k, t]) => `<option value="${k}" ${c.regra?.tipo === k ? 'selected' : ''}>${t.nome}</option>`).join('')}</select></div>
+      <div data-rcampo="padrao"><label for="it-rpadrao">Nome do jogo/série contém</label><input id="it-rpadrao" maxlength="60" value="${esc(c.regra?.padrao || '')}" placeholder="ex.: devil may cry"></div>
+      <div data-rcampo="categoria"><label for="it-rcat">Categoria</label><select id="it-rcat">${CATS_META.map(([v, t]) => `<option value="${v}" ${c.regra?.categoria === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div><label for="it-rmin" id="it-rmin-rot">Quantidade</label><input id="it-rmin" type="number" min="1" max="100000" value="${c.regra?.min ?? c.regra?.pct ?? ''}"></div>
+    </div>
+    <p class="muted" style="font-size:.82rem" id="it-rdica"></p>
     <p class="muted" style="font-size:.82rem">Deixe em branco para só dar manualmente (ficha do usuário). Quem já cumpre a regra recebe na hora.</p>
     <div class="controles" style="margin-top:16px"><button class="btn" value="ok">Salvar</button><button class="btn sec" value="cancel" formnovalidate>Cancelar</button>
       ${novo ? '' : '<button type="button" class="btn perigo" id="it-excluir" style="margin-left:auto">🗑️ Excluir item</button>'}</div>
@@ -850,6 +874,14 @@ function editorItem(c) {
     $('#it-previa').innerHTML = previaItem(c.custom ? previa : { ...c, icon: $('#it-icone')?.value || c.icon });
   };
   dlg.querySelector('form').addEventListener('input', atualizar);
+  const metaCampos = () => {
+    const t = TIPOS_META[$('#it-rtipo').value];
+    dlg.querySelector('[data-rcampo="padrao"]').classList.toggle('hidden', !t?.padrao);
+    dlg.querySelector('[data-rcampo="categoria"]').classList.toggle('hidden', !t?.categoria);
+    $('#it-rmin-rot').textContent = t?.unidade || 'Quantidade';
+    $('#it-rdica').textContent = t ? `Exemplo: ${t.exemplo}. As horas e conquistas vêm da importação da Steam (atualizada toda segunda pelo robô).` : '';
+  };
+  $('#it-rtipo').onchange = metaCampos; metaCampos();
   $('#it-mais')?.addEventListener('click', () => { const k = dlg.querySelectorAll('#it-cores input').length; if (k < 6) { $('#it-mais').insertAdjacentHTML('beforebegin', '<input type="color" value="#ffffff" style="width:54px;height:40px;padding:2px">'); atualizar(); } });
   $('#it-menos')?.addEventListener('click', () => { const l = dlg.querySelectorAll('#it-cores input'); if (l.length > 1) { l[l.length - 1].remove(); atualizar(); } });
   $('#it-img')?.addEventListener('change', (e) => {
@@ -865,6 +897,11 @@ function editorItem(c) {
       const linha = {
         name: $('#it-nome').value.trim(), description: $('#it-desc').value.trim(), rarity: $('#it-rar').value,
         unlock_level: $('#it-nivel').value ? Number($('#it-nivel').value) : null, unlock_streak: $('#it-seq').value ? Number($('#it-seq').value) : null,
+        regra: (() => {
+          const tipo = $('#it-rtipo').value, t = TIPOS_META[tipo], n = Number($('#it-rmin').value);
+          if (!tipo || !n) return null;
+          return { tipo, ...(t.padrao ? { padrao: $('#it-rpadrao').value.trim().toLowerCase() } : {}), ...(t.categoria ? { categoria: $('#it-rcat').value } : {}), ...(t.unidade === '% das conquistas' ? { pct: Math.min(n, 100) } : { min: n }) };
+        })(),
       };
       if (c.kind === 'badge') linha.icon = $('#it-icone').value.trim() || '🏅';
       else if (c.custom) {
@@ -876,6 +913,7 @@ function editorItem(c) {
         : await sb.from('cosmetics').update(linha).eq('id', c.id);
       if (error) throw error;
       try { sessionStorage.removeItem('cc_itens'); } catch { /* ignora */ }
+      if (linha.regra) await sb.rpc('admin_aplicar_regras');   // quem já cumpre a meta recebe na hora
       toast(novo ? 'Item criado! Dê para alguém na ficha do usuário ou espere a regra liberar.' : 'Item atualizado.');
       itens();
     } catch (e) { falha(e); }
