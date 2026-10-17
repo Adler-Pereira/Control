@@ -55,7 +55,7 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     <div class="controles" style="align-items:center;justify-content:space-between">
       <p class="muted" data-v="info"></p>
       <span class="controles hidden" data-v="layout" style="align-items:center"><button class="chip" data-l="auto" title="Volta todos os vídeos ao tamanho e à ordem automáticos">↺ Organizar automático</button>
-        <span class="muted" style="font-size:.8rem">Passe o mouse num vídeo: ➖➕ muda o tamanho, ◀▶ ou arrastar muda a ordem, ⭐ destaca. Clique duplo: maximizar.</span></span>
+        <span class="muted" style="font-size:.8rem">Passe o mouse num vídeo: 🔊 volume da pessoa, ➖➕ tamanho, ◀▶ ou arrastar muda a ordem, ⭐ destaca. Clique duplo: maximizar.</span></span>
     </div>
     <div class="aviso hidden" data-v="aviso"></div>
     <div class="call-layout">
@@ -177,12 +177,14 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
       <button data-t="destaque" title="Destacar (grande e primeiro)" aria-label="Destacar">⭐</button></span>`);
     // Volume individual (só para os outros): voz e som da tela separados, lembrados neste aparelho
     if (t.querySelector('audio')) {
+      const nome = (t.querySelector('.nome')?.textContent || 'esta pessoa').split(' · ')[0];
       t.insertAdjacentHTML('beforeend', `<span class="volume-tile">
-        <button data-vol="mudo" title="Silenciar esta pessoa só para você" aria-label="Silenciar esta pessoa">🔊</button>
-        <span class="vol-painel hidden">
-          <label title="Volume da voz">🎤 <input type="range" min="0" max="100" step="5" data-vol="voz" aria-label="Volume da voz"></label>
-          <label title="Volume do som da tela compartilhada">🖥️ <input type="range" min="0" max="100" step="5" data-vol="tela" aria-label="Volume do som da tela"></label>
-        </span></span>`);
+        <span class="vol-painel">
+          <strong>🔊 Volume de ${esc(nome)}</strong>
+          <label title="Volume da voz">🎤 Voz <input type="range" min="0" max="100" step="5" data-vol="voz" aria-label="Volume da voz"> <output data-vol-n="voz"></output></label>
+          <label title="Volume do som da tela compartilhada">🖥️ Tela <input type="range" min="0" max="100" step="5" data-vol="tela" aria-label="Volume do som da tela"> <output data-vol-n="tela"></output></label>
+        </span>
+        <button data-vol="mudo" title="Silenciar esta pessoa só para você" aria-label="Silenciar esta pessoa">🔊 Volume</button></span>`);
       ligarVolume(t);
     }
     t.querySelector('.ajuste-tile').onclick = (e) => {
@@ -219,7 +221,9 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
         a.muted = cfg.mudo;
         a.volume = (a.classList.contains('som-tela') ? cfg.tela : cfg.voz) / 100;
       });
-      bt.textContent = cfg.mudo ? '🔇' : cfg.voz < 50 ? '🔉' : '🔊';
+      bt.textContent = cfg.mudo ? '🔇 Silenciado' : `${cfg.voz < 50 ? '🔉' : '🔊'} ${cfg.voz}%`;
+      v.querySelector('[data-vol-n="voz"]').textContent = cfg.voz + '%';
+      v.querySelector('[data-vol-n="tela"]').textContent = cfg.tela + '%';
       bt.classList.toggle('ativo', cfg.mudo);
       t.classList.toggle('silenciado-por-mim', cfg.mudo);
       try { localStorage.setItem(chave, JSON.stringify(cfg)); } catch { /* ignora */ }
@@ -228,9 +232,9 @@ export function montarCall(box, { salaId, u, p, descricao = '', titulo = 'Call',
     v.querySelector('[data-vol="tela"]').value = cfg.tela;
     // Clique: silencia/reativa. Passar o mouse (ou tocar e segurar): mostra os controles de volume
     bt.onclick = (e) => { e.stopPropagation(); cfg.mudo = !cfg.mudo; aplicar(); };
-    bt.oncontextmenu = (e) => { e.preventDefault(); v.querySelector('.vol-painel').classList.toggle('hidden'); };
-    v.onmouseenter = () => v.querySelector('.vol-painel').classList.remove('hidden');
-    v.onmouseleave = () => v.querySelector('.vol-painel').classList.add('hidden');
+    // O painel aparece ao passar o mouse no quadro (CSS). No celular (sem mouse), um toque no quadro abre/fecha.
+    t.addEventListener('click', (e) => { if (!matchMedia('(hover: hover)').matches && !e.target.closest('button,input')) t.classList.toggle('vol-aberto'); });
+    v.querySelector('.vol-painel').onclick = (e) => e.stopPropagation();
     v.querySelectorAll('input').forEach((i) => {
       i.onclick = (e) => e.stopPropagation();
       i.oninput = () => { cfg[i.dataset.vol] = Number(i.value); if (i.dataset.vol === 'voz' && cfg.mudo && cfg.voz > 0) cfg.mudo = false; aplicar(); };
