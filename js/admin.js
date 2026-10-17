@@ -1,5 +1,5 @@
 import { SUPABASE_ANON_KEY } from './config.js';
-import { avatarHtml, cssDoItem, cssMolduraImagem } from './app.js';
+import { avatarHtml, cssDoItem, cssMolduraImagem, aoMudarOnline, estadoOnline } from './app.js';
 import { sb, $, esc, montarLayout, configurado, exigirLogin, perfil, data, toast, falha, urlSegura } from './app.js';
 
 await montarLayout();
@@ -7,7 +7,7 @@ const main = $('#conteudo');
 let P;
 
 const ABAS = [
-  ['geral', 'Visão geral'], ['problemas', 'Problemas 🐞'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'], ['memes', 'Memes 😂'],
+  ['geral', 'Visão geral'], ['problemas', 'Problemas 🐞'], ['denuncias', 'Denúncias'], ['jogos', 'Jogos'], ['noticias', 'Notícias'], ['promos', 'Promoções'], ['memes', 'Memes 😂'], ['stories', 'Stories 📸'],
   ['reviews', 'Avaliações'], ['posts', 'Posts'], ['comunidades', 'Comunidades'], ['mensagens', 'Mensagens'],
   ['usuarios', 'Usuários'], ['cargos', 'Cargos', true], ['itens', 'Itens', true], ['desafios', 'Desafios', true], ['registro', 'Registro'], ['site', 'Site', true], ['auto', 'Automação', true],
 ];
@@ -25,7 +25,7 @@ function iniciar() {
 }
 
 const painel = () => $('#painel');
-const VIEWS = { geral, problemas, denuncias, jogos, noticias, promos, memes, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, desafios, registro, site, auto };
+const VIEWS = { geral, problemas, denuncias, jogos, noticias, promos, memes, stories, reviews, posts, comunidades, mensagens, usuarios, cargos, itens, desafios, registro, site, auto };
 function abrir(k) { painel().innerHTML = '<p class="muted">Carregando...</p>'; VIEWS[k]().catch(falha); }
 
 // Campo de busca de jogo com sugestões (o catálogo tem milhares de jogos)
@@ -100,6 +100,46 @@ const reais = (c) => c == null ? '—' : (c / 100).toLocaleString('pt-BR', { sty
 const corta = (s, n = 80) => esc(s && s.length > n ? s.slice(0, n) + '…' : s || '');
 
 // ---------------- Visão geral ----------------
+// Números das funções novas: quem está online/em call agora (presença) e o movimento das últimas 24 h
+async function agoraNoSite() {
+  const ontem = new Date(Date.now() - 864e5).toISOString();
+  const conta = (q) => q.then(({ count }) => count ?? 0, () => 0);
+  const [stories, posts, videos, memes, problemas] = await Promise.all([
+    conta(sb.from('stories').select('id', { count: 'exact', head: true }).gte('created_at', ontem)),
+    conta(sb.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', ontem)),
+    conta(sb.from('posts').select('id', { count: 'exact', head: true }).not('video_url', 'is', null).gte('created_at', ontem)),
+    conta(sb.from('posts').select('id', { count: 'exact', head: true }).eq('ig_ok', true).eq('ig_aprovado', false).eq('ig_recusado', false)),
+    conta(sb.from('app_feedback').select('id', { count: 'exact', head: true }).eq('status', 'aberto').neq('kind', 'erro')),
+  ]);
+  const k = (v, r, link) => `<div class="kpi">${link ? `<a href="#" data-ir="${link}" style="color:inherit;text-decoration:none">` : ''}<div class="valor">${v}</div><div class="rotulo">${r}</div>${link ? '</a>' : ''}</div>`;
+  const desenhar = (online) => {
+    const est = estadoOnline(); const calls = [...est.values()].filter((x) => x.call).length;
+    const el = $('#kpis-agora'); if (!el) return;
+    el.innerHTML = k(online.size, '🟢 online agora') + k(calls, '🔊 em call agora') + k(stories, '📸 stories (24 h)') + k(posts, '📝 posts (24 h)')
+      + k(videos, '🎬 vídeos (24 h)') + k(memes, '😂 memes esperando aprovação', 'memes') + k(problemas, '🐞 problemas/sugestões abertos', 'problemas');
+    el.querySelectorAll('[data-ir]').forEach((a) => a.onclick = (e) => { e.preventDefault(); main.querySelector(`.aba[data-a="${a.dataset.ir}"]`)?.click(); });
+  };
+  aoMudarOnline(desenhar);
+}
+
+// ---------------- Stories (moderação) ----------------
+async function stories() {
+  const { data: ss, error } = await sb.from('stories').select('id,image_url,video_url,caption,poll,question,highlight,close_friends,created_at,expires_at,profiles!stories_user_id_fkey(username)')
+    .order('created_at', { ascending: false }).limit(100);
+  if (error) throw /stories/.test(error.message) ? new Error('Rode o supabase/schema.sql para ativar os stories.') : error;
+  const agora = Date.now();
+  painel().innerHTML = `<p class="muted">Stories publicados (os vencidos que não viraram destaque são apagados na limpeza semanal). Stories "💚 amigos" só aparecem aqui se você for melhor amigo da pessoa.</p>
+    ${ss.length ? tabela(['Mídia', 'Autor', 'Conteúdo', 'Quando', 'Situação', ''], ss.map((x) => `<tr>
+      <td>${x.video_url ? `<video src="${urlSegura(x.video_url)}#t=0.5" muted preload="metadata" style="width:80px;height:80px;object-fit:cover;border-radius:8px"></video>`
+        : `<a href="${urlSegura(x.image_url)}" target="_blank" rel="noopener"><img src="${urlSegura(x.image_url)}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px"></a>`}</td>
+      <td>@${esc(x.profiles?.username)}</td>
+      <td>${corta(x.caption || '', 80)}${x.poll ? `<br><span class="tag">📊 ${esc(x.poll.pergunta)}</span>` : ''}${x.question ? `<br><span class="tag">💬 ${esc(x.question)}</span>` : ''}</td>
+      <td>${data(x.created_at)}</td>
+      <td>${x.highlight ? `<span class="tag amarela">⭐ ${esc(x.highlight)}</span>` : new Date(x.expires_at) > agora ? '<span class="tag">no ar</span>' : '<span class="tag">vencido</span>'}${x.close_friends ? ' <span class="tag">💚</span>' : ''}</td>
+      <td><button class="btn perigo pequeno" data-acao="apagar" data-id="${x.id}">Apagar</button></td></tr>`)) : '<p class="muted">Nenhum story ainda.</p>'}`;
+  acoes({ apagar: async (id) => { if (!confirm('Apagar este story? A pessoa não é avisada.')) return; const { error: e } = await sb.from('stories').delete().eq('id', id); if (e) throw e; toast('Story apagado.'); stories(); } });
+}
+
 async function geral() {
   const { data: s, error } = await sb.rpc('admin_stats');
   if (error) throw error;
@@ -115,8 +155,10 @@ async function geral() {
       <p class="muted" style="font-size:.85rem;margin-top:6px">Total no período: ${s.signups.reduce((a, d) => a + d.n, 0)}. Dias sem cadastro não aparecem.</p></div>` : ''}
     <h2>Top jogos</h2>
     ${tabela(['Jogo', 'Nota', 'Avaliações'], s.top_games.map((g) => `<tr><td>${esc(g.title)}</td><td>${Number(g.avg_rating).toFixed(2)}</td><td>${g.reviews_count}</td></tr>`))}
+    <h2>Agora e nas últimas 24 h</h2><div class="kpis" id="kpis-agora"><p class="muted">Carregando...</p></div>
     <div id="uso"></div>`;
   if (P.role === 'admin') usoDoBanco();
+  agoraNoSite();
 }
 
 // Uso do plano gratuito do Supabase (500 MB de banco e 1 GB de arquivos)
@@ -406,9 +448,10 @@ async function reviews() {
 
 async function posts() {
   const { data: ps } = await sb.from('posts').select('*, communities(name), profiles!posts_user_id_fkey(username)').order('created_at', { ascending: false }).limit(200);
-  painel().innerHTML = tabela(['Usuário', 'Comunidade', 'Post', 'Data', ''], ps.map((p) => `<tr>
-    <td>${esc(p.profiles?.username)}</td><td><a href="comunidade.html?id=${p.community_id}" target="_blank">${esc(p.communities?.name)}</a></td>
-    <td>${corta(p.body, 140)}</td><td>${data(p.created_at)}</td>
+  painel().innerHTML = tabela(['Usuário', 'Comunidade', 'Post', 'Mídia', 'Data', ''], ps.map((p) => `<tr>
+    <td>${esc(p.profiles?.username)}</td><td>${p.community_id ? `<a href="comunidade.html?id=${p.community_id}" target="_blank">${esc(p.communities?.name)}</a>` : '<span class="muted">feed</span>'}</td>
+    <td>${corta(p.body, 140)}</td>
+    <td>${p.video_url ? `<a href="${urlSegura(p.video_url)}" target="_blank" rel="noopener">🎬 vídeo</a>` : p.image_url ? `<a href="${urlSegura(p.image_url)}" target="_blank" rel="noopener"><img src="${urlSegura(p.image_url)}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:6px"></a>` : ''}${p.musica ? ' 🎵' : ''}</td><td>${data(p.created_at)}</td>
     <td class="controles"><button class="btn sec pequeno" data-acao="alternar" data-id="${p.id}">${p.status === 'published' ? 'Ocultar' : 'Mostrar'}</button>
     <button class="btn perigo pequeno" data-acao="excluir" data-id="${p.id}">Excluir</button></td></tr>`));
   acoes({
