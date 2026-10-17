@@ -32,7 +32,8 @@ async function steamSemanal() {
       }));
       for (let i = 0; i < linhas.length; i += 500)
         await api('user_games?on_conflict=user_id,game_id', { method: 'POST', body: linhas.slice(i, i + 500), prefer: 'resolution=merge-duplicates' });
-      await importarConquistas(p.steam_id, jogos, porAppid, p.id, api).catch(() => {});
+      // conquistas de TODOS os jogos jogados, de 25 em 25
+      for (let off = 0; off != null;) off = (await importarConquistas(p.steam_id, jogos, porAppid, p.id, api, { offset: off, limite: 25 }).catch(() => ({ proximo: null }))).proximo;
       ok++;
     } catch (e) { falhas++; console.log(`Steam ${p.username}: ${e.message}`); }
     await new Promise((r) => setTimeout(r, 1500));   // gentil com o limite da Steam
