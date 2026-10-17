@@ -1,5 +1,6 @@
 // Stories (24 h), inspirados no Instagram: foto/print com legenda, enquete, caixinha de perguntas,
 // música do Spotify, "só melhores amigos" e destaques no perfil. Também mostra as Notas (status de 24 h).
+import { aoMudarOnline, estadoOnline } from './app.js';
 import { sb, $, esc, avatar, toast, falha, enviarImagem, spotifyId, spotifyPlayer, notaAtiva, srcCapa, playerSpotify, somLigado, definirSom, pararMusica, tocarSo, enviarVideo, destruirPlayer } from './app.js';
 
 const COLS = 'id,user_id,image_url,video_url,caption,poll,question,musica,close_friends,highlight,created_at,expires_at';
@@ -31,7 +32,21 @@ export async function barraStories(box, u) {
       ${p.id === u.id ? '<span class="story-mais">+</span>' : ''}</button>`;
   };
   box.innerHTML = `<div class="stories-barra">${ordem.filter((id) => P[id]).map((id) => bolinha(P[id], por.get(id))).join('')}
-    ${comNota.slice(0, 12).map((p) => `<a class="story-bola so-nota" href="perfil.html?u=${encodeURIComponent(p.username)}"><span class="nota-balao">${esc(notaAtiva(p))}</span><img src="${avatar(p)}" alt=""><span class="story-nome">${esc(p.username)}</span></a>`).join('')}</div>`;
+    ${comNota.slice(0, 12).map((p) => `<a class="story-bola so-nota" data-id="${p.id}" href="perfil.html?u=${encodeURIComponent(p.username)}"><span class="nota-balao">${esc(notaAtiva(p))}</span><img src="${avatar(p)}" alt=""><span class="story-nome">${esc(p.username)}</span></a>`).join('')}</div>`;
+  // Quem está online agora: bolinha verde no avatar (🔊 se estiver em call) e contador de amigos online no começo da barra
+  const { data: am } = await sb.from('friendships').select('user_a,user_b').eq('status', 'aceita').or(`user_a.eq.${u.id},user_b.eq.${u.id}`);
+  const amigos = new Set((am || []).map((f) => (f.user_a === u.id ? f.user_b : f.user_a)));
+  box.querySelector('.stories-barra').insertAdjacentHTML('afterbegin', '<a class="story-bola online-chip hidden" href="amigos.html" title="Amigos online agora"><span class="online-n">0</span><span class="story-nome">online</span></a>');
+  aoMudarOnline((online) => {
+    const est = estadoOnline();
+    box.querySelectorAll('.story-bola[data-dono], .story-bola.so-nota').forEach((b) => {
+      const id = b.dataset.dono || b.dataset.id; if (!id || id === u.id) return;
+      b.classList.toggle('on', online.has(id)); b.classList.toggle('em-call', !!est.get(id)?.call);
+    });
+    const n = [...amigos].filter((id) => online.has(id)).length, chip = box.querySelector('.online-chip');
+    if (chip) { chip.classList.toggle('hidden', !n); chip.querySelector('.online-n').textContent = n; chip.title = `${n} amigo(s) online agora`; }
+  });
+
   box.querySelectorAll('[data-dono]').forEach((b) => b.onclick = () => {
     const dono = b.dataset.dono;
     if (dono === u.id && !por.get(dono)?.length) return criarStory(u, () => barraStories(box, u));
